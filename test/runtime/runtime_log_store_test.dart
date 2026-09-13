@@ -144,6 +144,7 @@ void main() {
     await store.finalize();
     await store.deleteRun(id);
     expect(await store.listRuns(), isEmpty);
+    await store.clearHistory();
     await store.undoLastDeletion();
     expect((await store.readRun(id)).single.message, 'entry');
   });

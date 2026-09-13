@@ -138,8 +138,16 @@ class RuntimeLogStore {
 
   Stream<RuntimeLog> readRunStream(String id, {bool reverse = false}) async* {
     _requireSafeId(id);
+    final directory = _runDirectory(id);
+    if (!await directory.exists()) {
+      throw StateError('Unknown log run: $id');
+    }
+    final meta = await _readMeta(directory);
+    if (meta?.end == null) {
+      throw StateError('Log run is not finalized: $id');
+    }
     var files =
-        (await _runDirectory(id).list().toList())
+        (await directory.list().toList())
             .whereType<File>()
             .where((file) => _id(file).endsWith('.jsonl'))
             .toList()
@@ -179,7 +187,6 @@ class RuntimeLogStore {
   });
 
   Future<void> clearHistory() => _serial(() async {
-    await _discardTrash();
     final completed = <Directory>[];
     for (final entry in await _runs.list().toList()) {
       if (entry is Directory && (await _readMeta(entry))?.end != null) {
@@ -187,6 +194,7 @@ class RuntimeLogStore {
       }
     }
     if (completed.isEmpty) return;
+    await _discardTrash();
     final batch = Directory.fromUri(
       _trash.uri.resolve('${_now().microsecondsSinceEpoch}/'),
     );
@@ -259,7 +267,10 @@ class RuntimeLogStore {
             .toList()
           ..sort((a, b) => _id(a).compareTo(_id(b)));
     for (final file in files) {
-      for (final event in await _readSegment(file)) {
+      for (final event in await _readSegment(
+        file,
+        allowTrailingTruncation: file == files.last,
+      )) {
         count++;
         last = event.timestamp;
       }
@@ -277,7 +288,10 @@ class RuntimeLogStore {
     }
   }
 
-  Future<List<RuntimeLog>> _readSegment(File file) async {
+  Future<List<RuntimeLog>> _readSegment(
+    File file, {
+    bool allowTrailingTruncation = false,
+  }) async {
     final result = <RuntimeLog>[];
     final lines = await file.readAsLines();
     for (var index = 0; index < lines.length; index++) {
@@ -285,7 +299,7 @@ class RuntimeLogStore {
       try {
         result.add(_decodeEvent(lines[index]));
       } on FormatException {
-        if (index == lines.length - 1) break;
+        if (allowTrailingTruncation && index == lines.length - 1) break;
         rethrow;
       }
     }
