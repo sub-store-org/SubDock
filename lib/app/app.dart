@@ -2392,7 +2392,11 @@ class _SettingsPageState extends State<_SettingsPage> {
     } on Object {
       return;
     } finally {
-      _pendingBackendSave = null;
+      if (mounted) {
+        setState(() => _pendingBackendSave = null);
+      } else {
+        _pendingBackendSave = null;
+      }
     }
     if (!mounted) return;
     setState(() {
