@@ -76,7 +76,6 @@ class DesktopBackendRuntime implements BackendRuntime {
   String? _activeLogRunId;
   Future<void>? _finalizeRunOperation;
   final _captureDrains = <Future<void>>[];
-  final _captureSubscriptions = <StreamSubscription<dynamic>>[];
   Timer? _healthTimer;
   bool _stopping = false;
   bool _checkingHealth = false;
@@ -653,7 +652,7 @@ class DesktopBackendRuntime implements BackendRuntime {
     RuntimeLogSource source,
     String runId,
   ) {
-    final subscription = stream
+    final drain = stream
         .transform(utf8.decoder)
         .transform(const LineSplitter())
         .listen((line) {
@@ -667,9 +666,8 @@ class DesktopBackendRuntime implements BackendRuntime {
             if (_activeLogRunId == runId) await logStore.append(log);
           });
           _logWrites = next.catchError((Object _) {});
-        });
-    final drain = subscription.asFuture<void>();
-    _captureSubscriptions.add(subscription);
+        })
+        .asFuture<void>();
     _captureDrains.add(drain);
   }
 
@@ -680,9 +678,6 @@ class DesktopBackendRuntime implements BackendRuntime {
     if (existing != null) return existing;
     final operation = () async {
       try {
-        await Future.wait(
-          _captureSubscriptions.map((subscription) => subscription.cancel()),
-        );
         await Future.wait(List<Future<void>>.of(_captureDrains));
       } on Object {
         // Capture errors are irrelevant after the stream has been closed.
@@ -692,7 +687,6 @@ class DesktopBackendRuntime implements BackendRuntime {
         await logStore.finalize(end: DateTime.now());
         _activeLogRunId = null;
         _captureDrains.clear();
-        _captureSubscriptions.clear();
       }
     }();
     late final Future<void> completed;

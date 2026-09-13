@@ -312,9 +312,16 @@ void main() {
       final runs = await runtime.logStore.listRuns();
       expect(runs, hasLength(2));
       for (final run in runs) {
+        final messages = (await runtime.logStore.readRun(run.id))
+            .map((log) => log.message)
+            .toList();
         expect(
-          (await runtime.logStore.readRun(run.id)).map((log) => log.message),
-          contains('fixture stdout'),
+          messages.where((message) => message == 'fixture stdout'),
+          hasLength(1),
+        );
+        expect(
+          messages.where((message) => message == 'fixture stderr'),
+          hasLength(1),
         );
       }
       expect(
@@ -324,20 +331,39 @@ void main() {
     });
 
     test('reports a startup failure after the backend exits', () async {
-      runtime = await _createRuntime(temp, mode: 'crash');
+      runtime = await _createRuntime(temp, mode: 'stall');
       final states = <RuntimeState>[];
       final subscription = runtime.state.listen(states.add);
       addTearDown(subscription.cancel);
 
       await expectLater(
-        runtime.start().timeout(const Duration(seconds: 15)),
-        throwsStateError,
+        runtime.start().timeout(const Duration(seconds: 30)),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            contains('Backend did not become healthy'),
+          ),
+        ),
       );
-
       await _waitFor(
         () => states.any((state) => state.status == RuntimeStatus.crashed),
       );
       expect(states.last.status, RuntimeStatus.crashed);
+    });
+
+    test('persists the final shutdown output before finalizing', () async {
+      runtime = await _createRuntime(temp, shutdownTail: true);
+
+      await runtime.start();
+      await runtime.stop();
+
+      final runs = await runtime.logStore.listRuns();
+      final messages = await runtime.logStore.readRun(runs.single.id);
+      expect(
+        messages.map((log) => log.message),
+        contains('fixture shutdown tail'),
+      );
     });
   });
 }
@@ -353,6 +379,7 @@ Future<DesktopBackendRuntime> _createRuntime(
   RuntimeLogStore? logStore,
   int? httpMetaPort,
   bool failingFinalize = false,
+  bool shutdownTail = false,
 }) async {
   final bundle = Directory.fromUri(temp.uri.resolve('bundle/'));
   final backend = Directory.fromUri(bundle.uri.resolve('data/backend/'));
@@ -369,10 +396,10 @@ Future<DesktopBackendRuntime> _createRuntime(
       "server.listen(process.env.SUB_STORE_BACKEND_API_PORT, '127.0.0.1');\n  setTimeout(() => server.close(() => process.exit(1)), 150);",
     );
   }
-  if (mode == 'stall') {
+  if (shutdownTail) {
     source = source.replaceFirst(
-      "server.listen(process.env.SUB_STORE_BACKEND_API_PORT, '127.0.0.1');",
-      "server.listen(process.env.SUB_STORE_BACKEND_API_PORT, '127.0.0.1');\n  process.on('SIGTERM', () => process.exit(0));\n  setTimeout(() => process.exit(1), 500);",
+      "process.on('SIGTERM', () => {",
+      "process.on('SIGTERM', () => {\n    process.stdout.write('fixture shutdown tail\\n');",
     );
   }
   await File.fromUri(backend.uri.resolve('sub-store.bundle.js'))
