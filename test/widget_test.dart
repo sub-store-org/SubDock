@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:ui' show Size;
 
 import 'package:flutter/material.dart'
     show
@@ -19,6 +18,7 @@ import 'package:flutter/material.dart'
         TextField,
         ValueNotifier;
 import 'package:flutter/scheduler.dart' show AppLifecycleState;
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart'
     show GestureDetector, Offstage, Scrollable, SizedBox, ValueKey;
 import 'package:flutter_test/flutter_test.dart';
@@ -429,6 +429,54 @@ void main() {
       '',
     );
     expect(find.textContaining('panic'), findsWidgets);
+
+    runtime.emitLog(
+      RuntimeLog(
+        timestamp: DateTime.now(),
+        source: RuntimeLogSource.httpMetaStdout,
+        message: 'HTTP-META info line',
+      ),
+    );
+    await tester.pump();
+    await tester.enterText(find.byType(TextField), '');
+    await tester.tap(find.widgetWithText(FilterChip, 'Backend'));
+    await tester.pump();
+    expect(find.textContaining('HTTP-META info line'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilterChip, 'HTTP-META'));
+    await tester.pump();
+    expect(find.byType(SelectableText), findsNothing);
+    await tester.tap(find.widgetWithText(FilterChip, 'HTTP-META'));
+    await tester.tap(find.widgetWithText(FilterChip, 'Backend'));
+    await tester.pump();
+
+    final platform =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    String? copied;
+    platform.setMockMethodCallHandler(SystemChannels.platform, (call) {
+      if (call.method == 'Clipboard.setData') {
+        copied = (call.arguments as Map)['text'] as String;
+      }
+      return null;
+    });
+    addTearDown(
+      () => platform.setMockMethodCallHandler(SystemChannels.platform, null),
+    );
+    final displayed = tester
+        .widget<SelectableText>(find.byType(SelectableText).first)
+        .data;
+    await tester.tap(find.byTooltip('复制日志').first);
+    await tester.pump();
+    expect(copied, displayed);
+
+    runtime.emitLog(
+      RuntimeLog(
+        timestamp: DateTime.now(),
+        source: RuntimeLogSource.stdout,
+        message: 'x' * 2000,
+      ),
+    );
+    await tester.pump();
+    expect(tester.takeException(), isNull);
 
     runtime.emitState(RuntimeStatus.stopping);
     await tester.pump();
