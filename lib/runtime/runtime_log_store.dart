@@ -52,6 +52,7 @@ class RuntimeLogStore {
     for (final entry in await _trash.list().toList()) {
       await entry.delete(recursive: true);
     }
+    _lastTrash = null;
     final cutoff = _now().subtract(const Duration(days: 7));
     for (final entry in await _runs.list().toList()) {
       if (entry is! Directory || !_safeId(_id(entry))) continue;
@@ -212,7 +213,10 @@ class RuntimeLogStore {
     final path = _lastTrash;
     if (path == null) return;
     final batch = Directory(path);
-    if (!await batch.exists()) return;
+    if (!await batch.exists()) {
+      _lastTrash = null;
+      return;
+    }
     for (final entry in await batch.list().toList()) {
       if (entry is Directory && _safeId(_id(entry))) {
         await entry.rename(_runDirectory(_id(entry)).path);
@@ -293,26 +297,46 @@ class RuntimeLogStore {
     bool allowTrailingTruncation = false,
   }) async {
     final result = <RuntimeLog>[];
-    final lines = await file.readAsLines();
+    final text = utf8.decode(await file.readAsBytes());
+    final hasFinalNewline = text.endsWith('\n');
+    final lines = text.split('\n');
+    if (hasFinalNewline) lines.removeLast();
     for (var index = 0; index < lines.length; index++) {
       if (lines[index].trim().isEmpty) continue;
       try {
-        result.add(_decodeEvent(lines[index]));
-      } on FormatException {
-        if (allowTrailingTruncation && index == lines.length - 1) break;
-        rethrow;
+        final json = jsonDecode(lines[index]);
+        if (json is! Map<String, dynamic>) {
+          throw FormatException('Invalid log event');
+        }
+        result.add(_eventFromJson(json));
+      } on FormatException catch (error) {
+        if (allowTrailingTruncation &&
+            !hasFinalNewline &&
+            index == lines.length - 1 &&
+            _isJsonSyntaxError(lines[index])) {
+          break;
+        }
+        Error.throwWithStackTrace(error, StackTrace.current);
       }
     }
     return result;
   }
 
-  static RuntimeLog _decodeEvent(String line) {
-    final json = jsonDecode(line) as Map<String, dynamic>;
+  static RuntimeLog _eventFromJson(Map<String, dynamic> json) {
     return RuntimeLog(
       timestamp: DateTime.parse(json['timestamp'] as String),
       source: RuntimeLogSource.values.byName(json['source'] as String),
       message: json['message'] as String,
     );
+  }
+
+  static bool _isJsonSyntaxError(String line) {
+    try {
+      jsonDecode(line);
+      return false;
+    } on FormatException {
+      return true;
+    }
   }
 
   Future<_Meta?> _readMeta(Directory directory) async {

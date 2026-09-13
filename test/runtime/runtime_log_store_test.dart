@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:subdock/runtime/backend_runtime.dart';
@@ -181,5 +182,108 @@ void main() {
       throwsStateError,
     );
     expect(() => store.readRun('../escape'), throwsArgumentError);
+  });
+
+  test('only ignores a physically truncated orphan tail', () async {
+    Future<Directory> orphan(String tail, {int segmentBytes = 1 << 20}) async {
+      final store = RuntimeLogStore(directories, segmentBytes: segmentBytes);
+      await store.initialize();
+      final id = await store.beginRun();
+      await store.append(
+        RuntimeLog(
+          timestamp: DateTime.utc(2026, 9, 13),
+          source: RuntimeLogSource.stdout,
+          message: 'durable',
+        ),
+      );
+      final file = File.fromUri(
+        directories.logs.uri.resolve('runs/$id/000000.jsonl'),
+      );
+      await file.writeAsString('${await file.readAsString()}$tail');
+      return Directory.fromUri(directories.logs.uri.resolve('runs/$id/'));
+    }
+
+    final truncated = await orphan('{"timestamp":"2026-09-13T00:00:00');
+    final recovered = RuntimeLogStore(directories);
+    await recovered.initialize();
+    expect((await recovered.listRuns()).single.eventCount, 1);
+    expect(truncated.existsSync(), isTrue);
+
+    await orphan(
+      jsonEncode({
+        'timestamp': 'not-a-date',
+        'source': 'stdout',
+        'message': 'corrupt',
+      }),
+    );
+    expect(
+      () => RuntimeLogStore(directories).initialize(),
+      throwsFormatException,
+    );
+  });
+
+  test('does not hide earlier-segment corruption', () async {
+    final store = RuntimeLogStore(directories, segmentBytes: 1);
+    await store.initialize();
+    final id = await store.beginRun();
+    await store.append(
+      RuntimeLog(
+        timestamp: DateTime.utc(2026, 9, 13),
+        source: RuntimeLogSource.stdout,
+        message: 'one',
+      ),
+    );
+    await store.append(
+      RuntimeLog(
+        timestamp: DateTime.utc(2026, 9, 13, 0, 1),
+        source: RuntimeLogSource.stdout,
+        message: 'two',
+      ),
+    );
+    final first = File.fromUri(
+      directories.logs.uri.resolve('runs/$id/000000.jsonl'),
+    );
+    await first.writeAsString('{');
+    expect(
+      () => RuntimeLogStore(directories).initialize(),
+      throwsFormatException,
+    );
+  });
+
+  test('history reads reject newline-terminated malformed records', () async {
+    final store = RuntimeLogStore(directories);
+    await store.initialize();
+    final completed = await store.beginRun();
+    await store.finalize();
+    final last = File.fromUri(
+      directories.logs.uri.resolve('runs/$completed/000000.jsonl'),
+    );
+    await last.writeAsString('{\n');
+    expect(() => store.readRun(completed), throwsFormatException);
+  });
+
+  test('resets stale undo state and keeps exact retention boundary', () async {
+    final now = DateTime.utc(2026, 9, 13);
+    final store = RuntimeLogStore(directories, now: () => now);
+    await store.initialize();
+    final deleted = await store.beginRun();
+    await store.finalize();
+    await store.deleteRun(deleted);
+    await store.initialize();
+    await store.undoLastDeletion();
+    expect(await store.listRuns(), isEmpty);
+
+    final boundary = await store.beginRun();
+    await store.finalize(end: now.subtract(const Duration(days: 7)));
+    final expired = await store.beginRun();
+    await store.finalize(
+      end: now.subtract(const Duration(days: 7, seconds: 1)),
+    );
+    await store.pruneExpired();
+    expect((await store.listRuns()).map((run) => run.id), contains(boundary));
+    expect(
+      (await store.listRuns()).map((run) => run.id),
+      isNot(contains(expired)),
+    );
   });
 }
