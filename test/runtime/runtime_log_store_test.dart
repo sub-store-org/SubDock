@@ -55,6 +55,49 @@ void main() {
     );
   });
 
+  test(
+    'uses the supplied lifecycle end time and rejects active deletion',
+    () async {
+      final store = RuntimeLogStore(directories);
+      await store.initialize();
+      final id = await store.beginRun();
+      await store.append(
+        RuntimeLog(
+          timestamp: DateTime.utc(2026, 9, 13),
+          source: RuntimeLogSource.stdout,
+          message: 'entry',
+        ),
+      );
+      expect(() => store.deleteRun(id), throwsStateError);
+      final end = DateTime.utc(2026, 9, 13, 1);
+      await store.finalize(end: end);
+      expect((await store.listRuns()).single.end, end);
+    },
+  );
+
+  test('streams reverse events across forced-small segments', () async {
+    final store = RuntimeLogStore(directories, segmentBytes: 1);
+    await store.initialize();
+    final id = await store.beginRun();
+    for (var index = 0; index < 5; index++) {
+      await store.append(
+        RuntimeLog(
+          timestamp: DateTime.utc(2026, 9, 13, 0, index),
+          source: RuntimeLogSource.stdout,
+          message: '$index',
+        ),
+      );
+    }
+    await store.finalize();
+    expect(
+      await store
+          .readRunStream(id, reverse: true)
+          .map((entry) => entry.message)
+          .toList(),
+      ['4', '3', '2', '1', '0'],
+    );
+  });
+
   test('deletes one run and undoes the latest deletion', () async {
     final store = RuntimeLogStore(directories);
     await store.initialize();

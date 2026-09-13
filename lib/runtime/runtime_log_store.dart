@@ -91,9 +91,9 @@ class RuntimeLogStore {
     final id = _activeId;
     if (id == null) throw StateError('No active log run');
     final directory = _runDirectory(id);
-    final segment = await _segmentForAppend(directory);
-    final file = File.fromUri(segment.uri);
     final line = '${jsonEncode(_eventJson(log))}\n';
+    final segment = await _segmentForAppend(directory, line.length);
+    final file = File.fromUri(segment.uri);
     await file.writeAsString(line, mode: FileMode.append, flush: true);
     await restrictFileToCurrentUser(file);
     final meta = await _readMeta(directory);
@@ -102,21 +102,15 @@ class RuntimeLogStore {
     }
   });
 
-  Future<void> finalize() => _serial(() async {
+  Future<void> finalize({DateTime? end}) => _serial(() async {
     final id = _activeId;
     if (id == null) throw StateError('No active log run');
     final directory = _runDirectory(id);
     final meta = await _readMeta(directory);
     if (meta == null) throw StateError('Unknown active log run');
-    final events = await _readEvents(directory);
     await _writeMeta(
       directory,
-      _Meta(
-        id,
-        meta.start,
-        events.isEmpty ? _now().toUtc() : events.last.timestamp,
-        meta.count,
-      ),
+      _Meta(id, meta.start, (end ?? _now()).toUtc(), meta.count),
     );
     _activeId = null;
   });
@@ -136,14 +130,41 @@ class RuntimeLogStore {
   Future<List<RuntimeLog>> readRun(String id, {bool reverse = false}) =>
       _serial(() async {
         _requireSafeId(id);
-        final events = await _readEvents(_runDirectory(id));
-        return reverse ? events.reversed.toList() : events;
+        return readRunStream(id, reverse: reverse).toList();
       });
+
+  Stream<RuntimeLog> readRunStream(String id, {bool reverse = false}) async* {
+    _requireSafeId(id);
+    var files =
+        (await _runDirectory(id).list().toList())
+            .whereType<File>()
+            .where((file) => _id(file).endsWith('.jsonl'))
+            .toList()
+          ..sort((a, b) => _id(a).compareTo(_id(b)));
+    if (reverse) {
+      files = files.reversed.toList();
+    }
+    for (final file in files) {
+      final events = await _readSegment(file);
+      for (final event in reverse ? events.reversed : events) {
+        yield event;
+      }
+    }
+  }
 
   Future<void> deleteRun(String id) => _serial(() async {
     _requireSafeId(id);
     final source = _runDirectory(id);
-    if (!await source.exists()) return;
+    if (!await source.exists()) {
+      return;
+    }
+    if (_activeId == id) {
+      throw StateError('Cannot delete the active log run');
+    }
+    final meta = await _readMeta(source);
+    if (meta?.end == null) {
+      throw StateError('Cannot delete an unfinished log run');
+    }
     await _discardTrash();
     final batch = Directory.fromUri(
       _trash.uri.resolve('${_now().microsecondsSinceEpoch}/'),
@@ -156,16 +177,21 @@ class RuntimeLogStore {
 
   Future<void> clearHistory() => _serial(() async {
     await _discardTrash();
+    final completed = <Directory>[];
+    for (final entry in await _runs.list().toList()) {
+      if (entry is Directory && (await _readMeta(entry))?.end != null) {
+        completed.add(entry);
+      }
+    }
+    if (completed.isEmpty) return;
     final batch = Directory.fromUri(
       _trash.uri.resolve('${_now().microsecondsSinceEpoch}/'),
     );
     await batch.create(recursive: true);
-    for (final entry in await _runs.list().toList()) {
-      if (entry is Directory && (await _readMeta(entry))?.end != null) {
-        await entry.rename(
-          Directory.fromUri(batch.uri.resolve('${_id(entry)}/')).path,
-        );
-      }
+    for (final entry in completed) {
+      await entry.rename(
+        Directory.fromUri(batch.uri.resolve('${_id(entry)}/')).path,
+      );
     }
     _lastTrash = batch.path;
   });
@@ -199,14 +225,16 @@ class RuntimeLogStore {
   Directory _runDirectory(String id) =>
       Directory.fromUri(_runs.uri.resolve('$id/'));
 
-  Future<File> _segmentForAppend(Directory directory) async {
+  Future<File> _segmentForAppend(Directory directory, int lineBytes) async {
     final segments =
         (await directory.list().toList())
             .whereType<File>()
             .where((file) => RegExp(r'^\d{6}\.jsonl$').hasMatch(_id(file)))
             .toList()
           ..sort((a, b) => _id(a).compareTo(_id(b)));
-    if (segments.isEmpty || await segments.last.length() >= segmentBytes) {
+    if (segments.isEmpty ||
+        (await segments.last.length()) > 0 &&
+            await segments.last.length() + lineBytes > segmentBytes) {
       final name = '${segments.length.toString().padLeft(6, '0')}.jsonl';
       final file = File.fromUri(directory.uri.resolve(name));
       await file.create();
@@ -225,28 +253,42 @@ class RuntimeLogStore {
           ..sort((a, b) => _id(a).compareTo(_id(b)));
     final result = <RuntimeLog>[];
     for (final file in files) {
-      await for (final line
-          in file
-              .openRead()
-              .transform(utf8.decoder)
-              .transform(const LineSplitter())) {
-        final json = jsonDecode(line) as Map<String, dynamic>;
-        result.add(
-          RuntimeLog(
-            timestamp: DateTime.parse(json['timestamp'] as String),
-            source: RuntimeLogSource.values.byName(json['source'] as String),
-            message: json['message'] as String,
-          ),
-        );
+      result.addAll(await _readSegment(file));
+    }
+    return result;
+  }
+
+  Future<List<RuntimeLog>> _readSegment(File file) async {
+    final result = <RuntimeLog>[];
+    final lines = await file.readAsLines();
+    for (var index = 0; index < lines.length; index++) {
+      if (lines[index].trim().isEmpty) continue;
+      try {
+        result.add(_decodeEvent(lines[index]));
+      } on FormatException {
+        if (index == lines.length - 1) break;
+        rethrow;
       }
     }
     return result;
+  }
+
+  static RuntimeLog _decodeEvent(String line) {
+    final json = jsonDecode(line) as Map<String, dynamic>;
+    return RuntimeLog(
+      timestamp: DateTime.parse(json['timestamp'] as String),
+      source: RuntimeLogSource.values.byName(json['source'] as String),
+      message: json['message'] as String,
+    );
   }
 
   Future<_Meta?> _readMeta(Directory directory) async {
     final file = File.fromUri(directory.uri.resolve('meta.json'));
     if (!await file.exists()) return null;
     final json = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+    if (json['schema'] != 1 || json['id'] != _id(directory)) {
+      throw FormatException('Invalid log metadata');
+    }
     return _Meta(
       json['id'] as String,
       DateTime.parse(json['start'] as String),
