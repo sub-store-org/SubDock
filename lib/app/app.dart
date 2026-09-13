@@ -38,6 +38,7 @@ class SubDockApp extends StatefulWidget {
     this.onToggleFullscreen,
     this.onCloseToTray,
     this.onStartDragging,
+    this.onThemeSaveScheduled,
     this.themeModeStore,
     this.localeStore,
     this.onLocaleChanged,
@@ -53,6 +54,7 @@ class SubDockApp extends StatefulWidget {
   final Future<void> Function()? onToggleFullscreen;
   final Future<void> Function()? onCloseToTray;
   final Future<void> Function()? onStartDragging;
+  final void Function(Future<void>)? onThemeSaveScheduled;
   final ThemeModeStore? themeModeStore;
   final LocalePreferenceStore? localeStore;
 
@@ -133,6 +135,7 @@ class _SubDockAppState extends State<SubDockApp> {
         debugPrint('Failed to persist theme mode: $error');
       }
     });
+    widget.onThemeSaveScheduled?.call(_themeSaveQueue);
     await _themeSaveQueue;
   }
 

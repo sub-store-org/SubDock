@@ -649,6 +649,7 @@ void main() {
       return RuntimeDirectories.fromBaseDirectory(temp);
     });
     final store = ThemeModeStore(directories!);
+    Future<void>? pendingThemeSave;
     final coordinator = AppCoordinator(
       runtime: _FakeBackendRuntime(),
       environmentStore: BackendEnvStore(directories),
@@ -666,6 +667,7 @@ void main() {
         autoStart: false,
         enableWebView: false,
         themeModeStore: store,
+        onThemeSaveScheduled: (future) => pendingThemeSave = future,
         locale: const Locale('zh'),
       ),
     );
@@ -693,6 +695,7 @@ void main() {
     await selectTheme('跟随系统', Brightness.dark);
 
     await _pumpRealIo(tester);
+    await pendingThemeSave;
     expect(await tester.runAsync(() => store.load()), ThemeMode.system);
     await tester.pumpWidget(const SizedBox());
   });
