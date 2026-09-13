@@ -9,6 +9,7 @@ import 'package:flutter/material.dart'
         FilledButton,
         Locale,
         ListTile,
+        ListView,
         NavigationBar,
         OutlinedButton,
         SelectableText,
@@ -547,6 +548,13 @@ void main() {
     await _pumpRealIo(tester);
     expect(find.textContaining('history-204'), findsOneWidget);
     expect(find.textContaining('history-404'), findsNothing);
+    await tester.tap(find.text('下一页'));
+    await _pumpRealIo(tester);
+    expect(find.textContaining('history-004'), findsOneWidget);
+    await tester.drag(find.byType(ListView).last, const Offset(0, -10000));
+    await tester.pump();
+    expect(find.textContaining('historical entry'), findsOneWidget);
+    expect(find.textContaining('history-204'), findsNothing);
     await tester.tap(find.byKey(const ValueKey('history-back')));
     await tester.pump();
     expect(find.byType(ListTile), findsOneWidget);

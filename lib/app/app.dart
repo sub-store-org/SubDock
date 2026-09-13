@@ -1429,7 +1429,6 @@ class _LogsPageState extends State<_LogsPage> {
   @override
   void initState() {
     super.initState();
-    unawaited(_loadHistoryRuns());
   }
 
   @override
@@ -1829,13 +1828,18 @@ class _LogsPageState extends State<_LogsPage> {
               Expanded(
                 child: _historyLoading
                     ? const Center(child: CircularProgressIndicator())
+                    : _selectedRun != null && _historyError != null
+                    ? Center(child: Text(l10n.historyLoadError))
                     : visible.isEmpty
                     ? Center(
                         child: Text(
-                          (_selectedRun == null ? widget.logs : _historyLogs)
-                                  .isEmpty
-                              ? l10n.noLogs
-                              : l10n.noFilteredLogs,
+                          _selectedRun == null
+                              ? (widget.logs.isEmpty
+                                    ? l10n.noLogs
+                                    : l10n.noFilteredLogs)
+                              : (_selectedRun!.eventCount == 0
+                                    ? l10n.noLogs
+                                    : l10n.noFilteredLogs),
                         ),
                       )
                     : ListView.separated(
@@ -1919,7 +1923,7 @@ String _formatRunDate(DateTime value) {
 
 String _formatDuration(RuntimeLogRun run) {
   final duration = (run.end ?? run.start).difference(run.start);
-  final seconds = duration.inSeconds.clamp(0, 863999);
+  final seconds = duration.inSeconds < 0 ? 0 : duration.inSeconds;
   return '${(seconds ~/ 3600).toString().padLeft(2, '0')}:${((seconds % 3600) ~/ 60).toString().padLeft(2, '0')}:${(seconds % 60).toString().padLeft(2, '0')}';
 }
 
