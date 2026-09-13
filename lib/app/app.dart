@@ -984,11 +984,11 @@ class _SurfacePanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).extension<AppColors>()!;
     final typography = Theme.of(context).extension<AppTypography>()!;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: colors.surfaceLow,
+    return Material(
+      color: colors.surfaceLow,
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(typography.radiusMd),
-        border: Border.all(color: colors.divider),
+        side: BorderSide(color: colors.divider),
       ),
       child: Padding(
         padding: padding ?? EdgeInsets.all(typography.spacingMd),
@@ -1541,161 +1541,264 @@ class _SettingsPageState extends State<_SettingsPage> {
     final l10n = AppLocalizations.of(context)!;
     final colors = Theme.of(context).extension<AppColors>()!;
     final typography = Theme.of(context).extension<AppTypography>()!;
-    final heading = typography.titleLarge;
     return ListView(
+      key: const ValueKey('settings-list'),
       padding: EdgeInsets.all(typography.spacingLg),
       children: [
-        Text(l10n.appearanceHeading, style: heading),
-        SegmentedButton<ThemeMode>(
-          segments: [
-            ButtonSegment(
-              value: ThemeMode.system,
-              icon: const Icon(Icons.brightness_auto),
-              label: Text(l10n.themeFollowSystem),
-            ),
-            ButtonSegment(
-              value: ThemeMode.light,
-              icon: const Icon(Icons.light_mode),
-              label: Text(l10n.themeLight),
-            ),
-            ButtonSegment(
-              value: ThemeMode.dark,
-              icon: const Icon(Icons.dark_mode),
-              label: Text(l10n.themeDark),
-            ),
-          ],
-          selected: {widget.themeMode},
-          onSelectionChanged: (selection) =>
-              widget.onThemeModeSelected(selection.first),
-        ),
-        SizedBox(height: typography.spacingMd),
-        DropdownButton<String>(
-          value: widget.localeOverride?.languageCode ?? 'system',
-          items: [
-            DropdownMenuItem<String>(
-              value: 'system',
-              child: Text(l10n.languageFollowSystem),
-            ),
-            for (final language in LocalePreferenceStore.supported)
-              DropdownMenuItem<String>(
-                value: language,
-                child: Text(_languageLabel(language)),
-              ),
-          ],
-          onChanged: (value) => widget.onLocaleSelected(
-            value == null || value == 'system' ? null : Locale(value),
-          ),
-        ),
-        const Divider(height: 40),
-        Text(l10n.subdockConfigHeading, style: heading),
-        if (widget.configurationError != null) ...[
-          Text(
-            l10n.configurationInvalid(
-              _localizedConfigError(l10n, widget.configurationError!),
-            ),
-            style: TextStyle(color: colors.error),
-          ),
-          SizedBox(height: typography.spacingS),
-          OutlinedButton(
-            onPressed: _configurationDirty
-                ? null
-                : () => unawaited(widget.onResetConfiguration()),
-            child: Text(l10n.resetSubdockConfig),
-          ),
-        ],
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          title: Text(l10n.enableHttpMeta),
-          subtitle: Text(l10n.enableHttpMetaSubtitle),
-          value: _httpMetaEnabled,
-          onChanged: (value) => _updateConfiguration(
-            _configuration.httpMeta.copyWith(enabled: value),
-          ),
-        ),
-        if (configurationIssue != null)
-          Text(configurationIssue, style: TextStyle(color: colors.error)),
-        FilledButton(
-          onPressed: configurationIssue == null && _configurationDirty
-              ? _saveConfiguration
-              : null,
-          child: Text(l10n.saveSubdockConfig),
-        ),
-        const Divider(height: 40),
-        Text(l10n.backendConfigHeading, style: heading),
-        TextField(
-          controller: _host,
-          decoration: const InputDecoration(labelText: 'API Host'),
-          onChanged: (value) => _updateField(BackendEnvPolicy.host, value),
-        ),
-        TextField(
-          controller: _port,
-          keyboardType: TextInputType.number,
-          decoration: const InputDecoration(labelText: 'API Port'),
-          onChanged: (value) => _updateField(BackendEnvPolicy.port, value),
-        ),
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          title: Text(l10n.mergeMode),
-          value: BackendEnvPolicy.isMergeEnabledFor(_document),
-          onChanged: (value) =>
-              _updateField(BackendEnvPolicy.merge, value ? 'true' : 'false'),
-        ),
-        TextField(
-          controller: _path,
-          decoration: const InputDecoration(labelText: 'Frontend Backend Path'),
-          onChanged: (value) =>
-              _updateField(BackendEnvPolicy.frontendBackendPath, value),
-        ),
-        TextField(
-          controller: _cors,
-          decoration: const InputDecoration(labelText: 'CORS Allowed Origins'),
-          onChanged: (value) =>
-              _updateField(BackendEnvPolicy.corsAllowedOrigins, value),
-        ),
-        ExpansionTile(
-          title: Text(l10n.advancedRawEnv),
-          subtitle: Text(l10n.advancedRawEnvSubtitle),
-          initiallyExpanded: false,
-          childrenPadding: EdgeInsets.only(bottom: typography.spacingSm),
-          children: [
-            TextField(
-              controller: _raw,
-              minLines: 8,
-              maxLines: 16,
-              decoration: const InputDecoration(border: OutlineInputBorder()),
-              onChanged: _updateRaw,
-            ),
-            if (issues.isNotEmpty) ...[
-              SizedBox(height: typography.spacingS),
-              for (final issue in issues)
-                Text(
-                  '${issue.line == null ? '' : l10n.lineNumber(issue.line!)}${_localizedIssue(l10n, issue)}',
-                  style: TextStyle(color: colors.error),
+        Align(
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 960),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _SurfacePanel(
+                  key: const ValueKey('settings-appearance'),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        l10n.appearanceHeading,
+                        style: typography.titleMedium,
+                      ),
+                      SizedBox(height: typography.spacingSm),
+                      Wrap(
+                        spacing: typography.spacingLg,
+                        runSpacing: typography.spacingSm,
+                        children: [
+                          SegmentedButton<ThemeMode>(
+                            segments: [
+                              ButtonSegment(
+                                value: ThemeMode.system,
+                                icon: const Icon(Icons.brightness_auto),
+                                label: Text(l10n.themeFollowSystem),
+                              ),
+                              ButtonSegment(
+                                value: ThemeMode.light,
+                                icon: const Icon(Icons.light_mode),
+                                label: Text(l10n.themeLight),
+                              ),
+                              ButtonSegment(
+                                value: ThemeMode.dark,
+                                icon: const Icon(Icons.dark_mode),
+                                label: Text(l10n.themeDark),
+                              ),
+                            ],
+                            selected: {widget.themeMode},
+                            onSelectionChanged: (selection) =>
+                                widget.onThemeModeSelected(selection.first),
+                          ),
+                          SizedBox(
+                            width: 220,
+                            child: DropdownButton<String>(
+                              isExpanded: true,
+                              value:
+                                  widget.localeOverride?.languageCode ??
+                                  'system',
+                              items: [
+                                DropdownMenuItem(
+                                  value: 'system',
+                                  child: Text(l10n.languageFollowSystem),
+                                ),
+                                for (final language
+                                    in LocalePreferenceStore.supported)
+                                  DropdownMenuItem(
+                                    value: language,
+                                    child: Text(_languageLabel(language)),
+                                  ),
+                              ],
+                              onChanged: (value) => widget.onLocaleSelected(
+                                value == null || value == 'system'
+                                    ? null
+                                    : Locale(value),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
-            ],
-            SizedBox(height: typography.spacingMd),
-            FilledButton(
-              onPressed: issues.isEmpty && _dirty ? _save : null,
-              child: Text(l10n.save),
+                SizedBox(height: typography.spacingLg),
+                _SurfacePanel(
+                  key: const ValueKey('settings-subdock-config'),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        l10n.subdockConfigHeading,
+                        style: typography.titleMedium,
+                      ),
+                      if (widget.configurationError != null) ...[
+                        Text(
+                          l10n.configurationInvalid(
+                            _localizedConfigError(
+                              l10n,
+                              widget.configurationError!,
+                            ),
+                          ),
+                          style: TextStyle(color: colors.error),
+                        ),
+                        SizedBox(height: typography.spacingS),
+                        OutlinedButton(
+                          onPressed: _configurationDirty
+                              ? null
+                              : () => unawaited(widget.onResetConfiguration()),
+                          child: Text(l10n.resetSubdockConfig),
+                        ),
+                      ],
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(l10n.enableHttpMeta),
+                        subtitle: Text(l10n.enableHttpMetaSubtitle),
+                        value: _httpMetaEnabled,
+                        onChanged: (value) => _updateConfiguration(
+                          _configuration.httpMeta.copyWith(enabled: value),
+                        ),
+                      ),
+                      if (configurationIssue != null)
+                        Text(
+                          configurationIssue,
+                          style: TextStyle(color: colors.error),
+                        ),
+                      FilledButton(
+                        onPressed:
+                            configurationIssue == null && _configurationDirty
+                            ? _saveConfiguration
+                            : null,
+                        child: Text(l10n.saveSubdockConfig),
+                      ),
+                    ],
+                  ),
+                ),
+                SizedBox(height: typography.spacingLg),
+                _SurfacePanel(
+                  key: const ValueKey('settings-backend-config'),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        l10n.backendConfigHeading,
+                        style: typography.titleMedium,
+                      ),
+                      TextField(
+                        controller: _host,
+                        decoration: const InputDecoration(
+                          labelText: 'API Host',
+                        ),
+                        onChanged: (value) =>
+                            _updateField(BackendEnvPolicy.host, value),
+                      ),
+                      TextField(
+                        controller: _port,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          labelText: 'API Port',
+                        ),
+                        onChanged: (value) =>
+                            _updateField(BackendEnvPolicy.port, value),
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(l10n.mergeMode),
+                        value: BackendEnvPolicy.isMergeEnabledFor(_document),
+                        onChanged: (value) => _updateField(
+                          BackendEnvPolicy.merge,
+                          value ? 'true' : 'false',
+                        ),
+                      ),
+                      TextField(
+                        controller: _path,
+                        decoration: const InputDecoration(
+                          labelText: 'Frontend Backend Path',
+                        ),
+                        onChanged: (value) => _updateField(
+                          BackendEnvPolicy.frontendBackendPath,
+                          value,
+                        ),
+                      ),
+                      TextField(
+                        controller: _cors,
+                        decoration: const InputDecoration(
+                          labelText: 'CORS Allowed Origins',
+                        ),
+                        onChanged: (value) => _updateField(
+                          BackendEnvPolicy.corsAllowedOrigins,
+                          value,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                SizedBox(height: typography.spacingLg),
+                _SurfacePanel(
+                  key: const ValueKey('settings-raw-env'),
+                  padding: EdgeInsets.zero,
+                  child: ExpansionTile(
+                    key: const ValueKey('settings-raw-env-expansion'),
+                    title: Text(l10n.advancedRawEnv),
+                    subtitle: Text(l10n.advancedRawEnvSubtitle),
+                    initiallyExpanded: false,
+                    childrenPadding: EdgeInsets.only(
+                      bottom: typography.spacingSm,
+                    ),
+                    children: [
+                      TextField(
+                        controller: _raw,
+                        minLines: 8,
+                        maxLines: 16,
+                        decoration: const InputDecoration(
+                          border: OutlineInputBorder(),
+                        ),
+                        onChanged: _updateRaw,
+                      ),
+                      if (issues.isNotEmpty) ...[
+                        SizedBox(height: typography.spacingS),
+                        for (final issue in issues)
+                          Text(
+                            '${issue.line == null ? '' : l10n.lineNumber(issue.line!)}${_localizedIssue(l10n, issue)}',
+                            style: TextStyle(color: colors.error),
+                          ),
+                      ],
+                      SizedBox(height: typography.spacingMd),
+                      FilledButton(
+                        onPressed: issues.isEmpty && _dirty ? _save : null,
+                        child: Text(l10n.save),
+                      ),
+                    ],
+                  ),
+                ),
+                SizedBox(height: typography.spacingLg),
+                _SurfacePanel(
+                  key: const ValueKey('settings-component-updates'),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        l10n.componentUpdatesHeading,
+                        style: typography.titleMedium,
+                      ),
+                      SizedBox(height: typography.spacingSm),
+                      for (final kind in ComponentKind.values)
+                        _ComponentCard(
+                          kind: kind,
+                          status: _componentStatuses[kind],
+                          update: _componentUpdates[kind],
+                          error: _componentErrors[kind],
+                          busy: _componentBusy.contains(kind),
+                          onCheck: () => _checkComponent(kind),
+                          onUpdate: _componentUpdates[kind] == null
+                              ? null
+                              : () => _applyComponent(_componentUpdates[kind]!),
+                          onRollback: () => _rollbackComponent(kind),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
-        SizedBox(height: typography.spacingLg),
-        Text(l10n.componentUpdatesHeading, style: heading),
-        SizedBox(height: typography.spacingSm),
-        for (final kind in ComponentKind.values)
-          _ComponentCard(
-            kind: kind,
-            status: _componentStatuses[kind],
-            update: _componentUpdates[kind],
-            error: _componentErrors[kind],
-            busy: _componentBusy.contains(kind),
-            onCheck: () => _checkComponent(kind),
-            onUpdate: _componentUpdates[kind] == null
-                ? null
-                : () => _applyComponent(_componentUpdates[kind]!),
-            onRollback: () => _rollbackComponent(kind),
           ),
+        ),
       ],
     );
   }
@@ -1725,6 +1828,7 @@ class _ComponentCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).extension<AppColors>()!;
+    final typography = Theme.of(context).extension<AppTypography>()!;
     final l10n = AppLocalizations.of(context)!;
     final name = kind == ComponentKind.backend ? 'Backend' : 'Frontend';
     final text = update == null
@@ -1744,51 +1848,49 @@ class _ComponentCard extends StatelessWidget {
             update!.currentVersion,
             status?.previous ?? '-',
           );
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(name, style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 4),
-            Text(text),
-            if (error != null) ...[
-              const SizedBox(height: 4),
-              Text(
-                _localizedError(l10n, error),
-                style: TextStyle(color: colors.error),
-              ),
-            ],
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                OutlinedButton(
-                  onPressed: busy ? null : onCheck,
-                  child: Text(l10n.checkForUpdates),
-                ),
-                FilledButton(
-                  onPressed: busy || update?.isAvailable != true
-                      ? null
-                      : onUpdate,
-                  child: Text(l10n.update),
-                ),
-                TextButton(
-                  onPressed: busy ? null : onRollback,
-                  child: Text(l10n.rollback),
-                ),
-                if (busy)
-                  const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(),
-                  ),
-              ],
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: typography.spacingSm),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(name, style: typography.titleMedium),
+          SizedBox(height: typography.spacingXs),
+          Text(text),
+          if (error != null) ...[
+            SizedBox(height: typography.spacingXs),
+            Text(
+              _localizedError(l10n, error),
+              style: TextStyle(color: colors.error),
             ),
           ],
-        ),
+          SizedBox(height: typography.spacingSm),
+          Wrap(
+            spacing: typography.spacingS,
+            runSpacing: typography.spacingS,
+            children: [
+              OutlinedButton(
+                onPressed: busy ? null : onCheck,
+                child: Text(l10n.checkForUpdates),
+              ),
+              FilledButton(
+                onPressed: busy || update?.isAvailable != true
+                    ? null
+                    : onUpdate,
+                child: Text(l10n.update),
+              ),
+              TextButton(
+                onPressed: busy ? null : onRollback,
+                child: Text(l10n.rollback),
+              ),
+              if (busy)
+                const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(),
+                ),
+            ],
+          ),
+        ],
       ),
     );
   }
