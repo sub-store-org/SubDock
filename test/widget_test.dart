@@ -10,6 +10,7 @@ import 'package:flutter/material.dart'
         Locale,
         NavigationBar,
         OutlinedButton,
+        SelectableText,
         SegmentedButton,
         Theme,
         ThemeMode,
@@ -123,6 +124,80 @@ void main() {
     await tester.pump();
 
     expect(runtime.stops, 1);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('manage recovery uses the shell surface', (
+    WidgetTester tester,
+  ) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    final coordinator = AppCoordinator(
+      runtime: _FakeBackendRuntime(),
+      environmentStore: BackendEnvStore(directories!),
+    );
+
+    await tester.pumpWidget(
+      SubDockApp(
+        coordinator: coordinator,
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('zh'),
+      ),
+    );
+
+    expect(find.byKey(const ValueKey('manage-recovery')), findsOneWidget);
+    expect(find.text('Backend 未运行'), findsOneWidget);
+    expect(find.text('查看运行状态'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('logs surface renders empty and live log states', (
+    WidgetTester tester,
+  ) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final runtime = _FakeBackendRuntime();
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    final coordinator = AppCoordinator(
+      runtime: runtime,
+      environmentStore: BackendEnvStore(directories!),
+    );
+
+    await tester.pumpWidget(
+      SubDockApp(
+        coordinator: coordinator,
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('zh'),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-logs')));
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('logs-surface')), findsOneWidget);
+    expect(find.text('暂无日志'), findsOneWidget);
+    runtime.emitLog(
+      RuntimeLog(
+        timestamp: DateTime.utc(2026, 9, 13, 4, 30),
+        source: RuntimeLogSource.stdout,
+        message: 'fixture log line',
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('暂无日志'), findsNothing);
+    final log = tester.widget<SelectableText>(find.byType(SelectableText));
+    expect(log.data, contains('2026-09-13T04:30:00.000Z'));
+    expect(log.data, contains('[stdout] fixture log line'));
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -728,6 +803,8 @@ class _FakeBackendRuntime extends BackendRuntime {
   final _states = StreamController<RuntimeState>.broadcast(sync: true);
   var starts = 0;
   var stops = 0;
+
+  void emitLog(RuntimeLog log) => _logs.add(log);
 
   @override
   RuntimeState get currentState => RuntimeState(

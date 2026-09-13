@@ -876,9 +876,32 @@ class _ManagePageState extends State<_ManagePage> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final colors = Theme.of(context).extension<AppColors>()!;
+    final typography = Theme.of(context).extension<AppTypography>()!;
     if (widget.state.status == RuntimeStatus.starting ||
         widget.state.status == RuntimeStatus.stopping) {
-      return const Center(child: CircularProgressIndicator());
+      return Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Padding(
+            padding: EdgeInsets.all(typography.spacingLg),
+            child: _SurfacePanel(
+              key: const ValueKey('manage-transition'),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const CircularProgressIndicator(),
+                  SizedBox(height: typography.spacingMd),
+                  Text(
+                    widget.state.status == RuntimeStatus.starting
+                        ? l10n.starting
+                        : l10n.stopping,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
     }
     if (!_ready || _controller == null) {
       final issues = widget.coordinator.environmentIssues;
@@ -888,24 +911,30 @@ class _ManagePageState extends State<_ManagePage> {
           ? widget.state.message ?? l10n.backendNotRunning
           : _localizedError(l10n, widget.error);
       return Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.web_asset_off_outlined, size: 48),
-              const SizedBox(height: 12),
-              Text(reason, textAlign: TextAlign.center),
-              const SizedBox(height: 12),
-              FilledButton(
-                onPressed: widget.onRecover,
-                child: Text(
-                  widget.coordinator.canOpenWebUi
-                      ? l10n.viewRuntimeStatus
-                      : l10n.fixConfiguration,
-                ),
+        child: Padding(
+          padding: EdgeInsets.all(typography.spacingLg),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: _SurfacePanel(
+              key: const ValueKey('manage-recovery'),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.web_asset_off_outlined, size: 48),
+                  SizedBox(height: typography.spacingSm),
+                  Text(reason, textAlign: TextAlign.center),
+                  SizedBox(height: typography.spacingSm),
+                  FilledButton(
+                    onPressed: widget.onRecover,
+                    child: Text(
+                      widget.coordinator.canOpenWebUi
+                          ? l10n.viewRuntimeStatus
+                          : l10n.fixConfiguration,
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       );
@@ -916,23 +945,27 @@ class _ManagePageState extends State<_ManagePage> {
         if (_webViewError != null)
           Align(
             alignment: Alignment.topCenter,
-            child: Material(
-              color: colors.errorSurface,
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(_webViewError!, style: TextStyle(color: colors.error)),
-                    if (_missingWebView2)
-                      TextButton(
-                        onPressed: () => unawaited(_openWebView2Download()),
-                        child: Text(l10n.openWebView2DownloadPage),
+            child: Padding(
+              padding: EdgeInsets.all(typography.spacingSm),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 720),
+                child: _SurfacePanel(
+                  key: const ValueKey('manage-webview-error'),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        _webViewError!,
+                        style: TextStyle(color: colors.error),
                       ),
-                  ],
+                      if (_missingWebView2)
+                        TextButton(
+                          onPressed: () => unawaited(_openWebView2Download()),
+                          child: Text(l10n.openWebView2DownloadPage),
+                        ),
+                    ],
+                  ),
                 ),
-                // The button is rendered only for the Windows runtime error
-                // that has a documented user-installable remedy.
               ),
             ),
           ),
@@ -942,9 +975,10 @@ class _ManagePageState extends State<_ManagePage> {
 }
 
 class _SurfacePanel extends StatelessWidget {
-  const _SurfacePanel({required this.child});
+  const _SurfacePanel({super.key, required this.child, this.padding});
 
   final Widget child;
+  final EdgeInsetsGeometry? padding;
 
   @override
   Widget build(BuildContext context) {
@@ -957,7 +991,7 @@ class _SurfacePanel extends StatelessWidget {
         border: Border.all(color: colors.divider),
       ),
       child: Padding(
-        padding: EdgeInsets.all(typography.spacingMd),
+        padding: padding ?? EdgeInsets.all(typography.spacingMd),
         child: child,
       ),
     );
@@ -1159,17 +1193,30 @@ class _LogsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    if (logs.isEmpty) return Center(child: Text(l10n.noLogs));
-    return ListView.builder(
-      padding: const EdgeInsets.all(12),
-      itemCount: logs.length,
-      itemBuilder: (context, index) {
-        final log = logs[index];
-        return SelectableText(
-          '${log.timestamp.toIso8601String()} [${log.source.name}] ${log.message}',
-          style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-        );
-      },
+    final typography = Theme.of(context).extension<AppTypography>()!;
+    return Padding(
+      padding: EdgeInsets.all(typography.spacingLg),
+      child: SizedBox.expand(
+        child: _SurfacePanel(
+          key: const ValueKey('logs-surface'),
+          padding: EdgeInsets.zero,
+          child: logs.isEmpty
+              ? Center(child: Text(l10n.noLogs))
+              : ListView.builder(
+                  padding: EdgeInsets.all(typography.spacingSm),
+                  itemCount: logs.length,
+                  itemBuilder: (context, index) {
+                    final log = logs[index];
+                    return SelectableText(
+                      '${log.timestamp.toIso8601String()} [${log.source.name}] ${log.message}',
+                      style: typography.bodySmall.copyWith(
+                        fontFamily: 'monospace',
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ),
     );
   }
 }
