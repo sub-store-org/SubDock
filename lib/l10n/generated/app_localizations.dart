@@ -696,6 +696,42 @@ abstract class AppLocalizations {
   /// **'合并模式'**
   String get mergeMode;
 
+  /// No description provided for @apiFieldsSummary.
+  ///
+  /// In zh, this message translates to:
+  /// **'主机、端口、合并、路径、CORS'**
+  String get apiFieldsSummary;
+
+  /// No description provided for @apiHost.
+  ///
+  /// In zh, this message translates to:
+  /// **'API 主机'**
+  String get apiHost;
+
+  /// No description provided for @apiPort.
+  ///
+  /// In zh, this message translates to:
+  /// **'API 端口'**
+  String get apiPort;
+
+  /// No description provided for @frontendBackendPath.
+  ///
+  /// In zh, this message translates to:
+  /// **'前端 Backend 路径'**
+  String get frontendBackendPath;
+
+  /// No description provided for @corsAllowedOrigins.
+  ///
+  /// In zh, this message translates to:
+  /// **'允许的 CORS 来源'**
+  String get corsAllowedOrigins;
+
+  /// No description provided for @unsaved.
+  ///
+  /// In zh, this message translates to:
+  /// **'未保存'**
+  String get unsaved;
+
   /// No description provided for @inherit.
   ///
   /// In zh, this message translates to:

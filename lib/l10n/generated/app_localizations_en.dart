@@ -344,6 +344,24 @@ class AppLocalizationsEn extends AppLocalizations {
   String get mergeMode => 'Merge mode';
 
   @override
+  String get apiFieldsSummary => 'Host, Port, Merge, Path, CORS';
+
+  @override
+  String get apiHost => 'API Host';
+
+  @override
+  String get apiPort => 'API Port';
+
+  @override
+  String get frontendBackendPath => 'Frontend Backend Path';
+
+  @override
+  String get corsAllowedOrigins => 'CORS Allowed Origins';
+
+  @override
+  String get unsaved => 'Unsaved';
+
+  @override
   String get inherit => 'Inherit';
 
   @override

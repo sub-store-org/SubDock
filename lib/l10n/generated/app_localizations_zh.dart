@@ -336,6 +336,24 @@ class AppLocalizationsZh extends AppLocalizations {
   String get mergeMode => '合并模式';
 
   @override
+  String get apiFieldsSummary => '主机、端口、合并、路径、CORS';
+
+  @override
+  String get apiHost => 'API 主机';
+
+  @override
+  String get apiPort => 'API 端口';
+
+  @override
+  String get frontendBackendPath => '前端 Backend 路径';
+
+  @override
+  String get corsAllowedOrigins => '允许的 CORS 来源';
+
+  @override
+  String get unsaved => '未保存';
+
+  @override
   String get inherit => '继承';
 
   @override

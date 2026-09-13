@@ -109,6 +109,7 @@ class _SubDockAppState extends State<SubDockApp> {
   late ThemeMode _themeMode;
   Locale? _localeOverride;
   late DesktopPreferences _savedPreferences;
+  late Future<void> _preferenceQueue;
   late int _currentRunLogLimit;
   var _logsEntryGeneration = 0;
   var _historyRefreshGeneration = 0;
@@ -118,6 +119,7 @@ class _SubDockAppState extends State<SubDockApp> {
   @override
   void initState() {
     super.initState();
+    _preferenceQueue = Future<void>.value();
     final preferences = widget.preferences ?? DesktopPreferences.defaults;
     _savedPreferences = preferences;
     _currentRunLogLimit = preferences.recentLogLimit;
@@ -246,16 +248,24 @@ class _SubDockAppState extends State<SubDockApp> {
   }
 
   Future<void> _onLogSortChanged(LogSort sort) async {
-    final next = _savedPreferences.copyWith(logSort: sort);
-    if (widget.preferencesStore != null) {
+    await _mutatePreferences((current) => current.copyWith(logSort: sort));
+  }
+
+  Future<void> _mutatePreferences(
+    DesktopPreferences Function(DesktopPreferences current) mutate,
+  ) {
+    final operation = _preferenceQueue.then((_) async {
+      final next = mutate(_savedPreferences);
       try {
-        await widget.preferencesStore!.save(next);
+        await widget.preferencesStore?.save(next);
       } catch (error) {
         if (mounted) setState(() => _error = error);
-        return;
+        rethrow;
       }
-    }
-    if (mounted) setState(() => _savedPreferences = next);
+      if (mounted) setState(() => _savedPreferences = next);
+    });
+    _preferenceQueue = operation.catchError((_) {});
+    return operation;
   }
 
   Future<void> _loadInfo() async {
@@ -317,22 +327,9 @@ class _SubDockAppState extends State<SubDockApp> {
     }
   }
 
-  Future<void> _saveDesktopPreferences(DesktopPreferences preferences) async {
-    try {
-      await widget.preferencesStore?.save(preferences);
-    } catch (error) {
-      if (mounted) setState(() => _error = error);
-      rethrow;
-    }
-    if (!mounted) return;
-    setState(() {
-      _savedPreferences = preferences;
-      _themeMode = preferences.themeMode;
-      _localeOverride = preferences.locale == null
-          ? null
-          : Locale(preferences.locale!);
-    });
-  }
+  Future<void> _saveDesktopPreferences(
+    DesktopPreferences Function(DesktopPreferences current) mutate,
+  ) => _mutatePreferences(mutate);
 
   @override
   Widget build(BuildContext context) {
@@ -2038,7 +2035,10 @@ class _SettingsPage extends StatefulWidget {
   final Future<void> Function(SubDockConfig configuration) onSaveConfiguration;
   final Future<void> Function(BackendEnvDocument document) onSaveEnvironment;
   final DesktopPreferences savedPreferences;
-  final Future<void> Function(DesktopPreferences preferences) onSavePreferences;
+  final Future<void> Function(
+    DesktopPreferences Function(DesktopPreferences current) mutate,
+  )
+  onSavePreferences;
   final Future<void> Function(ThemeMode mode) onPreviewTheme;
   final Future<void> Function(Locale? locale) onPreviewLocale;
   final Future<void> Function() onResetConfiguration;
@@ -2132,14 +2132,6 @@ class _SettingsPageState extends State<_SettingsPage> {
     super.dispose();
   }
 
-  DesktopPreferences get _generalPreferences =>
-      widget.savedPreferences.copyWith(
-        themeMode: _generalThemeMode,
-        locale: _generalLocale,
-        closeBehavior: _generalCloseBehavior,
-        recentLogLimit: _generalRecentLogLimit,
-      );
-
   int? get _parsedRecentLogLimit {
     final value = int.tryParse(_recentLogLimit.text.trim());
     return value != null && value >= 50 && value <= 2000 ? value : null;
@@ -2205,7 +2197,12 @@ class _SettingsPageState extends State<_SettingsPage> {
     if (limit == null) return false;
     try {
       await widget.onSavePreferences(
-        _generalPreferences.copyWith(recentLogLimit: limit),
+        (current) => current.copyWith(
+          themeMode: _generalThemeMode,
+          locale: _generalLocale,
+          closeBehavior: _generalCloseBehavior,
+          recentLogLimit: limit,
+        ),
       );
     } on Object {
       return false;
@@ -2600,7 +2597,7 @@ class _SettingsPageState extends State<_SettingsPage> {
                         ),
                         if (_generalDirty)
                           Text(
-                            l10n.unsavedChanges,
+                            l10n.unsaved,
                             style: TextStyle(color: colors.error),
                           ),
                         SizedBox(height: typography.spacingSm),
@@ -2736,7 +2733,7 @@ class _SettingsPageState extends State<_SettingsPage> {
                   _SettingsSectionTile(
                     title: l10n.subdockConfigHeading,
                     subtitle: _configurationDirty
-                        ? '${l10n.enableHttpMetaSubtitle} (${l10n.unsavedChanges})'
+                        ? '${l10n.enableHttpMetaSubtitle} (${l10n.unsaved})'
                         : l10n.enableHttpMetaSubtitle,
                     onTap: () =>
                         unawaited(_openSection(_SettingsSection.subDockConfig)),
@@ -2744,8 +2741,8 @@ class _SettingsPageState extends State<_SettingsPage> {
                   _SettingsSectionTile(
                     title: l10n.backendConfigHeading,
                     subtitle: _backendDirty
-                        ? 'Host, Port, Merge, Path, CORS (${l10n.unsavedChanges})'
-                        : 'Host, Port, Merge, Path, CORS',
+                        ? '${l10n.apiFieldsSummary} (${l10n.unsaved})'
+                        : l10n.apiFieldsSummary,
                     onTap: () =>
                         unawaited(_openSection(_SettingsSection.backendConfig)),
                   ),
@@ -2816,9 +2813,7 @@ class _SettingsPageState extends State<_SettingsPage> {
                           ),
                         TextField(
                           controller: _host,
-                          decoration: const InputDecoration(
-                            labelText: 'API Host',
-                          ),
+                          decoration: InputDecoration(labelText: l10n.apiHost),
                           onChanged: (value) => _updateBackend(
                             _backendDraft.copyWith(
                               apiHost: value.trim().isEmpty ? null : value,
@@ -2829,7 +2824,7 @@ class _SettingsPageState extends State<_SettingsPage> {
                           controller: _port,
                           keyboardType: TextInputType.number,
                           decoration: InputDecoration(
-                            labelText: 'API Port',
+                            labelText: l10n.apiPort,
                             errorText:
                                 _port.text.trim().isNotEmpty &&
                                     _backendIssue != null
@@ -2874,8 +2869,8 @@ class _SettingsPageState extends State<_SettingsPage> {
                         ),
                         TextField(
                           controller: _path,
-                          decoration: const InputDecoration(
-                            labelText: 'Frontend Backend Path',
+                          decoration: InputDecoration(
+                            labelText: l10n.frontendBackendPath,
                           ),
                           onChanged: (value) => _updateBackend(
                             _backendDraft.copyWith(
@@ -2887,8 +2882,8 @@ class _SettingsPageState extends State<_SettingsPage> {
                         ),
                         TextField(
                           controller: _cors,
-                          decoration: const InputDecoration(
-                            labelText: 'CORS Allowed Origins',
+                          decoration: InputDecoration(
+                            labelText: l10n.corsAllowedOrigins,
                           ),
                           onChanged: (value) => _updateBackend(
                             _backendDraft.copyWith(
@@ -2982,7 +2977,7 @@ class _SettingsPageState extends State<_SettingsPage> {
                   _SettingsSectionTile(
                     title: l10n.advancedRawEnv,
                     subtitle: _dirty
-                        ? '${l10n.advancedRawEnvSubtitle} (${l10n.unsavedChanges})'
+                        ? '${l10n.advancedRawEnvSubtitle} (${l10n.unsaved})'
                         : l10n.advancedRawEnvSubtitle,
                     onTap: () =>
                         unawaited(_openSection(_SettingsSection.advancedEnv)),
