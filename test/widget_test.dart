@@ -1062,6 +1062,70 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
+  testWidgets('a delayed preference save does not clear newer general edits', (
+    WidgetTester tester,
+  ) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    final store = _DelayedDesktopPreferencesStore(directories!);
+    final coordinator = AppCoordinator(
+      runtime: _FakeBackendRuntime(),
+      environmentStore: BackendEnvStore(directories),
+    );
+
+    await tester.pumpWidget(
+      SubDockApp(
+        coordinator: coordinator,
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('zh'),
+        preferences: DesktopPreferences.defaults,
+        preferencesStore: store,
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('settings-close-behavior')));
+    await tester.pump();
+    await tester.tap(find.text('关闭到托盘'));
+    await tester.pump();
+    expect(
+      tester
+          .widget<FilledButton>(find.byKey(const ValueKey('settings-save-all')))
+          .onPressed,
+      isNotNull,
+    );
+    await tester.tap(find.byKey(const ValueKey('settings-save-all')));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 10)),
+    );
+    await tester.pump();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(SegmentedButton<ThemeMode>),
+        matching: find.text('深色'),
+      ),
+    );
+    await tester.pump();
+
+    store.releaseNext();
+    await _pumpRealIo(tester);
+    expect(store.saved.single.closeBehavior, CloseBehavior.closeToTray);
+    expect(store.saved.single.themeMode, ThemeMode.system);
+
+    expect(
+      tester
+          .widget<FilledButton>(find.byKey(const ValueKey('settings-save-all')))
+          .onPressed,
+      isNotNull,
+    );
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets(
     'without a themeModeStore the settings selector applies but does not persist',
     (WidgetTester tester) async {
@@ -1363,6 +1427,23 @@ Future<void> _pumpRealIo(WidgetTester tester, {int turns = 40}) async {
     );
     await tester.pump(const Duration(milliseconds: 20));
   }
+}
+
+class _DelayedDesktopPreferencesStore extends DesktopPreferencesStore {
+  _DelayedDesktopPreferencesStore(super.directories);
+
+  final saved = <DesktopPreferences>[];
+  final _pending = <Completer<void>>[];
+
+  @override
+  Future<void> save(DesktopPreferences preferences) async {
+    saved.add(preferences);
+    final completer = Completer<void>();
+    _pending.add(completer);
+    await completer.future;
+  }
+
+  void releaseNext() => _pending.removeAt(0).complete();
 }
 
 class _FakeBackendRuntime extends BackendRuntime {

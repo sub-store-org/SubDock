@@ -2065,6 +2065,12 @@ class _SettingsPageState extends State<_SettingsPage> {
   var _section = _SettingsSection.home;
   var _dirty = false;
   var _configurationDirty = false;
+  var _generalRevision = 0;
+  var _environmentRevision = 0;
+  var _configurationRevision = 0;
+  var _backendRevision = 0;
+  var _pendingSaveCount = 0;
+  Completer<void>? _saveBarrier;
   late SubDockBackendConfig _savedBackend;
   late SubDockBackendConfig _backendDraft;
   late _NullableBoolDraft _mergeDraft;
@@ -2192,15 +2198,41 @@ class _SettingsPageState extends State<_SettingsPage> {
     _generalRecentLogLimit = preferences.recentLogLimit;
   }
 
-  Future<bool> _saveGeneral() async {
+  Future<T> _withPendingSave<T>(Future<T> Function() operation) async {
+    _pendingSaveCount++;
+    _saveBarrier ??= Completer<void>();
+    try {
+      return await operation();
+    } finally {
+      _pendingSaveCount--;
+      if (_pendingSaveCount == 0) {
+        _saveBarrier!.complete();
+        _saveBarrier = null;
+      }
+    }
+  }
+
+  Future<void> _waitForPendingSaves() async {
+    while (_pendingSaveCount != 0) {
+      await _saveBarrier!.future;
+    }
+  }
+
+  Future<bool> _saveGeneral() => _withPendingSave(_saveGeneralImpl);
+
+  Future<bool> _saveGeneralImpl() async {
     final limit = _parsedRecentLogLimit;
     if (limit == null) return false;
+    final revision = _generalRevision;
+    final themeMode = _generalThemeMode;
+    final locale = _generalLocale;
+    final closeBehavior = _generalCloseBehavior;
     try {
       await widget.onSavePreferences(
         (current) => current.copyWith(
-          themeMode: _generalThemeMode,
-          locale: _generalLocale,
-          closeBehavior: _generalCloseBehavior,
+          themeMode: themeMode,
+          locale: locale,
+          closeBehavior: closeBehavior,
           recentLogLimit: limit,
         ),
       );
@@ -2208,11 +2240,18 @@ class _SettingsPageState extends State<_SettingsPage> {
       return false;
     }
     if (!mounted) return false;
-    setState(() => _generalRecentLogLimit = limit);
+    if (revision == _generalRevision &&
+        _generalThemeMode == themeMode &&
+        _generalLocale == locale &&
+        _generalCloseBehavior == closeBehavior &&
+        _recentLogLimit.text.trim() == '$limit') {
+      setState(() => _generalRecentLogLimit = limit);
+    }
     return true;
   }
 
   Future<void> _discardGeneral() async {
+    _generalRevision++;
     _syncGeneral();
     _recentLogLimit.text = '$_generalRecentLogLimit';
     await widget.onPreviewTheme(_generalThemeMode);
@@ -2239,7 +2278,10 @@ class _SettingsPageState extends State<_SettingsPage> {
 
   void _updateBackend(SubDockBackendConfig next) {
     if (_updating) return;
-    setState(() => _backendDraft = next);
+    setState(() {
+      _backendDraft = next;
+      _backendRevision++;
+    });
   }
 
   void _syncConfiguration() {
@@ -2251,6 +2293,7 @@ class _SettingsPageState extends State<_SettingsPage> {
     setState(() {
       _configuration = _configuration.copyWith(httpMeta: httpMeta);
       _configurationDirty = true;
+      _configurationRevision++;
       _syncConfiguration();
     });
   }
@@ -2269,14 +2312,18 @@ class _SettingsPageState extends State<_SettingsPage> {
     return null;
   }
 
-  Future<void> _saveConfiguration() async {
+  Future<void> _saveConfiguration() => _withPendingSave(_saveConfigurationImpl);
+
+  Future<void> _saveConfigurationImpl() async {
     final l10n = AppLocalizations.of(context)!;
     final issue = _configurationIssue;
     if (issue != null) return;
+    final revision = _configurationRevision;
+    final snapshot = _configuration;
     final effective = EffectiveRuntimeConfig.resolve(
       systemEnvironment: Platform.environment,
       backendEnvironment: widget.environment,
-      config: _configuration,
+      config: snapshot,
     ).environment;
     final effectiveDocument = BackendEnvDocument.parse(
       '${BackendEnvPolicy.host}=${effective[BackendEnvPolicy.host]}\n'
@@ -2290,25 +2337,29 @@ class _SettingsPageState extends State<_SettingsPage> {
     if (nonLoopback && !await _confirm(l10n.confirmNonLoopback)) return;
     try {
       await widget.onSaveConfiguration(
-        widget.configuration.copyWith(httpMeta: _configuration.httpMeta),
+        widget.configuration.copyWith(httpMeta: snapshot.httpMeta),
       );
     } on Object {
       return;
     }
     if (!mounted) return;
-    setState(() {
-      _configurationDirty = false;
-      _configuration = widget.configuration.copyWith(
-        httpMeta: _configuration.httpMeta,
-      );
-    });
+    if (revision == _configurationRevision && _configuration == snapshot) {
+      setState(() {
+        _configurationDirty = false;
+        _configuration = snapshot;
+      });
+    }
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text(l10n.saved)));
   }
 
-  Future<void> _saveBackendConfiguration() async {
+  Future<void> _saveBackendConfiguration() =>
+      _withPendingSave(_saveBackendConfigurationImpl);
+
+  Future<void> _saveBackendConfigurationImpl() async {
     final l10n = AppLocalizations.of(context)!;
     if (_backendIssue != null) return;
+    final revision = _backendRevision;
     final portText = _port.text.trim();
     final backend = _backendDraft.copyWith(
       apiPort: portText.isEmpty ? null : int.parse(portText),
@@ -2339,11 +2390,13 @@ class _SettingsPageState extends State<_SettingsPage> {
       return;
     }
     if (!mounted) return;
-    setState(() {
-      _backendDraft = backend;
-      _savedBackend = backend;
-      _syncBackendControllers();
-    });
+    if (revision == _backendRevision && _backendDraft == backend) {
+      setState(() {
+        _backendDraft = backend;
+        _savedBackend = backend;
+        _syncBackendControllers();
+      });
+    }
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text(l10n.saved)));
   }
@@ -2353,30 +2406,38 @@ class _SettingsPageState extends State<_SettingsPage> {
     setState(() {
       _document = BackendEnvDocument.parse(value);
       _dirty = true;
+      _environmentRevision++;
       _syncControllers();
     });
   }
 
-  Future<void> _save() async {
+  Future<void> _save() => _withPendingSave(_saveEnvironmentImpl);
+
+  Future<void> _saveEnvironmentImpl() async {
     final l10n = AppLocalizations.of(context)!;
-    final issues = BackendEnvPolicy.validate(_document);
+    final revision = _environmentRevision;
+    final snapshot = _document;
+    final issues = BackendEnvPolicy.validate(snapshot);
     if (issues.isNotEmpty) return;
-    if (BackendEnvPolicy.externalOrigins(_document).isNotEmpty &&
+    if (BackendEnvPolicy.externalOrigins(snapshot).isNotEmpty &&
         !await _confirm(l10n.confirmExternalCors)) {
       return;
     }
-    if (BackendEnvPolicy.hasNonLoopbackHost(_document) &&
+    if (BackendEnvPolicy.hasNonLoopbackHost(snapshot) &&
         !await _confirm(l10n.confirmNonLoopback)) {
       return;
     }
     try {
-      await widget.onSaveEnvironment(_document);
+      await widget.onSaveEnvironment(snapshot);
     } on Object {
       // _saveEnvironment records the error into _error for display.
       return;
     }
     if (!mounted) return;
-    setState(() => _dirty = false);
+    if (revision == _environmentRevision &&
+        _document.rawText == snapshot.rawText) {
+      setState(() => _dirty = false);
+    }
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text(l10n.saved)));
   }
@@ -2487,6 +2548,8 @@ class _SettingsPageState extends State<_SettingsPage> {
   }
 
   Future<bool> requestLeave() async {
+    await _waitForPendingSaves();
+    if (!mounted) return true;
     if (!_generalDirty && !_dirty && !_configurationDirty && !_backendDirty) {
       return true;
     }
@@ -2513,6 +2576,9 @@ class _SettingsPageState extends State<_SettingsPage> {
     );
     if (decision == null || decision == _LeaveDecision.cancel) return false;
     if (decision == _LeaveDecision.discard) {
+      _environmentRevision++;
+      _configurationRevision++;
+      _backendRevision++;
       if (_generalDirty) await _discardGeneral();
       if (_dirty) {
         _document = widget.environment;
@@ -2625,9 +2691,10 @@ class _SettingsPageState extends State<_SettingsPage> {
                               ],
                               selected: {_generalThemeMode},
                               onSelectionChanged: (selection) {
-                                setState(
-                                  () => _generalThemeMode = selection.first,
-                                );
+                                setState(() {
+                                  _generalThemeMode = selection.first;
+                                  _generalRevision++;
+                                });
                                 unawaited(
                                   widget.onPreviewTheme(selection.first),
                                 );
@@ -2655,7 +2722,10 @@ class _SettingsPageState extends State<_SettingsPage> {
                                       value == null || value == 'system'
                                       ? null
                                       : value;
-                                  setState(() => _generalLocale = locale);
+                                  setState(() {
+                                    _generalLocale = locale;
+                                    _generalRevision++;
+                                  });
                                   unawaited(
                                     widget.onPreviewLocale(
                                       locale == null ? null : Locale(locale),
@@ -2681,7 +2751,10 @@ class _SettingsPageState extends State<_SettingsPage> {
                           ],
                           onChanged: (value) {
                             if (value != null) {
-                              setState(() => _generalCloseBehavior = value);
+                              setState(() {
+                                _generalCloseBehavior = value;
+                                _generalRevision++;
+                              });
                             }
                           },
                         ),
@@ -2714,7 +2787,7 @@ class _SettingsPageState extends State<_SettingsPage> {
                           onChanged: (value) {
                             if (value != null) {
                               _recentLogLimit.text = '$value';
-                              setState(() {});
+                              setState(() => _generalRevision++);
                             }
                           },
                         ),
@@ -2725,7 +2798,7 @@ class _SettingsPageState extends State<_SettingsPage> {
                           decoration: InputDecoration(
                             labelText: l10n.recentLogs,
                           ),
-                          onChanged: (_) => setState(() {}),
+                          onChanged: (_) => setState(() => _generalRevision++),
                         ),
                       ],
                     ),
@@ -2864,6 +2937,7 @@ class _SettingsPageState extends State<_SettingsPage> {
                               _backendDraft = _backendDraft.copyWith(
                                 merge: _mergeValue,
                               );
+                              _backendRevision++;
                             });
                           },
                         ),
