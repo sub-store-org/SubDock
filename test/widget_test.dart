@@ -29,6 +29,9 @@ import 'package:subdock/settings/config_error.dart';
 import 'package:subdock/settings/desktop_preferences.dart';
 import 'package:subdock/settings/desktop_preferences_store.dart';
 import 'package:subdock/settings/subdock_config_store.dart';
+import 'package:subdock/update/component_metadata_store.dart';
+import 'package:subdock/update/component_update_checker.dart';
+import 'package:subdock/update/component_update_service.dart';
 
 void main() {
   testWidgets('runtime controls the backend through its abstraction', (
@@ -259,6 +262,101 @@ void main() {
     final log = tester.widget<SelectableText>(find.byType(SelectableText));
     expect(log.data, contains('2026-09-13T04:30:00.000Z'));
     expect(log.data, contains('[stdout] fixture log line'));
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('overview uses local component status without remote checks', (
+    WidgetTester tester,
+  ) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    final updates = _FakeComponentUpdateOperations();
+    final coordinator = AppCoordinator(
+      runtime: _FakeBackendRuntime(),
+      environmentStore: BackendEnvStore(directories!),
+      componentUpdates: updates,
+    );
+
+    await tester.pumpWidget(
+      SubDockApp(
+        coordinator: coordinator,
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('zh'),
+      ),
+    );
+    await _pumpRealIo(tester);
+
+    expect(
+      find.text('backend: 当前 backend-current; 上一版 backend-previous; 可回滚'),
+      findsOneWidget,
+    );
+    expect(find.text('frontend: 当前 frontend-current; 不可回滚'), findsOneWidget);
+    expect(updates.statusCalls[ComponentKind.backend], greaterThanOrEqualTo(1));
+    expect(
+      updates.statusCalls[ComponentKind.frontend],
+      greaterThanOrEqualTo(1),
+    );
+    expect(updates.checkCalls, isEmpty);
+
+    final backendStatusCalls = updates.statusCalls[ComponentKind.backend]!;
+    final frontendStatusCalls = updates.statusCalls[ComponentKind.frontend]!;
+    await tester.tap(find.byKey(const ValueKey('nav-item-logs')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('nav-item-overview')));
+    await _pumpRealIo(tester);
+    expect(updates.statusCalls[ComponentKind.backend], backendStatusCalls + 1);
+    expect(
+      updates.statusCalls[ComponentKind.frontend],
+      frontendStatusCalls + 1,
+    );
+    expect(updates.checkCalls, isEmpty);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('manage toolbar stays hidden before WebView is ready', (
+    WidgetTester tester,
+  ) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    final runtime = _FakeBackendRuntime();
+    final coordinator = AppCoordinator(
+      runtime: runtime,
+      environmentStore: BackendEnvStore(directories!),
+    );
+
+    await tester.pumpWidget(
+      SubDockApp(
+        coordinator: coordinator,
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('zh'),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-manage')));
+    await tester.pump();
+    expect(find.byTooltip('刷新'), findsNothing);
+    expect(find.byTooltip('在系统浏览器中打开'), findsNothing);
+
+    runtime.emitState(RuntimeStatus.starting);
+    await tester.pump();
+    expect(find.byKey(const ValueKey('manage-transition')), findsOneWidget);
+    expect(find.byTooltip('刷新'), findsNothing);
+    expect(find.byTooltip('在系统浏览器中打开'), findsNothing);
+
+    runtime.emitState(RuntimeStatus.stopping);
+    await tester.pump();
+    expect(find.byKey(const ValueKey('manage-transition')), findsOneWidget);
+    expect(find.byTooltip('刷新'), findsNothing);
+    expect(find.byTooltip('在系统浏览器中打开'), findsNothing);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -983,6 +1081,9 @@ class _FakeBackendRuntime extends BackendRuntime {
 
   void emitLog(RuntimeLog log) => _logs.add(log);
 
+  void emitState(RuntimeStatus status) =>
+      _states.add(RuntimeState(status: status, changedAt: DateTime.now()));
+
   @override
   RuntimeState get currentState => RuntimeState(
     status: starts > stops ? RuntimeStatus.running : RuntimeStatus.stopped,
@@ -1038,4 +1139,30 @@ class _FakeBackendRuntime extends BackendRuntime {
     await _logs.close();
     await _states.close();
   }
+}
+
+class _FakeComponentUpdateOperations implements ComponentUpdateOperations {
+  final statusCalls = <ComponentKind, int>{};
+  final checkCalls = <ComponentKind, int>{};
+
+  @override
+  Future<ComponentVersionStatus> status(ComponentKind kind) async {
+    statusCalls[kind] = (statusCalls[kind] ?? 0) + 1;
+    return ComponentVersionStatus(
+      current: '${kind.name}-current',
+      previous: kind == ComponentKind.backend ? '${kind.name}-previous' : null,
+    );
+  }
+
+  @override
+  Future<ComponentUpdate> check(ComponentKind kind) async {
+    checkCalls[kind] = (checkCalls[kind] ?? 0) + 1;
+    throw StateError('check should not be called');
+  }
+
+  @override
+  Future<void> rollback(ComponentKind kind) async {}
+
+  @override
+  Future<void> update(ComponentUpdate update) async {}
 }
