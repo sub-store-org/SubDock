@@ -11,6 +11,7 @@ import 'package:webview_all/webview_all.dart';
 
 import '../l10n/generated/app_localizations.dart';
 import '../runtime/backend_runtime.dart';
+import '../runtime/runtime_log_store.dart';
 import '../settings/backend_env.dart';
 import '../settings/config_error.dart';
 import '../settings/desktop_preferences.dart';
@@ -393,6 +394,7 @@ class _SubDockAppState extends State<SubDockApp> {
       ),
       _LogsPage(
         logs: _logs,
+        logStore: widget.coordinator.logStore,
         sort: _savedPreferences.logSort,
         entryGeneration: _logsEntryGeneration,
         onSortChanged: _onLogSortChanged,
@@ -1331,6 +1333,8 @@ class _OverviewPage extends StatelessWidget {
 
 enum _LogLevel { debug, info, warning, error }
 
+enum _LogsMode { current, history }
+
 class _ClassifiedLog {
   const _ClassifiedLog(this.log, this.source, this.level);
 
@@ -1386,12 +1390,14 @@ String _formatLog(_ClassifiedLog item, BuildContext context) {
 class _LogsPage extends StatefulWidget {
   const _LogsPage({
     required this.logs,
+    required this.logStore,
     required this.sort,
     required this.entryGeneration,
     required this.onSortChanged,
   });
 
   final List<RuntimeLog> logs;
+  final RuntimeLogStore? logStore;
   final LogSort sort;
   final int entryGeneration;
   final Future<void> Function(LogSort) onSortChanged;
@@ -1402,8 +1408,25 @@ class _LogsPage extends StatefulWidget {
 
 class _LogsPageState extends State<_LogsPage> {
   final _query = TextEditingController();
+  final _historyScroll = ScrollController();
   var _sources = <String>{'Backend', 'HTTP-META'};
   var _levels = Set<_LogLevel>.of(_LogLevel.values);
+  var _mode = _LogsMode.current;
+  var _historyLoading = false;
+  Object? _historyError;
+  List<RuntimeLogRun> _historyRuns = const [];
+  RuntimeLogRun? _selectedRun;
+  List<RuntimeLog> _historyLogs = const [];
+  var _historyPage = 0;
+  var _historyHasPrevious = false;
+  var _historyHasNext = false;
+  var _historyGeneration = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadHistoryRuns());
+  }
 
   @override
   void didUpdateWidget(covariant _LogsPage oldWidget) {
@@ -1412,18 +1435,174 @@ class _LogsPageState extends State<_LogsPage> {
       _query.clear();
       _sources = {'Backend', 'HTTP-META'};
       _levels = Set<_LogLevel>.of(_LogLevel.values);
+      _mode = _LogsMode.current;
+      _selectedRun = null;
+    }
+    if (oldWidget.sort != widget.sort && _selectedRun != null) {
+      unawaited(_loadHistoryPage(_selectedRun!, page: 0));
     }
   }
 
   @override
   void dispose() {
     _query.dispose();
+    _historyScroll.dispose();
     super.dispose();
   }
 
+  Future<void> _loadHistoryRuns() async {
+    final store = widget.logStore;
+    if (store == null) return;
+    setState(() => _historyLoading = true);
+    try {
+      final runs = await store.listRuns();
+      if (!mounted) return;
+      setState(() {
+        _historyRuns = runs;
+        _historyError = null;
+      });
+    } catch (error) {
+      if (mounted) setState(() => _historyError = error);
+    } finally {
+      if (mounted) setState(() => _historyLoading = false);
+    }
+  }
+
+  Future<void> _loadHistoryPage(RuntimeLogRun run, {required int page}) async {
+    final store = widget.logStore;
+    if (store == null) return;
+    final generation = ++_historyGeneration;
+    setState(() {
+      _selectedRun = run;
+      _historyLoading = true;
+      _historyError = null;
+    });
+    try {
+      final pageLogs = <RuntimeLog>[];
+      await for (final log in store.readRunStream(
+        run.id,
+        reverse: widget.sort == LogSort.newestFirst,
+      )) {
+        if (pageLogs.length >= page * 200 &&
+            pageLogs.length < (page + 1) * 200 + 1) {
+          pageLogs.add(log);
+        }
+        if (pageLogs.length >= (page + 1) * 200 + 1) break;
+      }
+      if (!mounted || generation != _historyGeneration) return;
+      setState(() {
+        _historyPage = page;
+        _historyHasPrevious = page > 0;
+        _historyHasNext = pageLogs.length > 200;
+        _historyLogs = pageLogs.take(200).toList();
+      });
+    } catch (error) {
+      if (mounted && generation == _historyGeneration) {
+        setState(() => _historyError = error);
+      }
+    } finally {
+      if (mounted && generation == _historyGeneration) {
+        setState(() => _historyLoading = false);
+      }
+    }
+  }
+
+  Widget _buildHistoryList(AppLocalizations l10n) {
+    if (_historyLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_historyError != null) {
+      return Center(child: Text(l10n.historyLoadError));
+    }
+    if (_historyRuns.isEmpty) return Center(child: Text(l10n.noHistory));
+    return Column(
+      children: [
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton(
+            onPressed: () => unawaited(_clearHistory(l10n)),
+            child: Text(l10n.clearHistory),
+          ),
+        ),
+        Expanded(
+          child: ListView.builder(
+            controller: _historyScroll,
+            itemCount: _historyRuns.length,
+            itemBuilder: (context, index) {
+              final run = _historyRuns[index];
+              return ListTile(
+                key: ValueKey('history-run-${run.id}'),
+                title: Text(run.start.toLocal().toString()),
+                subtitle: Text('${run.eventCount} ${l10n.logEvents}'),
+                trailing: IconButton(
+                  tooltip: l10n.deleteRun,
+                  icon: const Icon(Icons.delete_outline),
+                  onPressed: () => unawaited(_deleteRun(run, l10n)),
+                ),
+                onTap: () => unawaited(_loadHistoryPage(run, page: 0)),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _deleteRun(RuntimeLogRun run, AppLocalizations l10n) async {
+    final store = widget.logStore;
+    if (store == null) return;
+    try {
+      await store.deleteRun(run.id);
+      await _loadHistoryRuns();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(l10n.recentlyDeleted),
+            action: SnackBarAction(
+              label: l10n.undo,
+              onPressed: () => unawaited(_undoDeletion()),
+            ),
+          ),
+        );
+      }
+    } catch (error) {
+      if (mounted) setState(() => _historyError = error);
+    }
+  }
+
+  Future<void> _clearHistory(AppLocalizations l10n) async {
+    final store = widget.logStore;
+    if (store == null || _historyRuns.isEmpty) return;
+    try {
+      await store.clearHistory();
+      await _loadHistoryRuns();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(l10n.recentlyDeleted),
+            action: SnackBarAction(
+              label: l10n.undo,
+              onPressed: () => unawaited(_undoDeletion()),
+            ),
+          ),
+        );
+      }
+    } catch (error) {
+      if (mounted) setState(() => _historyError = error);
+    }
+  }
+
+  Future<void> _undoDeletion() async {
+    final store = widget.logStore;
+    if (store == null) return;
+    await store.undoLastDeletion();
+    await _loadHistoryRuns();
+  }
+
   List<_ClassifiedLog> get _visible {
+    final source = _selectedRun == null ? widget.logs : _historyLogs;
     final query = _query.text.toLowerCase();
-    final result = widget.logs.map(_classifyLog).where((item) {
+    final result = source.map(_classifyLog).where((item) {
       return _sources.contains(item.source) &&
           _levels.contains(item.level) &&
           item.log.message.toLowerCase().contains(query);
@@ -1463,102 +1642,168 @@ class _LogsPageState extends State<_LogsPage> {
         padding: EdgeInsets.zero,
         child: Column(
           children: [
-            Padding(
-              padding: EdgeInsets.all(typography.spacingSm),
-              child: Column(
-                children: [
-                  TextField(
-                    controller: _query,
-                    onChanged: (_) => setState(() {}),
-                    decoration: InputDecoration(
-                      hintText: l10n.logSearch,
-                      prefixIcon: const Icon(Icons.search),
-                    ),
-                  ),
-                  Wrap(
-                    spacing: 4,
-                    children: [
-                      for (final source in ['Backend', 'HTTP-META'])
-                        FilterChip(
-                          label: Text(source),
-                          selected: _sources.contains(source),
-                          onSelected: (_) => _toggleSource(source),
-                        ),
-                      for (final level in _LogLevel.values)
-                        FilterChip(
-                          label: Text(_levelLabel(l10n, level)),
-                          selected: _levels.contains(level),
-                          onSelected: (_) => _toggleLevel(level),
-                        ),
-                    ],
-                  ),
-                  Row(
-                    children: [
-                      SegmentedButton<LogSort>(
-                        segments: [
-                          ButtonSegment(
-                            value: LogSort.newestFirst,
-                            label: Text(l10n.logNewest),
-                          ),
-                          ButtonSegment(
-                            value: LogSort.newestLast,
-                            label: Text(l10n.logOldest),
-                          ),
-                        ],
-                        selected: {widget.sort},
-                        onSelectionChanged: (value) =>
-                            unawaited(widget.onSortChanged(value.first)),
-                      ),
-                      const Spacer(),
-                      TextButton(
-                        onPressed: visible.isEmpty
-                            ? null
-                            : () => unawaited(_copy(context, visible)),
-                        child: Text(l10n.copyFilteredLogs),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+            SegmentedButton<_LogsMode>(
+              segments: [
+                ButtonSegment(
+                  value: _LogsMode.current,
+                  label: Text(l10n.current),
+                ),
+                ButtonSegment(
+                  value: _LogsMode.history,
+                  label: Text(l10n.history),
+                ),
+              ],
+              selected: {_mode},
+              onSelectionChanged: (value) {
+                final next = value.first;
+                if (next == _mode) return;
+                setState(() {
+                  _mode = next;
+                  _selectedRun = null;
+                  _historyError = null;
+                });
+                if (next == _LogsMode.history) unawaited(_loadHistoryRuns());
+              },
             ),
-            const Divider(height: 1),
-            Expanded(
-              child: visible.isEmpty
-                  ? Center(
-                      child: Text(
-                        widget.logs.isEmpty ? l10n.noLogs : l10n.noFilteredLogs,
+            if (_mode == _LogsMode.history && _selectedRun == null)
+              Expanded(child: _buildHistoryList(l10n))
+            else ...[
+              if (_selectedRun != null)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton(
+                    key: const ValueKey('history-back'),
+                    onPressed: () => setState(() => _selectedRun = null),
+                    child: Text(l10n.back),
+                  ),
+                ),
+              Padding(
+                padding: EdgeInsets.all(typography.spacingSm),
+                child: Column(
+                  children: [
+                    TextField(
+                      controller: _query,
+                      onChanged: (_) => setState(() {}),
+                      decoration: InputDecoration(
+                        hintText: l10n.logSearch,
+                        prefixIcon: const Icon(Icons.search),
                       ),
-                    )
-                  : ListView.separated(
-                      itemCount: visible.length,
-                      separatorBuilder: (_, _) => const Divider(height: 1),
-                      itemBuilder: (context, index) {
-                        final item = visible[index];
-                        return Padding(
-                          padding: EdgeInsets.all(typography.spacingSm),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Expanded(
-                                child: SelectableText(
-                                  _formatLog(item, context),
-                                  style: typography.bodySmall.copyWith(
-                                    fontFamily: 'monospace',
+                    ),
+                    Wrap(
+                      spacing: 4,
+                      children: [
+                        for (final source in ['Backend', 'HTTP-META'])
+                          FilterChip(
+                            label: Text(source),
+                            selected: _sources.contains(source),
+                            onSelected: (_) => _toggleSource(source),
+                          ),
+                        for (final level in _LogLevel.values)
+                          FilterChip(
+                            label: Text(_levelLabel(l10n, level)),
+                            selected: _levels.contains(level),
+                            onSelected: (_) => _toggleLevel(level),
+                          ),
+                      ],
+                    ),
+                    Row(
+                      children: [
+                        SegmentedButton<LogSort>(
+                          segments: [
+                            ButtonSegment(
+                              value: LogSort.newestFirst,
+                              label: Text(l10n.logNewest),
+                            ),
+                            ButtonSegment(
+                              value: LogSort.newestLast,
+                              label: Text(l10n.logOldest),
+                            ),
+                          ],
+                          selected: {widget.sort},
+                          onSelectionChanged: (value) =>
+                              unawaited(widget.onSortChanged(value.first)),
+                        ),
+                        const Spacer(),
+                        TextButton(
+                          onPressed: visible.isEmpty
+                              ? null
+                              : () => unawaited(_copy(context, visible)),
+                          child: Text(l10n.copyFilteredLogs),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: visible.isEmpty
+                    ? Center(
+                        child: Text(
+                          widget.logs.isEmpty
+                              ? l10n.noLogs
+                              : l10n.noFilteredLogs,
+                        ),
+                      )
+                    : ListView.separated(
+                        itemCount: visible.length,
+                        separatorBuilder: (_, _) => const Divider(height: 1),
+                        itemBuilder: (context, index) {
+                          final item = visible[index];
+                          return Padding(
+                            padding: EdgeInsets.all(typography.spacingSm),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: SelectableText(
+                                    _formatLog(item, context),
+                                    style: typography.bodySmall.copyWith(
+                                      fontFamily: 'monospace',
+                                    ),
                                   ),
                                 ),
+                                IconButton(
+                                  tooltip: l10n.copyLog,
+                                  icon: const Icon(Icons.copy, size: 18),
+                                  onPressed: () =>
+                                      unawaited(_copy(context, [item])),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+              ),
+              if (_selectedRun != null)
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    TextButton(
+                      onPressed: _historyHasPrevious
+                          ? () => unawaited(
+                              _loadHistoryPage(
+                                _selectedRun!,
+                                page: _historyPage - 1,
                               ),
-                              IconButton(
-                                tooltip: l10n.copyLog,
-                                icon: const Icon(Icons.copy, size: 18),
-                                onPressed: () =>
-                                    unawaited(_copy(context, [item])),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
+                            )
+                          : null,
+                      child: Text(l10n.previousPage),
                     ),
-            ),
+                    TextButton(
+                      onPressed: _historyHasNext
+                          ? () => unawaited(
+                              _loadHistoryPage(
+                                _selectedRun!,
+                                page: _historyPage + 1,
+                              ),
+                            )
+                          : null,
+                      child: Text(l10n.nextPage),
+                    ),
+                  ],
+                ),
+            ],
           ],
         ),
       ),

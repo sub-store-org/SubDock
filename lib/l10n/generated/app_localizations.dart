@@ -476,6 +476,78 @@ abstract class AppLocalizations {
   /// **'错误'**
   String get logLevelError;
 
+  /// No description provided for @current.
+  ///
+  /// In zh, this message translates to:
+  /// **'当前'**
+  String get current;
+
+  /// No description provided for @history.
+  ///
+  /// In zh, this message translates to:
+  /// **'历史'**
+  String get history;
+
+  /// No description provided for @noHistory.
+  ///
+  /// In zh, this message translates to:
+  /// **'暂无历史记录'**
+  String get noHistory;
+
+  /// No description provided for @historyLoadError.
+  ///
+  /// In zh, this message translates to:
+  /// **'无法加载历史记录'**
+  String get historyLoadError;
+
+  /// No description provided for @logEvents.
+  ///
+  /// In zh, this message translates to:
+  /// **'条日志'**
+  String get logEvents;
+
+  /// No description provided for @back.
+  ///
+  /// In zh, this message translates to:
+  /// **'返回'**
+  String get back;
+
+  /// No description provided for @deleteRun.
+  ///
+  /// In zh, this message translates to:
+  /// **'删除运行记录'**
+  String get deleteRun;
+
+  /// No description provided for @clearHistory.
+  ///
+  /// In zh, this message translates to:
+  /// **'清空历史'**
+  String get clearHistory;
+
+  /// No description provided for @undo.
+  ///
+  /// In zh, this message translates to:
+  /// **'撤销'**
+  String get undo;
+
+  /// No description provided for @recentlyDeleted.
+  ///
+  /// In zh, this message translates to:
+  /// **'已删除'**
+  String get recentlyDeleted;
+
+  /// No description provided for @previousPage.
+  ///
+  /// In zh, this message translates to:
+  /// **'上一页'**
+  String get previousPage;
+
+  /// No description provided for @nextPage.
+  ///
+  /// In zh, this message translates to:
+  /// **'下一页'**
+  String get nextPage;
+
   /// No description provided for @confirmExternalCors.
   ///
   /// In zh, this message translates to:

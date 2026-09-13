@@ -213,6 +213,42 @@ class AppLocalizationsZh extends AppLocalizations {
   String get logLevelError => '错误';
 
   @override
+  String get current => '当前';
+
+  @override
+  String get history => '历史';
+
+  @override
+  String get noHistory => '暂无历史记录';
+
+  @override
+  String get historyLoadError => '无法加载历史记录';
+
+  @override
+  String get logEvents => '条日志';
+
+  @override
+  String get back => '返回';
+
+  @override
+  String get deleteRun => '删除运行记录';
+
+  @override
+  String get clearHistory => '清空历史';
+
+  @override
+  String get undo => '撤销';
+
+  @override
+  String get recentlyDeleted => '已删除';
+
+  @override
+  String get previousPage => '上一页';
+
+  @override
+  String get nextPage => '下一页';
+
+  @override
   String get confirmExternalCors => '允许外部 origin 会使其能够访问 Backend API。是否继续保存？';
 
   @override

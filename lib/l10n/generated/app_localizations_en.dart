@@ -217,6 +217,42 @@ class AppLocalizationsEn extends AppLocalizations {
   String get logLevelError => 'Error';
 
   @override
+  String get current => 'Current';
+
+  @override
+  String get history => 'History';
+
+  @override
+  String get noHistory => 'No history';
+
+  @override
+  String get historyLoadError => 'Unable to load history';
+
+  @override
+  String get logEvents => 'events';
+
+  @override
+  String get back => 'Back';
+
+  @override
+  String get deleteRun => 'Delete run';
+
+  @override
+  String get clearHistory => 'Clear history';
+
+  @override
+  String get undo => 'Undo';
+
+  @override
+  String get recentlyDeleted => 'Recently deleted';
+
+  @override
+  String get previousPage => 'Previous';
+
+  @override
+  String get nextPage => 'Next';
+
+  @override
   String get confirmExternalCors =>
       'Allowing an external origin lets it reach the Backend API. Save anyway?';
 

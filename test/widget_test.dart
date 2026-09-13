@@ -8,6 +8,7 @@ import 'package:flutter/material.dart'
         FilterChip,
         FilledButton,
         Locale,
+        ListTile,
         NavigationBar,
         OutlinedButton,
         SelectableText,
@@ -26,6 +27,7 @@ import 'package:subdock/app/app.dart';
 import 'package:subdock/app/app_coordinator.dart';
 import 'package:subdock/runtime/backend_runtime.dart';
 import 'package:subdock/runtime/runtime_directories.dart';
+import 'package:subdock/runtime/runtime_log_store.dart';
 import 'package:subdock/settings/backend_env_store.dart';
 import 'package:subdock/settings/config_error.dart';
 import 'package:subdock/settings/desktop_preferences.dart';
@@ -484,6 +486,56 @@ void main() {
     runtime.emitState(RuntimeStatus.stopped);
     await tester.pump();
     expect(find.byType(SelectableText), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('history lists and opens completed log runs', (
+    WidgetTester tester,
+  ) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    final store = RuntimeLogStore(directories!);
+    await tester.runAsync(() async {
+      await store.initialize();
+      await store.beginRun();
+      await store.append(
+        RuntimeLog(
+          timestamp: DateTime.now(),
+          source: RuntimeLogSource.stdout,
+          message: 'historical entry',
+        ),
+      );
+      await store.finalize();
+    });
+    final coordinator = AppCoordinator(
+      runtime: _FakeBackendRuntime(),
+      environmentStore: BackendEnvStore(directories),
+      logStore: store,
+    );
+    await tester.pumpWidget(
+      SubDockApp(
+        coordinator: coordinator,
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('zh'),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-logs')));
+    await tester.pump();
+    await tester.tap(find.text('历史'));
+    await tester.pump();
+    await _pumpRealIo(tester);
+    expect(find.byType(ListTile), findsOneWidget);
+    await tester.tap(find.byType(ListTile));
+    await _pumpRealIo(tester);
+    expect(find.textContaining('historical entry'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('history-back')));
+    await tester.pump();
+    expect(find.byType(ListTile), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
   });
 
