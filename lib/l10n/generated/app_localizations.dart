@@ -750,6 +750,12 @@ abstract class AppLocalizations {
   /// **'最近日志条数'**
   String get recentLogs;
 
+  /// No description provided for @recentLogPresets.
+  ///
+  /// In zh, this message translates to:
+  /// **'选择预设条数'**
+  String get recentLogPresets;
+
   /// No description provided for @languageFollowSystem.
   ///
   /// In zh, this message translates to:

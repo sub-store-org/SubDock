@@ -374,6 +374,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get recentLogs => 'Recent logs';
 
   @override
+  String get recentLogPresets => 'Preset limit';
+
+  @override
   String get languageFollowSystem => 'Follow system';
 
   @override

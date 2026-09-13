@@ -2121,7 +2121,17 @@ class _SettingsPageState extends State<_SettingsPage> {
         recentLogLimit: _generalRecentLogLimit,
       );
 
-  bool get _generalDirty => _generalPreferences != widget.savedPreferences;
+  int? get _parsedRecentLogLimit {
+    final value = int.tryParse(_recentLogLimit.text.trim());
+    return value != null && value >= 50 && value <= 2000 ? value : null;
+  }
+
+  bool get _generalDirty =>
+      _generalThemeMode != widget.savedPreferences.themeMode ||
+      _generalLocale != widget.savedPreferences.locale ||
+      _generalCloseBehavior != widget.savedPreferences.closeBehavior ||
+      _recentLogLimit.text.trim() !=
+          '${widget.savedPreferences.recentLogLimit}';
 
   void _syncGeneral() {
     final preferences = widget.savedPreferences;
@@ -2132,8 +2142,8 @@ class _SettingsPageState extends State<_SettingsPage> {
   }
 
   Future<bool> _saveGeneral() async {
-    final limit = int.tryParse(_recentLogLimit.text.trim());
-    if (limit == null || limit < 50 || limit > 2000) return false;
+    final limit = _parsedRecentLogLimit;
+    if (limit == null) return false;
     try {
       await widget.onSavePreferences(
         _generalPreferences.copyWith(recentLogLimit: limit),
@@ -2146,14 +2156,12 @@ class _SettingsPageState extends State<_SettingsPage> {
     return true;
   }
 
-  void _discardGeneral() {
+  Future<void> _discardGeneral() async {
     _syncGeneral();
     _recentLogLimit.text = '$_generalRecentLogLimit';
-    unawaited(widget.onPreviewTheme(_generalThemeMode));
-    unawaited(
-      widget.onPreviewLocale(
-        _generalLocale == null ? null : Locale(_generalLocale!),
-      ),
+    await widget.onPreviewTheme(_generalThemeMode);
+    await widget.onPreviewLocale(
+      _generalLocale == null ? null : Locale(_generalLocale!),
     );
     setState(() {});
   }
@@ -2403,7 +2411,7 @@ class _SettingsPageState extends State<_SettingsPage> {
     );
     if (decision == null || decision == _LeaveDecision.cancel) return false;
     if (decision == _LeaveDecision.discard) {
-      if (_generalDirty) _discardGeneral();
+      if (_generalDirty) await _discardGeneral();
       if (_dirty) {
         _document = widget.environment;
         _syncControllers();
@@ -2445,7 +2453,7 @@ class _SettingsPageState extends State<_SettingsPage> {
     final messenger = ScaffoldMessenger.of(context);
     final colors = Theme.of(context).extension<AppColors>()!;
     final typography = Theme.of(context).extension<AppTypography>()!;
-    return ListView(
+    final content = ListView(
       key: const ValueKey('settings-list'),
       padding: EdgeInsets.all(typography.spacingLg),
       children: [
@@ -2580,6 +2588,39 @@ class _SettingsPageState extends State<_SettingsPage> {
                             }
                           },
                         ),
+                        DropdownButton<int>(
+                          key: const ValueKey('settings-recent-log-presets'),
+                          value:
+                              const [
+                                100,
+                                200,
+                                500,
+                                1000,
+                                2000,
+                              ].contains(_parsedRecentLogLimit)
+                              ? _parsedRecentLogLimit
+                              : null,
+                          hint: Text(l10n.recentLogPresets),
+                          items: [
+                            for (final value in const [
+                              100,
+                              200,
+                              500,
+                              1000,
+                              2000,
+                            ])
+                              DropdownMenuItem(
+                                value: value,
+                                child: Text('$value'),
+                              ),
+                          ],
+                          onChanged: (value) {
+                            if (value != null) {
+                              _recentLogLimit.text = '$value';
+                              setState(() {});
+                            }
+                          },
+                        ),
                         TextField(
                           key: const ValueKey('settings-recent-log-limit'),
                           controller: _recentLogLimit,
@@ -2589,36 +2630,12 @@ class _SettingsPageState extends State<_SettingsPage> {
                           ),
                           onChanged: (_) => setState(() {}),
                         ),
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: FilledButton(
-                            key: const ValueKey('settings-save-all'),
-                            onPressed:
-                                _generalDirty &&
-                                    int.tryParse(_recentLogLimit.text.trim()) !=
-                                        null &&
-                                    int.parse(_recentLogLimit.text.trim()) >=
-                                        50 &&
-                                    int.parse(_recentLogLimit.text.trim()) <=
-                                        2000
-                                ? () async {
-                                    if (await _saveGeneral() && mounted) {
-                                      messenger.showSnackBar(
-                                        SnackBar(content: Text(l10n.saved)),
-                                      );
-                                    }
-                                  }
-                                : null,
-                            child: Text(l10n.saveAll),
-                          ),
-                        ),
                       ],
                     ),
                   ),
                 ],
                 SizedBox(height: typography.spacingLg),
-                if (_section == _SettingsSection.home ||
-                    _section == _SettingsSection.subDockConfig) ...[
+                if (_section == _SettingsSection.subDockConfig) ...[
                   _SurfacePanel(
                     key: const ValueKey('settings-subdock-config'),
                     child: Column(
@@ -2673,8 +2690,7 @@ class _SettingsPageState extends State<_SettingsPage> {
                   ),
                 ],
                 SizedBox(height: typography.spacingLg),
-                if (_section == _SettingsSection.home ||
-                    _section == _SettingsSection.backendConfig) ...[
+                if (_section == _SettingsSection.backendConfig) ...[
                   _SurfacePanel(
                     key: const ValueKey('settings-backend-config'),
                     child: Column(
@@ -2735,8 +2751,7 @@ class _SettingsPageState extends State<_SettingsPage> {
                   ),
                 ],
                 SizedBox(height: typography.spacingLg),
-                if (_section == _SettingsSection.home ||
-                    _section == _SettingsSection.advancedEnv)
+                if (_section == _SettingsSection.advancedEnv)
                   _SurfacePanel(
                     key: const ValueKey('settings-raw-env'),
                     padding: EdgeInsets.zero,
@@ -2811,6 +2826,34 @@ class _SettingsPageState extends State<_SettingsPage> {
             ),
           ),
         ),
+      ],
+    );
+    return Column(
+      children: [
+        Expanded(child: content),
+        if (_section == _SettingsSection.home)
+          SafeArea(
+            top: false,
+            child: Padding(
+              padding: EdgeInsets.all(typography.spacingMd),
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: FilledButton(
+                  key: const ValueKey('settings-save-all'),
+                  onPressed: _generalDirty && _parsedRecentLogLimit != null
+                      ? () async {
+                          if (await _saveGeneral() && mounted) {
+                            messenger.showSnackBar(
+                              SnackBar(content: Text(l10n.saved)),
+                            );
+                          }
+                        }
+                      : null,
+                  child: Text(l10n.saveAll),
+                ),
+              ),
+            ),
+          ),
       ],
     );
   }

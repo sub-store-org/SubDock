@@ -108,6 +108,7 @@
   "exitApp": "退出应用",
   "closeToTray": "关闭到托盘",
   "recentLogs": "最近日志条数",
+  "recentLogPresets": "选择预设条数",
   "languageFollowSystem": "跟随系统",
   "componentUpdatesHeading": "组件更新",
   "checkForUpdates": "检查更新",

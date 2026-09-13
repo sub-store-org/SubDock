@@ -365,6 +365,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get recentLogs => '最近日志条数';
 
   @override
+  String get recentLogPresets => '选择预设条数';
+
+  @override
   String get languageFollowSystem => '跟随系统';
 
   @override

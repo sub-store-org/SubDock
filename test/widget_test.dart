@@ -22,7 +22,7 @@ import 'package:flutter/material.dart'
 import 'package:flutter/scheduler.dart' show AppLifecycleState;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart'
-    show GestureDetector, Offstage, Scrollable, SizedBox, ValueKey;
+    show GestureDetector, Offstage, SizedBox, ValueKey;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:subdock/app/app.dart';
 import 'package:subdock/app/app_coordinator.dart';
@@ -1002,34 +1002,11 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
     await tester.pumpAndSettle();
 
-    final settingsList = find.byKey(const ValueKey('settings-list'));
-    final scrollable = find
-        .descendant(of: settingsList, matching: find.byType(Scrollable))
-        .first;
     expect(find.byKey(const ValueKey('settings-appearance')), findsOneWidget);
-    expect(tester.takeException(), isNull);
-    for (final key in [
-      'settings-subdock-config',
-      'settings-backend-config',
-      'settings-raw-env',
-      'settings-component-updates',
-    ]) {
-      final section = find.byKey(ValueKey(key));
-      await tester.scrollUntilVisible(section, 180, scrollable: scrollable);
-      expect(section, findsOneWidget);
-      expect(tester.takeException(), isNull);
-    }
-
-    final expansion = find.byKey(const ValueKey('settings-raw-env-expansion'));
-    await tester.ensureVisible(expansion);
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('settings-raw-env-editor')), findsNothing);
-    await tester.tap(expansion);
-    await tester.pumpAndSettle();
-    expect(
-      find.byKey(const ValueKey('settings-raw-env-editor')),
-      findsOneWidget,
-    );
+    expect(find.byKey(const ValueKey('settings-save-all')), findsOneWidget);
+    expect(find.byKey(const ValueKey('settings-subdock-config')), findsNothing);
+    expect(find.byKey(const ValueKey('settings-backend-config')), findsNothing);
+    expect(find.byKey(const ValueKey('settings-raw-env')), findsNothing);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
   });

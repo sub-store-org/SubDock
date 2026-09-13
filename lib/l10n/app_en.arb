@@ -108,6 +108,7 @@
   "exitApp": "Exit app",
   "closeToTray": "Close to tray",
   "recentLogs": "Recent logs",
+  "recentLogPresets": "Preset limit",
   "languageFollowSystem": "Follow system",
   "componentUpdatesHeading": "Component Updates",
   "checkForUpdates": "Check for updates",
