@@ -1370,7 +1370,7 @@ _ClassifiedLog _classifyLog(RuntimeLog log) {
   return _ClassifiedLog(log, source, level);
 }
 
-String _formatLog(_ClassifiedLog item, BuildContext context) {
+String _formatLog(_ClassifiedLog item, AppLocalizations l10n) {
   final now = DateTime.now();
   final local = item.log.timestamp.toLocal();
   final sameDay =
@@ -1380,7 +1380,6 @@ String _formatLog(_ClassifiedLog item, BuildContext context) {
   final time = sameDay
       ? '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}:${local.second.toString().padLeft(2, '0')}'
       : '${local.year}-${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')} ${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
-  final l10n = AppLocalizations.of(context)!;
   final level = switch (item.level) {
     _LogLevel.debug => l10n.logLevelDebug,
     _LogLevel.info => l10n.logLevelInfo,
@@ -1442,6 +1441,10 @@ class _LogsPageState extends State<_LogsPage> {
       _levels = Set<_LogLevel>.of(_LogLevel.values);
       _mode = _LogsMode.current;
       _selectedRun = null;
+      _historyGeneration++;
+      _historyLoading = false;
+      _historyLogs = const [];
+      _historyError = null;
     }
     if (oldWidget.sort != widget.sort && _selectedRun != null) {
       unawaited(_loadHistoryPage(_selectedRun!, page: 0));
@@ -1500,7 +1503,7 @@ class _LogsPageState extends State<_LogsPage> {
         if (!_matchesLog(classified)) continue;
         if (matchingIndex++ < page * 200) continue;
         if (pageLogs.length < 201) pageLogs.add(log);
-        if (pageLogs.length >= (page + 1) * 200 + 1) break;
+        if (pageLogs.length == 201) break;
       }
       if (!mounted || generation != _historyGeneration) return;
       setState(() {
@@ -1665,20 +1668,25 @@ class _LogsPageState extends State<_LogsPage> {
   }
 
   Future<void> _copy(
-    BuildContext context,
+    AppLocalizations l10n,
     Iterable<_ClassifiedLog> logs,
   ) async {
     await Clipboard.setData(
-      ClipboardData(
-        text: logs.map((log) => _formatLog(log, context)).join('\n'),
-      ),
+      ClipboardData(text: logs.map((log) => _formatLog(log, l10n)).join('\n')),
     );
   }
 
-  Future<void> _copyFilteredHistory(BuildContext context) async {
+  Future<void> _copyFilteredHistory(AppLocalizations l10n) async {
     final store = widget.logStore;
     final run = _selectedRun;
     if (store == null || run == null) return;
+    final query = _query.text.toLowerCase();
+    final sources = Set<String>.of(_sources);
+    final levels = Set<_LogLevel>.of(_levels);
+    bool matchesSnapshot(_ClassifiedLog item) =>
+        sources.contains(item.source) &&
+        levels.contains(item.level) &&
+        item.log.message.toLowerCase().contains(query);
     final buffer = StringBuffer();
     var first = true;
     await for (final log in store.readRunStream(
@@ -1686,10 +1694,10 @@ class _LogsPageState extends State<_LogsPage> {
       reverse: widget.sort == LogSort.newestFirst,
     )) {
       final classified = _classifyLog(log);
-      if (!_matchesLog(classified)) continue;
+      if (!matchesSnapshot(classified)) continue;
       if (!first) buffer.writeln();
       first = false;
-      buffer.write(_formatLog(classified, context));
+      buffer.write(_formatLog(classified, l10n));
     }
     await Clipboard.setData(ClipboardData(text: buffer.toString()));
   }
@@ -1724,7 +1732,9 @@ class _LogsPageState extends State<_LogsPage> {
                 setState(() {
                   _mode = next;
                   _historyGeneration++;
+                  _historyLoading = false;
                   _selectedRun = null;
+                  _historyLogs = const [];
                   _historyError = null;
                 });
                 if (next == _LogsMode.history) unawaited(_loadHistoryRuns());
@@ -1740,8 +1750,10 @@ class _LogsPageState extends State<_LogsPage> {
                     key: const ValueKey('history-back'),
                     onPressed: () => setState(() {
                       _historyGeneration++;
+                      _historyLoading = false;
                       _selectedRun = null;
                       _historyLogs = const [];
+                      _historyError = null;
                     }),
                     child: Text(l10n.back),
                   ),
@@ -1803,8 +1815,8 @@ class _LogsPageState extends State<_LogsPage> {
                               ? null
                               : () => unawaited(
                                   _selectedRun == null
-                                      ? _copy(context, visible)
-                                      : _copyFilteredHistory(context),
+                                      ? _copy(l10n, visible)
+                                      : _copyFilteredHistory(l10n),
                                 ),
                           child: Text(l10n.copyFilteredLogs),
                         ),
@@ -1838,7 +1850,7 @@ class _LogsPageState extends State<_LogsPage> {
                               children: [
                                 Expanded(
                                   child: SelectableText(
-                                    _formatLog(item, context),
+                                    _formatLog(item, l10n),
                                     style: typography.bodySmall.copyWith(
                                       fontFamily: 'monospace',
                                     ),
@@ -1848,7 +1860,7 @@ class _LogsPageState extends State<_LogsPage> {
                                   tooltip: l10n.copyLog,
                                   icon: const Icon(Icons.copy, size: 18),
                                   onPressed: () =>
-                                      unawaited(_copy(context, [item])),
+                                      unawaited(_copy(l10n, [item])),
                                 ),
                               ],
                             ),

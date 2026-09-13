@@ -509,6 +509,15 @@ void main() {
           message: 'historical entry',
         ),
       );
+      for (var index = 0; index < 405; index++) {
+        await store.append(
+          RuntimeLog(
+            timestamp: DateTime.now(),
+            source: RuntimeLogSource.stdout,
+            message: 'history-${index.toString().padLeft(3, '0')}',
+          ),
+        );
+      }
       await store.finalize();
     });
     final coordinator = AppCoordinator(
@@ -532,7 +541,12 @@ void main() {
     expect(find.byType(ListTile), findsOneWidget);
     await tester.tap(find.byType(ListTile));
     await _pumpRealIo(tester);
-    expect(find.textContaining('historical entry'), findsOneWidget);
+    expect(find.textContaining('history-404'), findsOneWidget);
+    expect(find.textContaining('historical entry'), findsNothing);
+    await tester.tap(find.text('下一页'));
+    await _pumpRealIo(tester);
+    expect(find.textContaining('history-204'), findsOneWidget);
+    expect(find.textContaining('history-404'), findsNothing);
     await tester.tap(find.byKey(const ValueKey('history-back')));
     await tester.pump();
     expect(find.byType(ListTile), findsOneWidget);
