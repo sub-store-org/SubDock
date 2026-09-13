@@ -2068,7 +2068,6 @@ class _SettingsPageState extends State<_SettingsPage> {
   var _generalRevision = 0;
   var _environmentRevision = 0;
   var _configurationRevision = 0;
-  var _backendRevision = 0;
   var _pendingSaveCount = 0;
   Completer<void>? _saveBarrier;
   late SubDockBackendConfig _savedBackend;
@@ -2280,7 +2279,6 @@ class _SettingsPageState extends State<_SettingsPage> {
     if (_updating) return;
     setState(() {
       _backendDraft = next;
-      _backendRevision++;
     });
   }
 
@@ -2359,7 +2357,6 @@ class _SettingsPageState extends State<_SettingsPage> {
   Future<void> _saveBackendConfigurationImpl() async {
     final l10n = AppLocalizations.of(context)!;
     if (_backendIssue != null) return;
-    final revision = _backendRevision;
     final portText = _port.text.trim();
     final backend = _backendDraft.copyWith(
       apiPort: portText.isEmpty ? null : int.parse(portText),
@@ -2390,13 +2387,13 @@ class _SettingsPageState extends State<_SettingsPage> {
       return;
     }
     if (!mounted) return;
-    if (revision == _backendRevision && _backendDraft == backend) {
-      setState(() {
+    setState(() {
+      _savedBackend = backend;
+      if (_backendDraft == backend) {
         _backendDraft = backend;
-        _savedBackend = backend;
         _syncBackendControllers();
-      });
-    }
+      }
+    });
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text(l10n.saved)));
   }
@@ -2578,7 +2575,6 @@ class _SettingsPageState extends State<_SettingsPage> {
     if (decision == _LeaveDecision.discard) {
       _environmentRevision++;
       _configurationRevision++;
-      _backendRevision++;
       if (_generalDirty) await _discardGeneral();
       if (_dirty) {
         _document = widget.environment;
@@ -2937,7 +2933,6 @@ class _SettingsPageState extends State<_SettingsPage> {
                               _backendDraft = _backendDraft.copyWith(
                                 merge: _mergeValue,
                               );
-                              _backendRevision++;
                             });
                           },
                         ),
