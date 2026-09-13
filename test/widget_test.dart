@@ -9,7 +9,6 @@ import 'package:flutter/material.dart'
         FilledButton,
         Locale,
         NavigationBar,
-        NavigationRail,
         OutlinedButton,
         SegmentedButton,
         Theme,
@@ -193,7 +192,10 @@ void main() {
 
     await tester.binding.setSurfaceSize(const Size(600, 800));
     await tester.pump();
-    expect(find.byKey(const ValueKey<String>('desktop-sidebar')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('desktop-sidebar')),
+      findsOneWidget,
+    );
     expect(find.byType(NavigationBar), findsNothing);
     await tester.pumpWidget(const SizedBox());
   });
@@ -525,10 +527,10 @@ void main() {
       ),
     );
 
-    expect(find.text('Settings'), findsOneWidget);
-    expect(find.text('Runtime Status'), findsOneWidget);
-    expect(find.text('Logs'), findsOneWidget);
-    expect(find.text('Manage'), findsOneWidget);
+    expect(find.text('Settings'), findsWidgets);
+    expect(find.text('Runtime Status'), findsWidgets);
+    expect(find.text('Logs'), findsWidgets);
+    expect(find.text('Manage'), findsWidgets);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -556,7 +558,7 @@ void main() {
         localeStore: localeStore,
       ),
     );
-    expect(find.text('设置'), findsOneWidget);
+    expect(find.text('设置'), findsWidgets);
 
     // Open settings and switch the language dropdown to English.
     await tester.tap(find.text('设置'));
@@ -566,8 +568,8 @@ void main() {
     await tester.tap(find.text('English').last);
     await tester.pumpAndSettle();
 
-    expect(find.text('Settings'), findsOneWidget);
-    expect(find.text('Appearance'), findsOneWidget);
+    expect(find.text('Settings'), findsWidgets);
+    expect(find.text('Appearance'), findsWidgets);
     await _pumpRealIo(tester);
     expect(await tester.runAsync(() => localeStore.load()), 'en');
     await tester.pumpWidget(const SizedBox());

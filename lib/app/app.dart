@@ -26,6 +26,18 @@ const navigationBreakpoint = 600.0;
 
 enum _AppPage { manage, runtime, logs, settings }
 
+class _ShellDestination {
+  const _ShellDestination({
+    required this.icon,
+    required this.selectedIcon,
+    required this.label,
+  });
+
+  final Widget icon;
+  final Widget selectedIcon;
+  final String label;
+}
+
 class SubDockApp extends StatefulWidget {
   const SubDockApp({
     super.key,
@@ -308,26 +320,26 @@ class _SubDockAppState extends State<SubDockApp> {
   Widget _buildHome(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final colors = Theme.of(context).extension<AppColors>()!;
-    final destinations = <NavigationRailDestination>[
-      NavigationRailDestination(
+    final destinations = <_ShellDestination>[
+      _ShellDestination(
         icon: const Icon(Icons.dashboard_outlined),
         selectedIcon: const Icon(Icons.dashboard),
-        label: Text(l10n.manage),
+        label: l10n.manage,
       ),
-      NavigationRailDestination(
+      _ShellDestination(
         icon: const Icon(Icons.memory_outlined),
         selectedIcon: const Icon(Icons.memory),
-        label: Text(l10n.runtimeStatus),
+        label: l10n.runtimeStatus,
       ),
-      NavigationRailDestination(
+      _ShellDestination(
         icon: const Icon(Icons.subject_outlined),
         selectedIcon: const Icon(Icons.subject),
-        label: Text(l10n.logs),
+        label: l10n.logs,
       ),
-      NavigationRailDestination(
+      _ShellDestination(
         icon: const Icon(Icons.settings_outlined),
         selectedIcon: const Icon(Icons.settings),
-        label: Text(l10n.settings),
+        label: l10n.settings,
       ),
     ];
     final pages = <Widget>[
@@ -378,44 +390,23 @@ class _SubDockAppState extends State<SubDockApp> {
           ),
       ],
     );
+    final pageFrame = _PageFrame(
+      title: destinations[_page.index].label,
+      child: body,
+    );
     return Scaffold(
-      appBar: AppBar(
-        title: widget.onStartDragging == null
-            ? Text(l10n.appTitle)
-            : GestureDetector(
-                behavior: HitTestBehavior.translucent,
-                onPanStart: (_) => unawaited(widget.onStartDragging!()),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(l10n.appTitle),
-                  ),
-                ),
-              ),
-        actions: [
-          if (widget.onMinimize != null)
-            IconButton(
-              tooltip: l10n.minimizeTooltip,
-              onPressed: () => unawaited(widget.onMinimize!()),
-              icon: const Icon(Icons.minimize),
-            ),
-          if (widget.onToggleFullscreen != null)
-            IconButton(
-              tooltip: l10n.toggleFullscreenTooltip,
-              onPressed: () => unawaited(widget.onToggleFullscreen!()),
-              icon: const Icon(Icons.fullscreen),
-            ),
-          if (widget.onCloseToTray != null)
-            IconButton(
-              tooltip: l10n.closeToTrayTooltip,
-              onPressed: () => unawaited(widget.onCloseToTray!()),
-              icon: const Icon(Icons.close),
-            ),
-        ],
-      ),
       body: Column(
         children: [
+          _DesktopChrome(
+            title: l10n.appTitle,
+            onStartDragging: widget.onStartDragging,
+            onMinimize: widget.onMinimize,
+            onToggleFullscreen: widget.onToggleFullscreen,
+            onCloseToTray: widget.onCloseToTray,
+            minimizeTooltip: l10n.minimizeTooltip,
+            toggleFullscreenTooltip: l10n.toggleFullscreenTooltip,
+            closeToTrayTooltip: l10n.closeToTrayTooltip,
+          ),
           if (widget.desktopWarning?.value case final warning?)
             Container(
               width: double.infinity,
@@ -432,7 +423,7 @@ class _SubDockAppState extends State<SubDockApp> {
                 if (constraints.maxWidth < navigationBreakpoint) {
                   return Column(
                     children: [
-                      Expanded(child: body),
+                      Expanded(child: pageFrame),
                       NavigationBar(
                         selectedIndex: _page.index,
                         onDestinationSelected: (index) =>
@@ -442,7 +433,7 @@ class _SubDockAppState extends State<SubDockApp> {
                               (destination) => NavigationDestination(
                                 icon: destination.icon,
                                 selectedIcon: destination.selectedIcon,
-                                label: (destination.label as Text).data!,
+                                label: destination.label,
                               ),
                             )
                             .toList(growable: false),
@@ -460,7 +451,7 @@ class _SubDockAppState extends State<SubDockApp> {
                           setState(() => _page = _AppPage.values[index]),
                     ),
                     const VerticalDivider(width: 1),
-                    Expanded(child: body),
+                    Expanded(child: pageFrame),
                   ],
                 );
               },
@@ -481,7 +472,7 @@ class _DesktopSidebar extends StatelessWidget {
   });
 
   final int selectedIndex;
-  final List<NavigationRailDestination> destinations;
+  final List<_ShellDestination> destinations;
   final ValueChanged<int> onDestinationSelected;
 
   @override
@@ -520,8 +511,14 @@ class _DesktopSidebar extends StatelessWidget {
                       SizedBox(width: typography.spacingXs),
                       Expanded(
                         child: DefaultTextStyle(
-                          style: typography.labelSmall,
-                          child: destination.label,
+                          style: typography.labelSmall.copyWith(
+                            color: selected ? colors.accent : colors.onSurface,
+                          ),
+                          child: Text(
+                            destination.label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
                       ),
                     ],
@@ -532,6 +529,120 @@ class _DesktopSidebar extends StatelessWidget {
           );
         },
       ),
+    );
+  }
+}
+
+class _DesktopChrome extends StatelessWidget {
+  const _DesktopChrome({
+    required this.title,
+    required this.onStartDragging,
+    required this.onMinimize,
+    required this.onToggleFullscreen,
+    required this.onCloseToTray,
+    required this.minimizeTooltip,
+    required this.toggleFullscreenTooltip,
+    required this.closeToTrayTooltip,
+  });
+  final String title,
+      minimizeTooltip,
+      toggleFullscreenTooltip,
+      closeToTrayTooltip;
+  final Future<void> Function()? onStartDragging,
+      onMinimize,
+      onToggleFullscreen,
+      onCloseToTray;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<AppColors>()!;
+    final typography = Theme.of(context).extension<AppTypography>()!;
+    return SizedBox(
+      key: const Key('desktop-chrome'),
+      height: 40,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: colors.surfaceLowest,
+          border: Border(bottom: BorderSide(color: colors.divider)),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onPanStart: onStartDragging == null
+                    ? null
+                    : (_) => unawaited(onStartDragging!()),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: typography.spacingS,
+                    ),
+                    child: Text(title, style: typography.titleSmall),
+                  ),
+                ),
+              ),
+            ),
+            if (onMinimize != null)
+              IconButton(
+                tooltip: minimizeTooltip,
+                onPressed: () => unawaited(onMinimize!()),
+                icon: const Icon(Icons.minimize),
+              ),
+            if (onToggleFullscreen != null)
+              IconButton(
+                tooltip: toggleFullscreenTooltip,
+                onPressed: () => unawaited(onToggleFullscreen!()),
+                icon: const Icon(Icons.fullscreen),
+              ),
+            if (onCloseToTray != null)
+              IconButton(
+                tooltip: closeToTrayTooltip,
+                onPressed: () => unawaited(onCloseToTray!()),
+                icon: const Icon(Icons.close),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PageFrame extends StatelessWidget {
+  const _PageFrame({required this.title, required this.child});
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      _PageHeader(title: title),
+      Expanded(child: child),
+    ],
+  );
+}
+
+class _PageHeader extends StatelessWidget {
+  const _PageHeader({required this.title});
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<AppColors>()!;
+    final typography = Theme.of(context).extension<AppTypography>()!;
+    return Container(
+      key: const Key('page-title'),
+      width: double.infinity,
+      padding: EdgeInsets.symmetric(
+        horizontal: typography.spacingLg,
+        vertical: typography.spacingMd,
+      ),
+      decoration: BoxDecoration(
+        color: colors.surfaceLowest,
+        border: Border(bottom: BorderSide(color: colors.divider)),
+      ),
+      child: Text(title, style: typography.titleLarge),
     );
   }
 }
