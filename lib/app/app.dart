@@ -1430,11 +1430,6 @@ class _LogsPageState extends State<_LogsPage> {
   var _hasRecentDeletion = false;
 
   @override
-  void initState() {
-    super.initState();
-  }
-
-  @override
   void didUpdateWidget(covariant _LogsPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.entryGeneration != widget.entryGeneration) {
