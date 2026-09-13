@@ -37,6 +37,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get save => '保存';
 
   @override
+  String get saved => '已保存';
+
+  @override
   String get ready => '就绪';
 
   @override
@@ -345,6 +348,21 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get appearanceHeading => '外观';
+
+  @override
+  String get saveAll => '全部保存';
+
+  @override
+  String get discard => '放弃更改';
+
+  @override
+  String get exitApp => '退出应用';
+
+  @override
+  String get closeToTray => '关闭到托盘';
+
+  @override
+  String get recentLogs => '最近日志条数';
 
   @override
   String get languageFollowSystem => '跟随系统';

@@ -207,9 +207,11 @@ void main() {
     );
     await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('SubDock 配置').last);
+    await tester.tap(find.text('SubDock 配置').first);
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(SwitchListTile, '启用 HTTP-META'));
+    final httpMetaSwitch = find.widgetWithText(SwitchListTile, '启用 HTTP-META');
+    await tester.ensureVisible(httpMetaSwitch);
+    await tester.tap(httpMetaSwitch);
     await tester.pump();
 
     final save = find.widgetWithText(FilledButton, '保存 SubDock 配置');
@@ -225,7 +227,7 @@ void main() {
 
     final saved = await tester.runAsync(store.load);
     expect(saved!.httpMeta.enabled, isFalse);
-    expect(find.text('SubDock 配置已保存；不会自动重启服务。'), findsOneWidget);
+    expect(find.text('已保存'), findsOneWidget);
     expect(runtime.restarts, 0);
     await tester.pumpWidget(const SizedBox());
   });

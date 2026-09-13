@@ -462,11 +462,6 @@ class _SubDockAppState extends State<SubDockApp> {
         configuration: widget.coordinator.configuration,
         configurationError: widget.coordinator.configurationError,
         coordinator: widget.coordinator,
-        themeMode: _themeMode,
-        onThemeModeSelected: (mode) => unawaited(_onThemeModeSelected(mode)),
-        localeOverride: _localeOverride,
-        onLocaleSelected: (locale) => unawaited(_onLocaleSelected(locale)),
-        onSave: _saveEnvironment,
         onSaveConfiguration: _saveConfiguration,
         onSaveEnvironment: _saveEnvironment,
         savedPreferences: _savedPreferences,
@@ -474,7 +469,6 @@ class _SubDockAppState extends State<SubDockApp> {
         onPreviewTheme: _onThemeModeSelected,
         onPreviewLocale: _onLocaleSelected,
         onResetConfiguration: () => _run(widget.coordinator.resetConfiguration),
-        onRestart: () => _run(widget.coordinator.restart),
         onChildStateChanged: (child) => setState(() => _settingsChild = child),
       ),
     ];
@@ -2011,6 +2005,8 @@ class _SettingsSectionTile extends StatelessWidget {
   );
 }
 
+enum _LeaveDecision { save, discard, cancel }
+
 class _SettingsPage extends StatefulWidget {
   const _SettingsPage({
     super.key,
@@ -2018,11 +2014,6 @@ class _SettingsPage extends StatefulWidget {
     required this.configuration,
     required this.configurationError,
     required this.coordinator,
-    required this.themeMode,
-    required this.onThemeModeSelected,
-    required this.localeOverride,
-    required this.onLocaleSelected,
-    required this.onSave,
     required this.onSaveConfiguration,
     required this.onSaveEnvironment,
     required this.savedPreferences,
@@ -2030,7 +2021,6 @@ class _SettingsPage extends StatefulWidget {
     required this.onPreviewTheme,
     required this.onPreviewLocale,
     required this.onResetConfiguration,
-    required this.onRestart,
     required this.onChildStateChanged,
   });
 
@@ -2038,11 +2028,6 @@ class _SettingsPage extends StatefulWidget {
   final SubDockConfig configuration;
   final AppConfigError? configurationError;
   final AppCoordinator coordinator;
-  final ThemeMode themeMode;
-  final ValueChanged<ThemeMode> onThemeModeSelected;
-  final Locale? localeOverride;
-  final ValueChanged<Locale?> onLocaleSelected;
-  final Future<void> Function(BackendEnvDocument document) onSave;
   final Future<void> Function(SubDockConfig configuration) onSaveConfiguration;
   final Future<void> Function(BackendEnvDocument document) onSaveEnvironment;
   final DesktopPreferences savedPreferences;
@@ -2050,7 +2035,6 @@ class _SettingsPage extends StatefulWidget {
   final Future<void> Function(ThemeMode mode) onPreviewTheme;
   final Future<void> Function(Locale? locale) onPreviewLocale;
   final Future<void> Function() onResetConfiguration;
-  final VoidCallback onRestart;
   final ValueChanged<bool> onChildStateChanged;
 
   @override
@@ -2058,6 +2042,11 @@ class _SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<_SettingsPage> {
+  late ThemeMode _generalThemeMode;
+  late String? _generalLocale;
+  late CloseBehavior _generalCloseBehavior;
+  late int _generalRecentLogLimit;
+  late final TextEditingController _recentLogLimit;
   late BackendEnvDocument _document;
   late SubDockConfig _configuration;
   late final TextEditingController _raw;
@@ -2078,6 +2067,7 @@ class _SettingsPageState extends State<_SettingsPage> {
   @override
   void initState() {
     super.initState();
+    _syncGeneral();
     _document = widget.environment;
     _configuration = widget.configuration;
     _raw = TextEditingController();
@@ -2085,6 +2075,8 @@ class _SettingsPageState extends State<_SettingsPage> {
     _port = TextEditingController();
     _path = TextEditingController();
     _cors = TextEditingController();
+    _recentLogLimit = TextEditingController();
+    _recentLogLimit.text = '$_generalRecentLogLimit';
     _syncControllers();
     _syncConfiguration();
     unawaited(_loadComponentStatuses());
@@ -2093,6 +2085,11 @@ class _SettingsPageState extends State<_SettingsPage> {
   @override
   void didUpdateWidget(covariant _SettingsPage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.savedPreferences != widget.savedPreferences &&
+        !_generalDirty) {
+      _syncGeneral();
+      _recentLogLimit.text = '$_generalRecentLogLimit';
+    }
     if (!_dirty &&
         oldWidget.environment.rawText != widget.environment.rawText) {
       _document = widget.environment;
@@ -2112,7 +2109,53 @@ class _SettingsPageState extends State<_SettingsPage> {
     _port.dispose();
     _path.dispose();
     _cors.dispose();
+    _recentLogLimit.dispose();
     super.dispose();
+  }
+
+  DesktopPreferences get _generalPreferences =>
+      widget.savedPreferences.copyWith(
+        themeMode: _generalThemeMode,
+        locale: _generalLocale,
+        closeBehavior: _generalCloseBehavior,
+        recentLogLimit: _generalRecentLogLimit,
+      );
+
+  bool get _generalDirty => _generalPreferences != widget.savedPreferences;
+
+  void _syncGeneral() {
+    final preferences = widget.savedPreferences;
+    _generalThemeMode = preferences.themeMode;
+    _generalLocale = preferences.locale;
+    _generalCloseBehavior = preferences.closeBehavior;
+    _generalRecentLogLimit = preferences.recentLogLimit;
+  }
+
+  Future<bool> _saveGeneral() async {
+    final limit = int.tryParse(_recentLogLimit.text.trim());
+    if (limit == null || limit < 50 || limit > 2000) return false;
+    try {
+      await widget.onSavePreferences(
+        _generalPreferences.copyWith(recentLogLimit: limit),
+      );
+    } on Object {
+      return false;
+    }
+    if (!mounted) return false;
+    setState(() => _generalRecentLogLimit = limit);
+    return true;
+  }
+
+  void _discardGeneral() {
+    _syncGeneral();
+    _recentLogLimit.text = '$_generalRecentLogLimit';
+    unawaited(widget.onPreviewTheme(_generalThemeMode));
+    unawaited(
+      widget.onPreviewLocale(
+        _generalLocale == null ? null : Locale(_generalLocale!),
+      ),
+    );
+    setState(() {});
   }
 
   String _value(String key, String fallback) =>
@@ -2177,11 +2220,15 @@ class _SettingsPageState extends State<_SettingsPage> {
     final nonLoopback = BackendEnvPolicy.hasNonLoopbackHost(effectiveDocument);
     if (externalCors && !await _confirm(l10n.confirmExternalCors)) return;
     if (nonLoopback && !await _confirm(l10n.confirmNonLoopback)) return;
-    await widget.onSaveConfiguration(_configuration);
+    try {
+      await widget.onSaveConfiguration(_configuration);
+    } on Object {
+      return;
+    }
     if (!mounted) return;
     setState(() => _configurationDirty = false);
     ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(l10n.configSavedNoRestart)));
+        .showSnackBar(SnackBar(content: Text(l10n.saved)));
   }
 
   void _updateRaw(String value) {
@@ -2215,22 +2262,15 @@ class _SettingsPageState extends State<_SettingsPage> {
       return;
     }
     try {
-      await widget.onSave(_document);
+      await widget.onSaveEnvironment(_document);
     } on Object {
       // _saveEnvironment records the error into _error for display.
       return;
     }
     if (!mounted) return;
     setState(() => _dirty = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(l10n.savedRestartToApply),
-        action: SnackBarAction(
-          label: l10n.restartNow,
-          onPressed: widget.onRestart,
-        ),
-      ),
-    );
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(l10n.saved)));
   }
 
   Future<bool> _confirm(String message) async {
@@ -2339,8 +2379,54 @@ class _SettingsPageState extends State<_SettingsPage> {
   }
 
   Future<bool> requestLeave() async {
-    if (!_dirty && !_configurationDirty) return true;
-    return await _confirm(AppLocalizations.of(context)!.unsavedChanges);
+    if (!_generalDirty && !_dirty && !_configurationDirty) return true;
+    final l10n = AppLocalizations.of(context)!;
+    final decision = await showDialog<_LeaveDecision>(
+      context: context,
+      builder: (context) => AlertDialog(
+        content: Text(l10n.unsavedChanges),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, _LeaveDecision.cancel),
+            child: Text(l10n.cancel),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, _LeaveDecision.discard),
+            child: Text(l10n.discard),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, _LeaveDecision.save),
+            child: Text(l10n.save),
+          ),
+        ],
+      ),
+    );
+    if (decision == null || decision == _LeaveDecision.cancel) return false;
+    if (decision == _LeaveDecision.discard) {
+      if (_generalDirty) _discardGeneral();
+      if (_dirty) {
+        _document = widget.environment;
+        _syncControllers();
+        _dirty = false;
+      }
+      if (_configurationDirty) {
+        _configuration = widget.configuration;
+        _syncConfiguration();
+        _configurationDirty = false;
+      }
+      setState(() {});
+      return true;
+    }
+    if (_generalDirty && !await _saveGeneral()) return false;
+    if (_configurationDirty) {
+      await _saveConfiguration();
+      if (_configurationDirty) return false;
+    }
+    if (_dirty) {
+      await _save();
+      if (_dirty) return false;
+    }
+    return true;
   }
 
   Future<void> _openSection(_SettingsSection section) async {
@@ -2356,6 +2442,7 @@ class _SettingsPageState extends State<_SettingsPage> {
     final issues = BackendEnvPolicy.validate(_document);
     final configurationIssue = _configurationIssue;
     final l10n = AppLocalizations.of(context)!;
+    final messenger = ScaffoldMessenger.of(context);
     final colors = Theme.of(context).extension<AppColors>()!;
     final typography = Theme.of(context).extension<AppTypography>()!;
     return ListView(
@@ -2431,17 +2518,21 @@ class _SettingsPageState extends State<_SettingsPage> {
                                   label: Text(l10n.themeDark),
                                 ),
                               ],
-                              selected: {widget.themeMode},
-                              onSelectionChanged: (selection) =>
-                                  widget.onThemeModeSelected(selection.first),
+                              selected: {_generalThemeMode},
+                              onSelectionChanged: (selection) {
+                                setState(
+                                  () => _generalThemeMode = selection.first,
+                                );
+                                unawaited(
+                                  widget.onPreviewTheme(selection.first),
+                                );
+                              },
                             ),
                             SizedBox(
                               width: 220,
                               child: DropdownButton<String>(
                                 isExpanded: true,
-                                value:
-                                    widget.localeOverride?.languageCode ??
-                                    'system',
+                                value: _generalLocale ?? 'system',
                                 items: [
                                   DropdownMenuItem(
                                     value: 'system',
@@ -2454,14 +2545,72 @@ class _SettingsPageState extends State<_SettingsPage> {
                                       child: Text(_languageLabel(language)),
                                     ),
                                 ],
-                                onChanged: (value) => widget.onLocaleSelected(
-                                  value == null || value == 'system'
+                                onChanged: (value) {
+                                  final locale =
+                                      value == null || value == 'system'
                                       ? null
-                                      : Locale(value),
-                                ),
+                                      : value;
+                                  setState(() => _generalLocale = locale);
+                                  unawaited(
+                                    widget.onPreviewLocale(
+                                      locale == null ? null : Locale(locale),
+                                    ),
+                                  );
+                                },
                               ),
                             ),
                           ],
+                        ),
+                        DropdownButton<CloseBehavior>(
+                          key: const ValueKey('settings-close-behavior'),
+                          value: _generalCloseBehavior,
+                          items: [
+                            DropdownMenuItem(
+                              value: CloseBehavior.exitApp,
+                              child: Text(l10n.exitApp),
+                            ),
+                            DropdownMenuItem(
+                              value: CloseBehavior.closeToTray,
+                              child: Text(l10n.closeToTray),
+                            ),
+                          ],
+                          onChanged: (value) {
+                            if (value != null) {
+                              setState(() => _generalCloseBehavior = value);
+                            }
+                          },
+                        ),
+                        TextField(
+                          key: const ValueKey('settings-recent-log-limit'),
+                          controller: _recentLogLimit,
+                          keyboardType: TextInputType.number,
+                          decoration: InputDecoration(
+                            labelText: l10n.recentLogs,
+                          ),
+                          onChanged: (_) => setState(() {}),
+                        ),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: FilledButton(
+                            key: const ValueKey('settings-save-all'),
+                            onPressed:
+                                _generalDirty &&
+                                    int.tryParse(_recentLogLimit.text.trim()) !=
+                                        null &&
+                                    int.parse(_recentLogLimit.text.trim()) >=
+                                        50 &&
+                                    int.parse(_recentLogLimit.text.trim()) <=
+                                        2000
+                                ? () async {
+                                    if (await _saveGeneral() && mounted) {
+                                      messenger.showSnackBar(
+                                        SnackBar(content: Text(l10n.saved)),
+                                      );
+                                    }
+                                  }
+                                : null,
+                            child: Text(l10n.saveAll),
+                          ),
                         ),
                       ],
                     ),

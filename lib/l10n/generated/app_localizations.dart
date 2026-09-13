@@ -152,6 +152,12 @@ abstract class AppLocalizations {
   /// **'保存'**
   String get save;
 
+  /// No description provided for @saved.
+  ///
+  /// In zh, this message translates to:
+  /// **'已保存'**
+  String get saved;
+
   /// No description provided for @ready.
   ///
   /// In zh, this message translates to:
@@ -713,6 +719,36 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'外观'**
   String get appearanceHeading;
+
+  /// No description provided for @saveAll.
+  ///
+  /// In zh, this message translates to:
+  /// **'全部保存'**
+  String get saveAll;
+
+  /// No description provided for @discard.
+  ///
+  /// In zh, this message translates to:
+  /// **'放弃更改'**
+  String get discard;
+
+  /// No description provided for @exitApp.
+  ///
+  /// In zh, this message translates to:
+  /// **'退出应用'**
+  String get exitApp;
+
+  /// No description provided for @closeToTray.
+  ///
+  /// In zh, this message translates to:
+  /// **'关闭到托盘'**
+  String get closeToTray;
+
+  /// No description provided for @recentLogs.
+  ///
+  /// In zh, this message translates to:
+  /// **'最近日志条数'**
+  String get recentLogs;
 
   /// No description provided for @languageFollowSystem.
   ///

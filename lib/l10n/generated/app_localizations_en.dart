@@ -37,6 +37,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get save => 'Save';
 
   @override
+  String get saved => 'Saved';
+
+  @override
   String get ready => 'Ready';
 
   @override
@@ -354,6 +357,21 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get appearanceHeading => 'Appearance';
+
+  @override
+  String get saveAll => 'Save All';
+
+  @override
+  String get discard => 'Discard';
+
+  @override
+  String get exitApp => 'Exit app';
+
+  @override
+  String get closeToTray => 'Close to tray';
+
+  @override
+  String get recentLogs => 'Recent logs';
 
   @override
   String get languageFollowSystem => 'Follow system';
