@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:subdock/app/app_coordinator.dart';
 import 'package:subdock/runtime/backend_runtime.dart';
 import 'package:subdock/runtime/runtime_directories.dart';
+import 'package:subdock/runtime/runtime_log_store.dart';
 import 'package:subdock/settings/backend_env.dart';
 import 'package:subdock/settings/backend_env_store.dart';
 import 'package:subdock/settings/config_error.dart';
@@ -140,6 +141,20 @@ void main() {
     ]);
 
     expect(runtime.operations, ['update', 'stop']);
+  });
+
+  test('exposes the injected log store instance', () async {
+    final temp = await Directory.systemTemp.createTemp('subdock_coordinator_');
+    addTearDown(() => temp.delete(recursive: true));
+    final directories = await RuntimeDirectories.fromBaseDirectory(temp);
+    final store = RuntimeLogStore(directories);
+    final coordinator = AppCoordinator(
+      runtime: _FakeRuntime(),
+      environmentStore: BackendEnvStore(directories),
+      logStore: store,
+    );
+
+    expect(identical(coordinator.logStore, store), isTrue);
   });
 }
 

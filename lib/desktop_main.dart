@@ -12,6 +12,7 @@ import 'desktop_lifecycle.dart';
 import 'l10n/generated/app_localizations.dart';
 import 'runtime/desktop_backend_runtime.dart';
 import 'runtime/runtime_directories.dart';
+import 'runtime/runtime_log_store.dart';
 import 'settings/backend_env_store.dart';
 import 'settings/config_error.dart';
 import 'settings/desktop_preferences_store.dart';
@@ -34,6 +35,8 @@ Future<void> main() async {
     );
   }
   final directories = await RuntimeDirectories.create();
+  final logStore = RuntimeLogStore(directories);
+  await logStore.initialize();
   Object? startupBlocker;
   try {
     await ComponentRecovery(
@@ -51,7 +54,10 @@ Future<void> main() async {
       detail: '$error',
     );
   }
-  final runtime = DesktopBackendRuntime(directories: directories);
+  final runtime = DesktopBackendRuntime(
+    directories: directories,
+    logStore: logStore,
+  );
   final metadataStore = ComponentMetadataStore(directories.components);
   final dataBackups = DataBackupStore(
     backupsDirectory: directories.backups,
@@ -75,6 +81,7 @@ Future<void> main() async {
       releases: GithubReleaseClient(),
       backups: dataBackups,
     ),
+    logStore: logStore,
   );
   try {
     await coordinator.loadEnvironment();
@@ -92,8 +99,14 @@ Future<void> main() async {
     WidgetsBinding.instance.platformDispatcher.locales,
   );
   final closeRequestGuard = CloseRequestGuard();
+  final retentionTimer = Timer.periodic(const Duration(hours: 6), (_) {
+    unawaited(logStore.pruneExpired().catchError((_) {}));
+  });
   final lifecycle = DesktopLifecycle(
-    onExit: coordinator.dispose,
+    onExit: () async {
+      retentionTimer.cancel();
+      await coordinator.dispose();
+    },
     closeRequestGuard: closeRequestGuard,
     closeBehavior: () async => (await preferencesStore.load()).closeBehavior,
     trayLabels: (item) {

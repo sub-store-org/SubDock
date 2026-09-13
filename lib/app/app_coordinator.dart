@@ -2,6 +2,7 @@ import 'dart:collection';
 import 'dart:io';
 
 import '../runtime/backend_runtime.dart';
+import '../runtime/runtime_log_store.dart';
 import '../settings/backend_env.dart';
 import '../settings/backend_env_store.dart';
 import '../settings/config_error.dart';
@@ -18,6 +19,7 @@ class AppCoordinator {
     this.configurationStore,
     this.startupBlocker,
     this.componentUpdates,
+    this.logStore,
   });
 
   final BackendRuntime runtime;
@@ -25,6 +27,7 @@ class AppCoordinator {
   final SubDockConfigStore? configurationStore;
   final Object? startupBlocker;
   final ComponentUpdateOperations? componentUpdates;
+  final RuntimeLogStore? logStore;
   BackendEnvDocument _environment = BackendEnvDocument.parse('');
   SubDockConfig _configuration = const SubDockConfig();
   AppConfigError? _configurationError;

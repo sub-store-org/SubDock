@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'backend_runtime.dart';
 import 'runtime_directories.dart';
+import 'runtime_log_store.dart';
 import 'runtime_permissions.dart';
 import '../settings/backend_env.dart';
 import '../settings/subdock_config.dart';
@@ -26,6 +27,7 @@ class DesktopRuntimeProfile {
 class DesktopBackendRuntime implements BackendRuntime {
   DesktopBackendRuntime({
     required this.directories,
+    required this.logStore,
     Directory? bundleDirectory,
     DesktopRuntimeProfile? profile,
     ComponentResourceResolver? componentResources,
@@ -49,11 +51,10 @@ class DesktopBackendRuntime implements BackendRuntime {
   static const _healthCheckTimeout = Duration(seconds: 10);
   static const _httpRequestTimeout = Duration(seconds: 1);
   static const _stopTimeout = Duration(seconds: 5);
-  static const _maxLogFileBytes = 10 * 1024 * 1024;
-  static const _retainedLogFiles = 3;
   static final _binaryName = RegExp(r'^[A-Za-z0-9._-]+$');
 
   final RuntimeDirectories directories;
+  final RuntimeLogStore logStore;
   final Directory _bundleDirectory;
   final DesktopRuntimeProfile _profile;
   final ComponentResourceResolver _componentResources;
@@ -71,8 +72,10 @@ class DesktopBackendRuntime implements BackendRuntime {
   Process? _httpMetaProcess;
   HttpClient? _httpClient;
   HttpClient? _httpMetaClient;
-  IOSink? _logSink;
   Future<void> _logWrites = Future<void>.value();
+  String? _activeLogRunId;
+  Future<void>? _finalizeRunOperation;
+  final _captureDrains = <Future<void>>[];
   Timer? _healthTimer;
   bool _stopping = false;
   bool _checkingHealth = false;
@@ -187,7 +190,7 @@ class DesktopBackendRuntime implements BackendRuntime {
     _stopping = false;
     _emit(RuntimeStatus.starting);
     try {
-      await _openLogSink();
+      _activeLogRunId = await logStore.beginRun();
       await _startHttpMeta();
       await _verifyPortAvailable();
       final resources = await _componentResources.resolve();
@@ -204,9 +207,19 @@ class DesktopBackendRuntime implements BackendRuntime {
         bundle.path,
       ], environment: _environment(resources.frontend));
       _process = process;
-      _capture(process.stdout, RuntimeLogSource.stdout);
-      _capture(process.stderr, RuntimeLogSource.stderr);
-      unawaited(process.exitCode.then((code) => _handleExit(process, code)));
+      _capture(process.stdout, RuntimeLogSource.stdout, _activeLogRunId!);
+      _capture(process.stderr, RuntimeLogSource.stderr, _activeLogRunId!);
+      unawaited(() async {
+        try {
+          await process.exitCode.then((code) => _handleExit(process, code));
+        } on Object catch (error) {
+          if (identical(_process, process)) {
+            _process = null;
+            await _finalizeActiveLogRun();
+            _emit(RuntimeStatus.crashed, '$error');
+          }
+        }
+      }());
 
       if (!await _waitForHealthy(process)) {
         if (identical(_process, process)) {
@@ -241,8 +254,8 @@ class DesktopBackendRuntime implements BackendRuntime {
         if (identical(_httpMetaProcess, metaProcess)) _httpMetaProcess = null;
       }
       _closeHttpClient();
-      await _closeLogSink();
       _emit(RuntimeStatus.crashed, '$error');
+      await _finalizeActiveLogRun();
       Error.throwWithStackTrace(error, stackTrace);
     }
   }
@@ -255,7 +268,7 @@ class DesktopBackendRuntime implements BackendRuntime {
     if (process == null && metaProcess == null) {
       _closeHttpClient();
       _closeHttpMetaClient();
-      await _closeLogSink();
+      await _finalizeActiveLogRun();
       if (_currentState.status != RuntimeStatus.stopped) {
         _emit(RuntimeStatus.stopped);
       }
@@ -272,13 +285,11 @@ class DesktopBackendRuntime implements BackendRuntime {
       if (process != null) await _terminate(process);
       _closeHttpClient();
       _closeHttpMetaClient();
-      await _closeLogSink();
+      await _finalizeActiveLogRun();
       _httpMetaProcess = null;
       _httpMetaStatus = HttpMetaStatus.stopped;
-      if (identical(_process, process)) {
-        _process = null;
-        _emit(RuntimeStatus.stopped);
-      }
+      _process = null;
+      _emit(RuntimeStatus.stopped);
     } catch (error, stackTrace) {
       _stopping = false;
       _emit(RuntimeStatus.crashed, 'Unable to stop backend: $error');
@@ -298,7 +309,7 @@ class DesktopBackendRuntime implements BackendRuntime {
     _healthTimer?.cancel();
     _healthTimer = null;
     _closeHttpClient();
-    await _closeLogSink();
+    await _finalizeActiveLogRun();
     _disposed = true;
     await Future.wait(<Future<void>>[_logs.close(), _states.close()]);
     if (failure != null) {
@@ -341,8 +352,16 @@ class DesktopBackendRuntime implements BackendRuntime {
         resources.bundle.path,
       ], environment: _httpMetaEnvironment(resources));
       _httpMetaProcess = process;
-      _capture(process.stdout, RuntimeLogSource.httpMetaStdout);
-      _capture(process.stderr, RuntimeLogSource.httpMetaStderr);
+      _capture(
+        process.stdout,
+        RuntimeLogSource.httpMetaStdout,
+        _activeLogRunId!,
+      );
+      _capture(
+        process.stderr,
+        RuntimeLogSource.httpMetaStderr,
+        _activeLogRunId!,
+      );
       unawaited(
         process.exitCode.then((code) => _handleHttpMetaExit(process, code)),
       );
@@ -622,75 +641,74 @@ class DesktopBackendRuntime implements BackendRuntime {
     );
   }
 
-  void _capture(Stream<List<int>> stream, RuntimeLogSource source) {
-    stream.transform(utf8.decoder).transform(const LineSplitter()).listen((
-      line,
-    ) {
-      final log = RuntimeLog(
-        timestamp: DateTime.now(),
-        source: source,
-        message: line,
-      );
-      if (!_logs.isClosed) _logs.add(log);
-      unawaited(_writeLog(log));
+  void _capture(
+    Stream<List<int>> stream,
+    RuntimeLogSource source,
+    String runId,
+  ) {
+    final drain = stream
+        .transform(utf8.decoder)
+        .transform(const LineSplitter())
+        .listen((line) {
+          final log = RuntimeLog(
+            timestamp: DateTime.now(),
+            source: source,
+            message: line,
+          );
+          if (!_logs.isClosed) _logs.add(log);
+          final next = _logWrites.then((_) async {
+            if (_activeLogRunId == runId) await logStore.append(log);
+          });
+          _logWrites = next.catchError((Object _) {});
+        })
+        .asFuture<void>();
+    _captureDrains.add(drain);
+  }
+
+  Future<void> _finalizeActiveLogRun() {
+    final id = _activeLogRunId;
+    if (id == null) return Future<void>.value();
+    final existing = _finalizeRunOperation;
+    if (existing != null) return existing;
+    final operation = () async {
+      try {
+        await Future.wait(List<Future<void>>.of(_captureDrains))
+            .timeout(_stopTimeout);
+      } on Object {
+        // A terminated child may not close a broken output stream promptly.
+      }
+      await _logWrites;
+      if (_activeLogRunId == id) {
+        await logStore.finalize(end: DateTime.now());
+        _activeLogRunId = null;
+        _captureDrains.clear();
+      }
+    }();
+    late final Future<void> completed;
+    completed = operation.whenComplete(() {
+      if (identical(_finalizeRunOperation, completed)) {
+        _finalizeRunOperation = null;
+      }
     });
+    _finalizeRunOperation = completed;
+    return completed;
   }
 
-  Future<void> _openLogSink() async {
-    final file = _logFile;
-    if (await file.exists() && await file.length() >= _maxLogFileBytes) {
-      await _rotateLogs();
-    }
-    _logSink = file.openWrite(mode: FileMode.append);
-    await restrictFileToCurrentUser(file);
-  }
-
-  Future<void> _writeLog(RuntimeLog log) {
-    final next = _logWrites.then((_) => _appendLog(log));
-    _logWrites = next.catchError((Object _) {});
-    return next;
-  }
-
-  Future<void> _appendLog(RuntimeLog log) async {
-    var sink = _logSink;
-    if (sink == null) return;
-    final line =
-        '${log.timestamp.toIso8601String()} [${log.source.name}] ${log.message}\n';
-    if (await _logFile.length() + utf8.encode(line).length > _maxLogFileBytes) {
-      await sink.flush();
-      await sink.close();
-      _logSink = null;
-      await _rotateLogs();
-      await _openLogSink();
-      sink = _logSink;
-      if (sink == null) return;
-    }
-    sink.write(line);
-  }
-
-  Future<void> _rotateLogs() async {
-    for (var index = _retainedLogFiles; index >= 1; index--) {
-      final replacement = File('${_logFile.path}.$index');
-      if (await replacement.exists()) await replacement.delete();
-      final source = index == 1
-          ? _logFile
-          : File('${_logFile.path}.${index - 1}');
-      if (await source.exists()) await source.rename(replacement.path);
-    }
-  }
-
-  void _handleExit(Process process, int exitCode) {
+  Future<void> _handleExit(Process process, int exitCode) async {
     if (!identical(_process, process)) return;
     _healthTimer?.cancel();
     _healthTimer = null;
     _closeHttpClient();
-    unawaited(_closeLogSink());
     _process = null;
-    if (_stopping) {
-      _emit(RuntimeStatus.stopped);
-    } else {
-      _emit(RuntimeStatus.crashed, 'Backend exited with code $exitCode');
+    if (_stopping || _currentState.status == RuntimeStatus.starting) return;
+    final metaProcess = _httpMetaProcess;
+    if (metaProcess != null) {
+      await _stopOwnedHttpMetaChildren();
+      await _terminate(metaProcess);
+      _httpMetaProcess = null;
     }
+    await _finalizeActiveLogRun();
+    _emit(RuntimeStatus.crashed, 'Backend exited with code $exitCode');
   }
 
   void _handleHttpMetaExit(Process process, int exitCode) {
@@ -768,9 +786,6 @@ class DesktopBackendRuntime implements BackendRuntime {
   Directory get _runtimeBin =>
       Directory.fromUri(_bundleDirectory.uri.resolve('data/runtime/bin/'));
 
-  File get _logFile =>
-      File.fromUri(directories.logs.uri.resolve('backend.log'));
-
   void _ensureActive() {
     if (_disposed) throw StateError('Backend runtime has been disposed');
   }
@@ -783,22 +798,6 @@ class DesktopBackendRuntime implements BackendRuntime {
   void _closeHttpMetaClient() {
     _httpMetaClient?.close(force: true);
     _httpMetaClient = null;
-  }
-
-  Future<void> _closeLogSink() async {
-    try {
-      await _logWrites;
-    } catch (_) {
-      // Logging failures must not interrupt backend lifecycle handling.
-    }
-    final logSink = _logSink;
-    _logSink = null;
-    if (logSink == null) return;
-    try {
-      await logSink.close();
-    } on FileSystemException {
-      // Logging failures must not interrupt backend lifecycle handling.
-    }
   }
 }
 

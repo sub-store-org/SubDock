@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:subdock/runtime/backend_runtime.dart';
 import 'package:subdock/runtime/desktop_backend_runtime.dart';
 import 'package:subdock/runtime/runtime_directories.dart';
+import 'package:subdock/runtime/runtime_log_store.dart';
 import 'package:subdock/update/component_metadata_store.dart';
 
 void main() {
@@ -48,19 +49,19 @@ void main() {
           RuntimeLogSource.stderr,
         ]),
       );
-      final logFile = File.fromUri(
+      final legacyLog = File.fromUri(
         temp.uri.resolve('application-support/logs/backend.log'),
       );
-      await _waitFor(
-        () =>
-            logFile.existsSync() &&
-            logFile.readAsStringSync().contains('fixture stdout'),
-      );
-      if (!Platform.isWindows) {
-        expect((await logFile.stat()).mode & 0x1ff, 0x180);
-      }
-
       await runtime.stop();
+
+      final runs = await runtime.logStore.listRuns();
+      expect(runs, hasLength(1));
+      expect(
+        (await runtime.logStore.readRun(runs.single.id))
+            .map((log) => log.message),
+        containsAll(<String>['fixture stdout', 'fixture stderr']),
+      );
+      expect(await legacyLog.exists(), isFalse);
 
       expect(states.last.status, RuntimeStatus.stopped);
       expect(runtime.currentState.status, RuntimeStatus.stopped);
@@ -79,6 +80,7 @@ void main() {
       );
 
       expect(runtime.currentState.status, RuntimeStatus.crashed);
+      expect(await runtime.logStore.listRuns(), hasLength(1));
     });
 
     test(
@@ -150,18 +152,23 @@ void main() {
       );
     });
 
-    test('rotates an oversized backend log before startup', () async {
-      final log = File.fromUri(
-        temp.uri.resolve('application-support/logs/backend.log'),
-      );
-      await log.parent.create(recursive: true);
-      await log.writeAsBytes(List<int>.filled(10 * 1024 * 1024, 0));
+    test(
+      'keeps a legacy backend log untouched while using run history',
+      () async {
+        final log = File.fromUri(
+          temp.uri.resolve('application-support/logs/backend.log'),
+        );
+        await log.parent.create(recursive: true);
+        await log.writeAsString('legacy');
 
-      await runtime.start();
+        await runtime.start();
+        await runtime.stop();
 
-      expect(await File('${log.path}.1').exists(), isTrue);
-      expect(await log.length(), lessThan(10 * 1024 * 1024));
-    });
+        expect(await log.readAsString(), 'legacy');
+        expect(await File('${log.path}.1').exists(), isFalse);
+        expect(await runtime.logStore.listRuns(), hasLength(1));
+      },
+    );
 
     test('rejects a port held by an unknown process', () async {
       final blockedPort = await _unusedPort();
@@ -175,6 +182,7 @@ void main() {
       await expectLater(runtime.start(), throwsStateError);
 
       expect(runtime.currentState.status, RuntimeStatus.crashed);
+      expect(await runtime.logStore.listRuns(), hasLength(1));
     });
 
     test('rejects a missing manifest external binary', () async {
@@ -203,6 +211,13 @@ void main() {
       expect(stateDone, isTrue);
     });
 
+    test('finalizes a run before disposing a running runtime', () async {
+      await runtime.start();
+      await runtime.dispose();
+
+      expect(await runtime.logStore.listRuns(), hasLength(1));
+    });
+
     test('restarts a healthy backend', () async {
       final states = <RuntimeState>[];
       final subscription = runtime.state.listen(states.add);
@@ -210,8 +225,9 @@ void main() {
 
       await runtime.start();
       await runtime.restart();
+      await runtime.stop();
 
-      expect(await runtime.isHealthy(), isTrue);
+      expect(await runtime.logStore.listRuns(), hasLength(2));
       expect(
         states.where((state) => state.status == RuntimeStatus.starting),
         hasLength(2),
@@ -276,6 +292,8 @@ Future<DesktopBackendRuntime> _createRuntime(
   final directories = await RuntimeDirectories.fromBaseDirectory(
     Directory.fromUri(temp.uri.resolve('application-support/')),
   );
+  final logStore = RuntimeLogStore(directories);
+  await logStore.initialize();
   if (activeBackendVersion != null) {
     final candidate = Directory.fromUri(
       directories.components.uri.resolve('backend/$activeBackendVersion/'),
@@ -296,6 +314,7 @@ Future<DesktopBackendRuntime> _createRuntime(
   }
   return DesktopBackendRuntime(
     directories: directories,
+    logStore: logStore,
     bundleDirectory: bundle,
     port: port ?? await _unusedPort(),
   );
