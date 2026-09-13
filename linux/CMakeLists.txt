@@ -74,6 +74,19 @@ set_target_properties(${BINARY_NAME}
 # them to the application.
 include(flutter/generated_plugins.cmake)
 
+# tray_manager's Linux implementation currently calls a deprecated AppIndicator
+# API. Keep warnings-as-errors for SubDock and all other diagnostics, but do not
+# fail the build on this third-party deprecation. This lives here so Flutter's
+# generated plugin symlinks can be regenerated safely.
+if(TARGET tray_manager_plugin)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(
+      tray_manager_plugin
+      PRIVATE -Wno-error=deprecated-declarations
+    )
+  endif()
+endif()
+
 set(SUBDOCK_PROJECT_DIR "${CMAKE_CURRENT_LIST_DIR}/..")
 set(SUBDOCK_RESOURCES_DIR "${SUBDOCK_PROJECT_DIR}/.subdock")
 set(SUBDOCK_BACKEND_DIR "${SUBDOCK_RESOURCES_DIR}/backend")
