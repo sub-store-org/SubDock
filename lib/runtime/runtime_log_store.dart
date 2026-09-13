@@ -58,9 +58,9 @@ class RuntimeLogStore {
       final meta = await _readMeta(entry);
       if (meta == null) continue;
       if (meta.end == null) {
-        final events = await _readEvents(entry);
-        final end = events.isEmpty ? meta.start : events.last.timestamp;
-        await _writeMeta(entry, _Meta(meta.id, meta.start, end, events.length));
+        final scan = await _scanEvents(entry);
+        final end = scan.last ?? meta.start;
+        await _writeMeta(entry, _Meta(meta.id, meta.start, end, scan.count));
       }
       final refreshed = await _readMeta(entry);
       if (refreshed != null && refreshed.end!.isBefore(cutoff)) {
@@ -92,7 +92,10 @@ class RuntimeLogStore {
     if (id == null) throw StateError('No active log run');
     final directory = _runDirectory(id);
     final line = '${jsonEncode(_eventJson(log))}\n';
-    final segment = await _segmentForAppend(directory, line.length);
+    final segment = await _segmentForAppend(
+      directory,
+      utf8.encode(line).length,
+    );
     final file = File.fromUri(segment.uri);
     await file.writeAsString(line, mode: FileMode.append, flush: true);
     await restrictFileToCurrentUser(file);
@@ -188,6 +191,7 @@ class RuntimeLogStore {
       _trash.uri.resolve('${_now().microsecondsSinceEpoch}/'),
     );
     await batch.create(recursive: true);
+    await restrictDirectoryToCurrentUser(batch);
     for (final entry in completed) {
       await entry.rename(
         Directory.fromUri(batch.uri.resolve('${_id(entry)}/')).path,
@@ -220,6 +224,7 @@ class RuntimeLogStore {
         }
       }
     }
+    await _pruneLegacy(cutoff);
   });
 
   Directory _runDirectory(String id) =>
@@ -244,18 +249,32 @@ class RuntimeLogStore {
     return segments.last;
   }
 
-  Future<List<RuntimeLog>> _readEvents(Directory directory) async {
+  Future<_EventScan> _scanEvents(Directory directory) async {
+    var count = 0;
+    DateTime? last;
     final files =
         (await directory.list().toList())
             .whereType<File>()
             .where((file) => _id(file).endsWith('.jsonl'))
             .toList()
           ..sort((a, b) => _id(a).compareTo(_id(b)));
-    final result = <RuntimeLog>[];
     for (final file in files) {
-      result.addAll(await _readSegment(file));
+      for (final event in await _readSegment(file)) {
+        count++;
+        last = event.timestamp;
+      }
     }
-    return result;
+    return _EventScan(count, last);
+  }
+
+  Future<void> _pruneLegacy(DateTime cutoff) async {
+    for (final entry in await _logs.list().toList()) {
+      if (entry is File &&
+          RegExp(r'^backend\.log(?:\.\d+)?$').hasMatch(_id(entry)) &&
+          (await entry.stat()).modified.isBefore(cutoff)) {
+        await entry.delete();
+      }
+    }
   }
 
   Future<List<RuntimeLog>> _readSegment(File file) async {
@@ -352,4 +371,10 @@ class _Meta {
   final int count;
   RuntimeLogRun get summary =>
       RuntimeLogRun(id: id, start: start, end: end, eventCount: count);
+}
+
+class _EventScan {
+  const _EventScan(this.count, this.last);
+  final int count;
+  final DateTime? last;
 }

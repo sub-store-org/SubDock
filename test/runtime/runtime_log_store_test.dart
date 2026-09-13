@@ -98,6 +98,38 @@ void main() {
     );
   });
 
+  test(
+    'uses UTF-8 bytes for segment rollover and prunes legacy logs',
+    () async {
+      final store = RuntimeLogStore(directories, segmentBytes: 40);
+      await store.initialize();
+      final id = await store.beginRun();
+      await store.append(
+        RuntimeLog(
+          timestamp: DateTime.utc(2026, 9, 13),
+          source: RuntimeLogSource.stdout,
+          message: '中文日志',
+        ),
+      );
+      await store.append(
+        RuntimeLog(
+          timestamp: DateTime.utc(2026, 9, 13, 0, 1),
+          source: RuntimeLogSource.stdout,
+          message: 'second',
+        ),
+      );
+      await store.finalize();
+      expect(await store.readRunStream(id).length, 2);
+
+      final legacy = File.fromUri(directories.logs.uri.resolve('backend.log'));
+      await legacy.writeAsString('old');
+      final old = DateTime.now().subtract(const Duration(days: 8));
+      await legacy.setLastModified(old);
+      await store.pruneExpired();
+      expect(await legacy.exists(), isFalse);
+    },
+  );
+
   test('deletes one run and undoes the latest deletion', () async {
     final store = RuntimeLogStore(directories);
     await store.initialize();
