@@ -242,6 +242,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('nav-item-logs')));
     await tester.pump();
 
+    expect(find.byKey(const ValueKey('overview-recent-logs')), findsNothing);
     expect(find.byKey(const ValueKey('logs-surface')), findsOneWidget);
     expect(find.text('暂无日志'), findsOneWidget);
     runtime.emitLog(
@@ -254,6 +255,7 @@ void main() {
     await tester.pump();
 
     expect(find.text('暂无日志'), findsNothing);
+    expect(find.byKey(const ValueKey('overview-recent-logs')), findsNothing);
     final log = tester.widget<SelectableText>(find.byType(SelectableText));
     expect(log.data, contains('2026-09-13T04:30:00.000Z'));
     expect(log.data, contains('[stdout] fixture log line'));

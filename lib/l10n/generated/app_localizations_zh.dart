@@ -116,10 +116,32 @@ class AppLocalizationsZh extends AppLocalizations {
   String get viewOverview => '查看概览';
 
   @override
-  String get recentLogsHeading => '最近日志';
+  String get componentStatusHeading => '组件状态';
 
   @override
-  String get componentStatusHeading => '组件状态';
+  String componentCurrent(Object version) {
+    return '当前 $version';
+  }
+
+  @override
+  String componentPrevious(Object version) {
+    return '上一版 $version';
+  }
+
+  @override
+  String get rollbackAvailable => '可回滚';
+
+  @override
+  String get rollbackUnavailable => '不可回滚';
+
+  @override
+  String get refresh => '刷新';
+
+  @override
+  String get openInSystemBrowser => '在系统浏览器中打开';
+
+  @override
+  String get webViewCurrentUrlUnavailable => '当前 WebView 地址不可用或无效';
 
   @override
   String get fixConfiguration => '修复配置';

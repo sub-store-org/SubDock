@@ -302,17 +302,53 @@ abstract class AppLocalizations {
   /// **'查看概览'**
   String get viewOverview;
 
-  /// No description provided for @recentLogsHeading.
-  ///
-  /// In zh, this message translates to:
-  /// **'最近日志'**
-  String get recentLogsHeading;
-
   /// No description provided for @componentStatusHeading.
   ///
   /// In zh, this message translates to:
   /// **'组件状态'**
   String get componentStatusHeading;
+
+  /// No description provided for @componentCurrent.
+  ///
+  /// In zh, this message translates to:
+  /// **'当前 {version}'**
+  String componentCurrent(Object version);
+
+  /// No description provided for @componentPrevious.
+  ///
+  /// In zh, this message translates to:
+  /// **'上一版 {version}'**
+  String componentPrevious(Object version);
+
+  /// No description provided for @rollbackAvailable.
+  ///
+  /// In zh, this message translates to:
+  /// **'可回滚'**
+  String get rollbackAvailable;
+
+  /// No description provided for @rollbackUnavailable.
+  ///
+  /// In zh, this message translates to:
+  /// **'不可回滚'**
+  String get rollbackUnavailable;
+
+  /// No description provided for @refresh.
+  ///
+  /// In zh, this message translates to:
+  /// **'刷新'**
+  String get refresh;
+
+  /// No description provided for @openInSystemBrowser.
+  ///
+  /// In zh, this message translates to:
+  /// **'在系统浏览器中打开'**
+  String get openInSystemBrowser;
+
+  /// No description provided for @webViewCurrentUrlUnavailable.
+  ///
+  /// In zh, this message translates to:
+  /// **'当前 WebView 地址不可用或无效'**
+  String get webViewCurrentUrlUnavailable;
 
   /// No description provided for @fixConfiguration.
   ///

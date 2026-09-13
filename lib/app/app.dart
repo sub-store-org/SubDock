@@ -366,7 +366,6 @@ class _SubDockAppState extends State<SubDockApp> {
         state: _state,
         info: _info,
         error: _error,
-        logs: _logs,
         componentStatuses: _overviewComponentStatuses,
         unavailableComponents: _overviewComponentUnavailable,
         actionInProgress: _actionInProgress,
@@ -885,6 +884,30 @@ class _ManagePageState extends State<_ManagePage> {
     }
   }
 
+  Future<void> _reloadCurrentPage() async {
+    try {
+      await _controller!.reload();
+    } catch (error) {
+      if (mounted) setState(() => _webViewError = '$error');
+    }
+  }
+
+  Future<void> _openCurrentPage() async {
+    final l10n = AppLocalizations.of(context)!;
+    try {
+      final value = await _controller!.currentUrl();
+      final uri = value == null ? null : Uri.tryParse(value);
+      if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https')) {
+        throw StateError(l10n.webViewCurrentUrlUnavailable);
+      }
+      if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+        throw StateError(l10n.openSystemBrowserFailed(uri.toString()));
+      }
+    } catch (error) {
+      if (mounted) setState(() => _webViewError = '$error');
+    }
+  }
+
   bool _isDownloadUri(Uri uri) {
     final path = widget.coordinator.webUiApiUri.path;
     final prefix = path == '/' ? '' : path.replaceFirst(RegExp(r'/$'), '');
@@ -991,7 +1014,31 @@ class _ManagePageState extends State<_ManagePage> {
     }
     return Stack(
       children: [
-        Positioned.fill(child: WebViewWidget(controller: _controller!)),
+        Positioned.fill(
+          child: Column(
+            children: [
+              Material(
+                color: colors.surfaceLow,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    IconButton(
+                      tooltip: l10n.refresh,
+                      onPressed: () => unawaited(_reloadCurrentPage()),
+                      icon: const Icon(Icons.refresh),
+                    ),
+                    IconButton(
+                      tooltip: l10n.openInSystemBrowser,
+                      onPressed: () => unawaited(_openCurrentPage()),
+                      icon: const Icon(Icons.open_in_browser),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(child: WebViewWidget(controller: _controller!)),
+            ],
+          ),
+        ),
         Positioned.fill(
           child: IgnorePointer(
             child: DecoratedBox(
@@ -1084,7 +1131,6 @@ class _OverviewPage extends StatelessWidget {
     required this.state,
     required this.info,
     required this.error,
-    required this.logs,
     required this.componentStatuses,
     required this.unavailableComponents,
     required this.actionInProgress,
@@ -1096,7 +1142,6 @@ class _OverviewPage extends StatelessWidget {
   final RuntimeState state;
   final BackendInfo? info;
   final Object? error;
-  final List<RuntimeLog> logs;
   final Map<ComponentKind, ComponentVersionStatus> componentStatuses;
   final Set<ComponentKind> unavailableComponents;
   final bool actionInProgress;
@@ -1208,27 +1253,6 @@ class _OverviewPage extends StatelessWidget {
         ],
       ),
     );
-    final recentLogs = logs.length <= 3 ? logs : logs.sublist(logs.length - 3);
-    final recentLogsPanel = _SurfacePanel(
-      key: const ValueKey('overview-recent-logs'),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(l10n.recentLogsHeading, style: typography.titleMedium),
-          SizedBox(height: typography.spacingS),
-          if (recentLogs.isEmpty)
-            Text(l10n.noLogs)
-          else
-            for (final log in recentLogs)
-              Text(
-                '${log.timestamp.toIso8601String()} [${log.source.name}] ${log.message}',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: typography.bodySmall.copyWith(fontFamily: 'monospace'),
-              ),
-        ],
-      ),
-    );
     final componentStatusPanel = _SurfacePanel(
       key: const ValueKey('overview-component-status'),
       child: Column(
@@ -1242,7 +1266,9 @@ class _OverviewPage extends StatelessWidget {
                   ? l10n.unavailable
                   : componentStatuses[kind] == null
                   ? l10n.componentReadingVersion
-                  : l10n.componentCurrentWithPrevious(componentStatuses[kind]!.current, componentStatuses[kind]!.previous ?? '-')}',
+                  : '${l10n.componentCurrent(componentStatuses[kind]!.current)}; '
+                        '${componentStatuses[kind]!.previous == null ? l10n.rollbackUnavailable : '${l10n.componentPrevious(componentStatuses[kind]!.previous!)}; '
+                                  '${l10n.rollbackAvailable}'}'}',
             ),
         ],
       ),
@@ -1285,25 +1311,7 @@ class _OverviewPage extends StatelessWidget {
           ),
         ),
         SizedBox(height: typography.spacingLg),
-        LayoutBuilder(
-          builder: (context, constraints) => constraints.maxWidth < 760
-              ? Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    recentLogsPanel,
-                    SizedBox(height: typography.spacingLg),
-                    componentStatusPanel,
-                  ],
-                )
-              : Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(child: recentLogsPanel),
-                    SizedBox(width: typography.spacingLg),
-                    Expanded(child: componentStatusPanel),
-                  ],
-                ),
-        ),
+        componentStatusPanel,
       ],
     );
   }

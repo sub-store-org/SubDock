@@ -118,10 +118,33 @@ class AppLocalizationsEn extends AppLocalizations {
   String get viewOverview => 'View overview';
 
   @override
-  String get recentLogsHeading => 'Recent Logs';
+  String get componentStatusHeading => 'Component Status';
 
   @override
-  String get componentStatusHeading => 'Component Status';
+  String componentCurrent(Object version) {
+    return 'Current $version';
+  }
+
+  @override
+  String componentPrevious(Object version) {
+    return 'Previous $version';
+  }
+
+  @override
+  String get rollbackAvailable => 'Rollback available';
+
+  @override
+  String get rollbackUnavailable => 'Rollback unavailable';
+
+  @override
+  String get refresh => 'Refresh';
+
+  @override
+  String get openInSystemBrowser => 'Open in system browser';
+
+  @override
+  String get webViewCurrentUrlUnavailable =>
+      'The current WebView URL is unavailable or invalid';
 
   @override
   String get fixConfiguration => 'Fix configuration';
