@@ -13,9 +13,8 @@ import 'runtime/desktop_backend_runtime.dart';
 import 'runtime/runtime_directories.dart';
 import 'settings/backend_env_store.dart';
 import 'settings/config_error.dart';
-import 'settings/locale_preference_store.dart';
+import 'settings/desktop_preferences_store.dart';
 import 'settings/subdock_config_store.dart';
-import 'settings/theme_mode_store.dart';
 import 'update/component_metadata_store.dart';
 import 'update/component_recovery.dart';
 import 'update/component_resource_resolver.dart';
@@ -81,13 +80,14 @@ Future<void> main() async {
   } on AppConfigError {
     // The settings page provides the recovery path via `configurationError`.
   }
-  final localeStore = LocalePreferenceStore(directories);
+  final preferencesStore = DesktopPreferencesStore(directories);
+  final preferences = await preferencesStore.load();
   // The tray is built before the app loads its preference, so the resolver
   // reads a mutable holder that the locale-change callback updates. Resolve
   // the persisted preference here so a saved en preference shows in the tray
   // on the very first launch, not only after a manual change.
   var currentLocale = resolveEffectiveLocale(
-    await localeStore.load(),
+    preferences.locale,
     WidgetsBinding.instance.platformDispatcher.locales,
   );
   final lifecycle = DesktopLifecycle(
@@ -112,8 +112,8 @@ Future<void> main() async {
       onToggleFullscreen: lifecycle.toggleFullscreen,
       onCloseToTray: lifecycle.closeToTray,
       onStartDragging: windowManager.startDragging,
-      themeModeStore: ThemeModeStore(directories),
-      localeStore: localeStore,
+      preferences: preferences,
+      preferencesStore: preferencesStore,
       onLocaleChanged: (locale) async {
         currentLocale = resolveEffectiveLocale(
           locale?.languageCode,

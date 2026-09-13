@@ -12,9 +12,10 @@ import '../l10n/generated/app_localizations.dart';
 import '../runtime/backend_runtime.dart';
 import '../settings/backend_env.dart';
 import '../settings/config_error.dart';
+import '../settings/desktop_preferences.dart';
+import '../settings/desktop_preferences_store.dart';
 import '../settings/locale_preference_store.dart';
 import '../settings/subdock_config.dart';
-import '../settings/theme_mode_store.dart';
 import '../update/component_metadata_store.dart';
 import '../update/component_update_checker.dart';
 import '../update/component_update_service.dart';
@@ -50,9 +51,8 @@ class SubDockApp extends StatefulWidget {
     this.onToggleFullscreen,
     this.onCloseToTray,
     this.onStartDragging,
-    this.onThemeSaveScheduled,
-    this.themeModeStore,
-    this.localeStore,
+    this.preferences,
+    this.preferencesStore,
     this.onLocaleChanged,
     this.locale,
   });
@@ -66,16 +66,15 @@ class SubDockApp extends StatefulWidget {
   final Future<void> Function()? onToggleFullscreen;
   final Future<void> Function()? onCloseToTray;
   final Future<void> Function()? onStartDragging;
-  final void Function(Future<void>)? onThemeSaveScheduled;
-  final ThemeModeStore? themeModeStore;
-  final LocalePreferenceStore? localeStore;
+  final DesktopPreferences? preferences;
+  final DesktopPreferencesStore? preferencesStore;
 
   /// Notified with the effective locale after a locale change or a successful
   /// preference load at startup, so the caller (desktop_main) can rebuild the
   /// tray menu in the same language.
   final Future<void> Function(Locale?)? onLocaleChanged;
 
-  /// Initial locale override; a [localeStore] load replaces it at startup.
+  /// Initial locale override used when no saved preference selects a language.
   final Locale? locale;
 
   @override
@@ -94,14 +93,17 @@ class _SubDockAppState extends State<SubDockApp> {
   BackendInfo? _info;
   Object? _error;
   var _actionInProgress = false;
-  ThemeMode _themeMode = ThemeMode.system;
-  Future<void> _themeSaveQueue = Future<void>.value();
+  late ThemeMode _themeMode;
   Locale? _localeOverride;
 
   @override
   void initState() {
     super.initState();
-    _localeOverride = widget.locale;
+    final preferences = widget.preferences ?? DesktopPreferences.defaults;
+    _themeMode = preferences.themeMode;
+    _localeOverride = preferences.locale == null
+        ? widget.locale
+        : Locale(preferences.locale!);
     _state = widget.coordinator.runtime.currentState;
     _error = widget.initialError;
     if (_error != null) _page = _AppPage.overview;
@@ -113,8 +115,6 @@ class _SubDockAppState extends State<SubDockApp> {
     widget.desktopWarning?.addListener(_onDesktopWarning);
     unawaited(_loadLogTail());
     unawaited(_loadOverviewComponentStatuses());
-    unawaited(_loadThemeMode());
-    unawaited(_loadLocalePreference());
     if (widget.autoStart) unawaited(_autoStart());
   }
 
@@ -131,53 +131,12 @@ class _SubDockAppState extends State<SubDockApp> {
     if (mounted) setState(() {});
   }
 
-  Future<void> _loadThemeMode() async {
-    final store = widget.themeModeStore;
-    if (store == null) return;
-    final mode = await store.load();
-    if (!mounted || mode == null) return;
-    setState(() => _themeMode = mode);
-  }
-
   Future<void> _onThemeModeSelected(ThemeMode mode) async {
     setState(() => _themeMode = mode);
-    final store = widget.themeModeStore;
-    if (store == null) return;
-    _themeSaveQueue = _themeSaveQueue.then((_) async {
-      try {
-        await store.save(mode);
-      } catch (error) {
-        debugPrint('Failed to persist theme mode: $error');
-      }
-    });
-    widget.onThemeSaveScheduled?.call(_themeSaveQueue);
-    await _themeSaveQueue;
-  }
-
-  Future<void> _loadLocalePreference() async {
-    final store = widget.localeStore;
-    if (store == null) return;
-    final language = await store.load();
-    if (!mounted || language == null) return;
-    setState(() => _localeOverride = Locale(language));
-    if (widget.onLocaleChanged != null) {
-      await widget.onLocaleChanged!(Locale(language));
-    }
   }
 
   Future<void> _onLocaleSelected(Locale? locale) async {
     setState(() => _localeOverride = locale);
-    final store = widget.localeStore;
-    if (store == null) return;
-    try {
-      if (locale == null) {
-        await store.clear();
-      } else {
-        await store.save(locale.languageCode);
-      }
-    } catch (error) {
-      debugPrint('Failed to persist locale: $error');
-    }
     if (widget.onLocaleChanged != null) {
       await widget.onLocaleChanged!(locale);
     }

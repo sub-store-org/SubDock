@@ -26,9 +26,9 @@ import 'package:subdock/runtime/backend_runtime.dart';
 import 'package:subdock/runtime/runtime_directories.dart';
 import 'package:subdock/settings/backend_env_store.dart';
 import 'package:subdock/settings/config_error.dart';
-import 'package:subdock/settings/locale_preference_store.dart';
+import 'package:subdock/settings/desktop_preferences.dart';
+import 'package:subdock/settings/desktop_preferences_store.dart';
 import 'package:subdock/settings/subdock_config_store.dart';
-import 'package:subdock/settings/theme_mode_store.dart';
 
 void main() {
   testWidgets('runtime controls the backend through its abstraction', (
@@ -496,8 +496,12 @@ void main() {
       temp = await Directory.systemTemp.createTemp('subdock_widget_');
       return RuntimeDirectories.fromBaseDirectory(temp);
     });
-    final store = ThemeModeStore(directories!);
-    await tester.runAsync(() => store.save(ThemeMode.dark));
+    final store = DesktopPreferencesStore(directories!);
+    await tester.runAsync(
+      () => store.save(
+        DesktopPreferences.defaults.copyWith(themeMode: ThemeMode.dark),
+      ),
+    );
     final coordinator = AppCoordinator(
       runtime: _FakeBackendRuntime(),
       environmentStore: BackendEnvStore(directories),
@@ -508,7 +512,7 @@ void main() {
         coordinator: coordinator,
         autoStart: false,
         enableWebView: false,
-        themeModeStore: store,
+        preferences: await tester.runAsync(() => store.load()),
         locale: const Locale('zh'),
       ),
     );
@@ -580,7 +584,7 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('changing the theme in settings persists to the store', (
+  testWidgets('changing the theme previews without saving to the store', (
     WidgetTester tester,
   ) async {
     late Directory temp;
@@ -589,7 +593,10 @@ void main() {
       temp = await Directory.systemTemp.createTemp('subdock_widget_');
       return RuntimeDirectories.fromBaseDirectory(temp);
     });
-    final store = ThemeModeStore(directories!);
+    final store = DesktopPreferencesStore(directories!);
+    await tester.runAsync(
+      () => store.save(DesktopPreferences.defaults.copyWith(locale: 'zh')),
+    );
     final coordinator = AppCoordinator(
       runtime: _FakeBackendRuntime(),
       environmentStore: BackendEnvStore(directories),
@@ -600,7 +607,7 @@ void main() {
         coordinator: coordinator,
         autoStart: false,
         enableWebView: false,
-        themeModeStore: store,
+        preferences: await tester.runAsync(() => store.load()),
         locale: const Locale('zh'),
       ),
     );
@@ -621,7 +628,10 @@ void main() {
     );
 
     await _pumpRealIo(tester);
-    expect(await tester.runAsync(() => store.load()), ThemeMode.light);
+    expect(
+      (await tester.runAsync(() => store.load()))!.themeMode,
+      ThemeMode.system,
+    );
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -634,10 +644,9 @@ void main() {
         temp = await Directory.systemTemp.createTemp('subdock_widget_');
         return RuntimeDirectories.fromBaseDirectory(temp);
       });
-      final store = ThemeModeStore(directories!);
       final coordinator = AppCoordinator(
         runtime: _FakeBackendRuntime(),
-        environmentStore: BackendEnvStore(directories),
+        environmentStore: BackendEnvStore(directories!),
       );
 
       await tester.pumpWidget(
@@ -663,7 +672,6 @@ void main() {
         Theme.of(tester.element(find.text('SubDock'))).brightness,
         Brightness.dark,
       );
-      expect(await tester.runAsync(() => store.file.exists()), isFalse);
       await tester.pumpWidget(const SizedBox());
     },
   );
@@ -677,8 +685,9 @@ void main() {
       temp = await Directory.systemTemp.createTemp('subdock_widget_');
       return RuntimeDirectories.fromBaseDirectory(temp);
     });
-    final store = ThemeModeStore(directories!);
+    final store = DesktopPreferencesStore(directories!);
     await tester.runAsync(() => store.file.writeAsString('{not json'));
+    final preferences = await tester.runAsync(() => store.load());
     final coordinator = AppCoordinator(
       runtime: _FakeBackendRuntime(),
       environmentStore: BackendEnvStore(directories),
@@ -695,7 +704,7 @@ void main() {
         coordinator: coordinator,
         autoStart: false,
         enableWebView: false,
-        themeModeStore: store,
+        preferences: preferences,
         locale: const Locale('zh'),
       ),
     );
@@ -739,7 +748,7 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('switching the language applies and persists it', (
+  testWidgets('switching the language previews without saving it', (
     WidgetTester tester,
   ) async {
     late Directory temp;
@@ -748,7 +757,12 @@ void main() {
       temp = await Directory.systemTemp.createTemp('subdock_widget_');
       return RuntimeDirectories.fromBaseDirectory(temp);
     });
-    final localeStore = LocalePreferenceStore(directories!);
+    final preferencesStore = DesktopPreferencesStore(directories!);
+    await tester.runAsync(
+      () => preferencesStore.save(
+        DesktopPreferences.defaults.copyWith(locale: 'zh'),
+      ),
+    );
     final coordinator = AppCoordinator(
       runtime: _FakeBackendRuntime(),
       environmentStore: BackendEnvStore(directories),
@@ -760,7 +774,7 @@ void main() {
         autoStart: false,
         enableWebView: false,
         locale: const Locale('zh'),
-        localeStore: localeStore,
+        preferences: await tester.runAsync(() => preferencesStore.load()),
       ),
     );
     expect(find.text('设置'), findsWidgets);
@@ -776,7 +790,10 @@ void main() {
     expect(find.text('Settings'), findsWidgets);
     expect(find.text('Appearance'), findsWidgets);
     await _pumpRealIo(tester);
-    expect(await tester.runAsync(() => localeStore.load()), 'en');
+    expect(
+      (await tester.runAsync(() => preferencesStore.load()))!.locale,
+      'zh',
+    );
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -789,8 +806,12 @@ void main() {
       temp = await Directory.systemTemp.createTemp('subdock_widget_');
       return RuntimeDirectories.fromBaseDirectory(temp);
     });
-    final localeStore = LocalePreferenceStore(directories!);
-    await tester.runAsync(() => localeStore.save('en'));
+    final preferencesStore = DesktopPreferencesStore(directories!);
+    await tester.runAsync(
+      () => preferencesStore.save(
+        DesktopPreferences.defaults.copyWith(locale: 'en'),
+      ),
+    );
     final coordinator = AppCoordinator(
       runtime: _FakeBackendRuntime(),
       environmentStore: BackendEnvStore(directories),
@@ -801,7 +822,7 @@ void main() {
         coordinator: coordinator,
         autoStart: false,
         enableWebView: false,
-        localeStore: localeStore,
+        preferences: await tester.runAsync(() => preferencesStore.load()),
       ),
     );
     await _pumpRealIo(tester);
@@ -819,8 +840,11 @@ void main() {
       temp = await Directory.systemTemp.createTemp('subdock_widget_');
       return RuntimeDirectories.fromBaseDirectory(temp);
     });
-    final localeStore = LocalePreferenceStore(directories!);
-    await tester.runAsync(() => localeStore.file.writeAsString('{not json'));
+    final preferencesStore = DesktopPreferencesStore(directories!);
+    await tester.runAsync(
+      () => preferencesStore.file.writeAsString('{not json'),
+    );
+    final preferences = await tester.runAsync(() => preferencesStore.load());
     final coordinator = AppCoordinator(
       runtime: _FakeBackendRuntime(),
       environmentStore: BackendEnvStore(directories),
@@ -837,7 +861,7 @@ void main() {
         coordinator: coordinator,
         autoStart: false,
         enableWebView: false,
-        localeStore: localeStore,
+        preferences: preferences,
       ),
     );
     await _pumpRealIo(tester);
@@ -856,11 +880,9 @@ void main() {
       temp = await Directory.systemTemp.createTemp('subdock_widget_');
       return RuntimeDirectories.fromBaseDirectory(temp);
     });
-    final store = ThemeModeStore(directories!);
-    Future<void>? pendingThemeSave;
     final coordinator = AppCoordinator(
       runtime: _FakeBackendRuntime(),
-      environmentStore: BackendEnvStore(directories),
+      environmentStore: BackendEnvStore(directories!),
     );
     addTearDown(
       () => tester.binding.platformDispatcher.platformBrightnessTestValue =
@@ -874,8 +896,6 @@ void main() {
         coordinator: coordinator,
         autoStart: false,
         enableWebView: false,
-        themeModeStore: store,
-        onThemeSaveScheduled: (future) => pendingThemeSave = future,
         locale: const Locale('zh'),
       ),
     );
@@ -902,9 +922,6 @@ void main() {
     // Following the system (which is dark in this test) after manual picks.
     await selectTheme('跟随系统', Brightness.dark);
 
-    await _pumpRealIo(tester);
-    await pendingThemeSave;
-    expect(await tester.runAsync(() => store.load()), ThemeMode.system);
     await tester.pumpWidget(const SizedBox());
   });
 }
