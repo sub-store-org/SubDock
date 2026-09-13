@@ -2345,6 +2345,7 @@ class _SettingsPageState extends State<_SettingsPage> {
     setState(() {
       _backendDraft = backend;
       _savedBackend = backend;
+      _syncBackendControllers();
     });
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text(l10n.saved)));
@@ -2597,6 +2598,11 @@ class _SettingsPageState extends State<_SettingsPage> {
                           l10n.appearanceHeading,
                           style: typography.titleMedium,
                         ),
+                        if (_generalDirty)
+                          Text(
+                            l10n.unsavedChanges,
+                            style: TextStyle(color: colors.error),
+                          ),
                         SizedBox(height: typography.spacingSm),
                         Wrap(
                           spacing: typography.spacingLg,
@@ -2837,7 +2843,7 @@ class _SettingsPageState extends State<_SettingsPage> {
                           ),
                         ),
                         DropdownButtonFormField<_NullableBoolDraft>(
-                          key: const ValueKey('settings-merge-mode'),
+                          key: ValueKey('settings-merge-mode-$_mergeDraft'),
                           initialValue: _mergeDraft,
                           decoration: InputDecoration(
                             labelText: l10n.mergeMode,
