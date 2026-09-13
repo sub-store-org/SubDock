@@ -696,6 +696,24 @@ abstract class AppLocalizations {
   /// **'合并模式'**
   String get mergeMode;
 
+  /// No description provided for @inherit.
+  ///
+  /// In zh, this message translates to:
+  /// **'继承'**
+  String get inherit;
+
+  /// No description provided for @enabled.
+  ///
+  /// In zh, this message translates to:
+  /// **'开启'**
+  String get enabled;
+
+  /// No description provided for @disabled.
+  ///
+  /// In zh, this message translates to:
+  /// **'关闭'**
+  String get disabled;
+
   /// No description provided for @advancedRawEnv.
   ///
   /// In zh, this message translates to:

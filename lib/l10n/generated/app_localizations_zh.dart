@@ -336,6 +336,15 @@ class AppLocalizationsZh extends AppLocalizations {
   String get mergeMode => '合并模式';
 
   @override
+  String get inherit => '继承';
+
+  @override
+  String get enabled => '开启';
+
+  @override
+  String get disabled => '关闭';
+
+  @override
   String get advancedRawEnv => '高级原始 ENV';
 
   @override

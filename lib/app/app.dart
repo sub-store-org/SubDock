@@ -33,6 +33,8 @@ enum _AppPage { overview, manage, logs, settings }
 
 enum _SettingsSection { home, subDockConfig, backendConfig, advancedEnv }
 
+enum _NullableBoolDraft { inherit, enabled, disabled }
+
 class _ShellDestination {
   const _ShellDestination({
     required this.icon,
@@ -2065,6 +2067,7 @@ class _SettingsPageState extends State<_SettingsPage> {
   var _configurationDirty = false;
   late SubDockBackendConfig _savedBackend;
   late SubDockBackendConfig _backendDraft;
+  late _NullableBoolDraft _mergeDraft;
   var _httpMetaEnabled = true;
   final _componentUpdates = <ComponentKind, ComponentUpdate>{};
   final _componentStatuses = <ComponentKind, ComponentVersionStatus>{};
@@ -2079,6 +2082,7 @@ class _SettingsPageState extends State<_SettingsPage> {
     _configuration = widget.configuration;
     _savedBackend = widget.configuration.backend;
     _backendDraft = _savedBackend;
+    _mergeDraft = _mergeState(_backendDraft.merge);
     _raw = TextEditingController();
     _host = TextEditingController();
     _port = TextEditingController();
@@ -2112,6 +2116,7 @@ class _SettingsPageState extends State<_SettingsPage> {
     if (oldWidget.configuration != widget.configuration && !_backendDirty) {
       _savedBackend = widget.configuration.backend;
       _backendDraft = _savedBackend;
+      _mergeDraft = _mergeState(_backendDraft.merge);
       _syncBackendControllers();
     }
   }
@@ -2147,7 +2152,45 @@ class _SettingsPageState extends State<_SettingsPage> {
       _recentLogLimit.text.trim() !=
           '${widget.savedPreferences.recentLogLimit}';
 
-  bool get _backendDirty => _backendDraft != _savedBackend;
+  bool get _backendDirty =>
+      _backendDraft != _savedBackend ||
+      _host.text.trim() != (_savedBackend.apiHost ?? '') ||
+      _port.text.trim() != (_savedBackend.apiPort?.toString() ?? '') ||
+      _path.text.trim() != (_savedBackend.frontendBackendPath ?? '') ||
+      _cors.text.trim() != (_savedBackend.corsAllowedOrigins ?? '');
+
+  _NullableBoolDraft _mergeState(bool? value) => switch (value) {
+    null => _NullableBoolDraft.inherit,
+    true => _NullableBoolDraft.enabled,
+    false => _NullableBoolDraft.disabled,
+  };
+
+  bool? get _mergeValue => switch (_mergeDraft) {
+    _NullableBoolDraft.inherit => null,
+    _NullableBoolDraft.enabled => true,
+    _NullableBoolDraft.disabled => false,
+  };
+
+  String? get _backendIssue {
+    final l10n = AppLocalizations.of(context)!;
+    final port = _port.text.trim();
+    if (port.isNotEmpty) {
+      final value = int.tryParse(port);
+      if (value == null || value < 1 || value > 65535) {
+        return l10n.configErrorPortRange('backend.apiPort');
+      }
+    }
+    try {
+      SubDockConfig.fromJson(
+        widget.configuration
+            .copyWith(backend: _backendDraft.copyWith(merge: _mergeValue))
+            .toJson(),
+      );
+    } on AppConfigError catch (error) {
+      return _localizedConfigError(l10n, error);
+    }
+    return null;
+  }
 
   void _syncGeneral() {
     final preferences = widget.savedPreferences;
@@ -2194,6 +2237,7 @@ class _SettingsPageState extends State<_SettingsPage> {
     _port.text = _backendDraft.apiPort?.toString() ?? '';
     _path.text = _backendDraft.frontendBackendPath ?? '';
     _cors.text = _backendDraft.corsAllowedOrigins ?? '';
+    _mergeDraft = _mergeState(_backendDraft.merge);
   }
 
   void _updateBackend(SubDockBackendConfig next) {
@@ -2267,7 +2311,13 @@ class _SettingsPageState extends State<_SettingsPage> {
 
   Future<void> _saveBackendConfiguration() async {
     final l10n = AppLocalizations.of(context)!;
-    final next = widget.configuration.copyWith(backend: _backendDraft);
+    if (_backendIssue != null) return;
+    final portText = _port.text.trim();
+    final backend = _backendDraft.copyWith(
+      apiPort: portText.isEmpty ? null : int.parse(portText),
+      merge: _mergeValue,
+    );
+    final next = widget.configuration.copyWith(backend: backend);
     try {
       final effective = EffectiveRuntimeConfig.resolve(
         systemEnvironment: Platform.environment,
@@ -2292,7 +2342,10 @@ class _SettingsPageState extends State<_SettingsPage> {
       return;
     }
     if (!mounted) return;
-    setState(() => _savedBackend = _backendDraft);
+    setState(() {
+      _backendDraft = backend;
+      _savedBackend = backend;
+    });
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text(l10n.saved)));
   }
@@ -2477,6 +2530,7 @@ class _SettingsPageState extends State<_SettingsPage> {
         _backendDraft = widget.configuration.backend;
         _savedBackend = _backendDraft;
         _syncBackendControllers();
+        _mergeDraft = _mergeState(_backendDraft.merge);
       }
       setState(() {});
       return true;
@@ -2533,26 +2587,6 @@ class _SettingsPageState extends State<_SettingsPage> {
                       child: Text(l10n.back),
                     ),
                   ),
-                if (_section == _SettingsSection.home) ...[
-                  _SettingsSectionTile(
-                    title: l10n.subdockConfigHeading,
-                    subtitle: l10n.enableHttpMetaSubtitle,
-                    onTap: () =>
-                        unawaited(_openSection(_SettingsSection.subDockConfig)),
-                  ),
-                  _SettingsSectionTile(
-                    title: l10n.backendConfigHeading,
-                    subtitle: 'Host, Port, Merge, Path, CORS',
-                    onTap: () =>
-                        unawaited(_openSection(_SettingsSection.backendConfig)),
-                  ),
-                  _SettingsSectionTile(
-                    title: l10n.advancedRawEnv,
-                    subtitle: l10n.advancedRawEnvSubtitle,
-                    onTap: () =>
-                        unawaited(_openSection(_SettingsSection.advancedEnv)),
-                  ),
-                ],
                 if (_section == _SettingsSection.home) ...[
                   _SurfacePanel(
                     key: const ValueKey('settings-appearance'),
@@ -2693,6 +2727,22 @@ class _SettingsPageState extends State<_SettingsPage> {
                       ],
                     ),
                   ),
+                  _SettingsSectionTile(
+                    title: l10n.subdockConfigHeading,
+                    subtitle: _configurationDirty
+                        ? '${l10n.enableHttpMetaSubtitle} (${l10n.unsavedChanges})'
+                        : l10n.enableHttpMetaSubtitle,
+                    onTap: () =>
+                        unawaited(_openSection(_SettingsSection.subDockConfig)),
+                  ),
+                  _SettingsSectionTile(
+                    title: l10n.backendConfigHeading,
+                    subtitle: _backendDirty
+                        ? 'Host, Port, Merge, Path, CORS (${l10n.unsavedChanges})'
+                        : 'Host, Port, Merge, Path, CORS',
+                    onTap: () =>
+                        unawaited(_openSection(_SettingsSection.backendConfig)),
+                  ),
                 ],
                 SizedBox(height: typography.spacingLg),
                 if (_section == _SettingsSection.subDockConfig) ...[
@@ -2753,6 +2803,11 @@ class _SettingsPageState extends State<_SettingsPage> {
                           l10n.backendConfigHeading,
                           style: typography.titleMedium,
                         ),
+                        if (_backendIssue != null)
+                          Text(
+                            _backendIssue!,
+                            style: TextStyle(color: colors.error),
+                          ),
                         TextField(
                           controller: _host,
                           decoration: const InputDecoration(
@@ -2767,8 +2822,13 @@ class _SettingsPageState extends State<_SettingsPage> {
                         TextField(
                           controller: _port,
                           keyboardType: TextInputType.number,
-                          decoration: const InputDecoration(
+                          decoration: InputDecoration(
                             labelText: 'API Port',
+                            errorText:
+                                _port.text.trim().isNotEmpty &&
+                                    _backendIssue != null
+                                ? _backendIssue
+                                : null,
                           ),
                           onChanged: (value) => _updateBackend(
                             _backendDraft.copyWith(
@@ -2776,13 +2836,35 @@ class _SettingsPageState extends State<_SettingsPage> {
                             ),
                           ),
                         ),
-                        SwitchListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(l10n.mergeMode),
-                          value: _backendDraft.merge ?? false,
-                          onChanged: (value) => _updateBackend(
-                            _backendDraft.copyWith(merge: value),
+                        DropdownButtonFormField<_NullableBoolDraft>(
+                          key: const ValueKey('settings-merge-mode'),
+                          initialValue: _mergeDraft,
+                          decoration: InputDecoration(
+                            labelText: l10n.mergeMode,
                           ),
+                          items: [
+                            DropdownMenuItem(
+                              value: _NullableBoolDraft.inherit,
+                              child: Text(l10n.inherit),
+                            ),
+                            DropdownMenuItem(
+                              value: _NullableBoolDraft.enabled,
+                              child: Text(l10n.enabled),
+                            ),
+                            DropdownMenuItem(
+                              value: _NullableBoolDraft.disabled,
+                              child: Text(l10n.disabled),
+                            ),
+                          ],
+                          onChanged: (value) {
+                            if (value == null) return;
+                            setState(() {
+                              _mergeDraft = value;
+                              _backendDraft = _backendDraft.copyWith(
+                                merge: _mergeValue,
+                              );
+                            });
+                          },
                         ),
                         TextField(
                           controller: _path,
@@ -2890,6 +2972,15 @@ class _SettingsPageState extends State<_SettingsPage> {
                       ],
                     ),
                   ),
+                if (_section == _SettingsSection.home)
+                  _SettingsSectionTile(
+                    title: l10n.advancedRawEnv,
+                    subtitle: _dirty
+                        ? '${l10n.advancedRawEnvSubtitle} (${l10n.unsavedChanges})'
+                        : l10n.advancedRawEnvSubtitle,
+                    onTap: () =>
+                        unawaited(_openSection(_SettingsSection.advancedEnv)),
+                  ),
               ],
             ),
           ),
@@ -2935,7 +3026,9 @@ class _SettingsPageState extends State<_SettingsPage> {
                     _SettingsSection.subDockConfig =>
                       _configurationDirty ? _saveConfiguration : null,
                     _SettingsSection.backendConfig =>
-                      _backendDirty ? _saveBackendConfiguration : null,
+                      _backendDirty && _backendIssue == null
+                          ? _saveBackendConfiguration
+                          : null,
                     _SettingsSection.advancedEnv =>
                       _dirty && BackendEnvPolicy.validate(_document).isEmpty
                           ? _save

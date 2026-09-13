@@ -344,6 +344,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get mergeMode => 'Merge mode';
 
   @override
+  String get inherit => 'Inherit';
+
+  @override
+  String get enabled => 'On';
+
+  @override
+  String get disabled => 'Off';
+
+  @override
   String get advancedRawEnv => 'Advanced raw ENV';
 
   @override
