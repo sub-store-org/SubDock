@@ -51,6 +51,12 @@ void main() {
       ),
     );
 
+    await tester.binding.setSurfaceSize(const Size(600, 480));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    expect(find.byKey(const ValueKey('desktop-chrome')), findsOneWidget);
+    expect(find.byKey(const ValueKey('desktop-sidebar')), findsOneWidget);
+    expect(find.byKey(const ValueKey('page-title')), findsOneWidget);
+
     await tester.tap(find.text('运行状态'));
     await tester.pump();
 
@@ -78,6 +84,7 @@ void main() {
     expect(find.text('v24.20.0'), findsOneWidget);
     expect(find.text('fixture-backend'), findsOneWidget);
     expect(find.text('3001'), findsOneWidget);
+    expect(tester.takeException(), isNull);
 
     tester
         .widget<OutlinedButton>(find.widgetWithText(OutlinedButton, '停止'))

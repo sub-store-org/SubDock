@@ -941,6 +941,51 @@ class _ManagePageState extends State<_ManagePage> {
   }
 }
 
+class _SurfacePanel extends StatelessWidget {
+  const _SurfacePanel({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<AppColors>()!;
+    final typography = Theme.of(context).extension<AppTypography>()!;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colors.surfaceLow,
+        borderRadius: BorderRadius.circular(typography.radiusMd),
+        border: Border.all(color: colors.divider),
+      ),
+      child: Padding(
+        padding: EdgeInsets.all(typography.spacingMd),
+        child: child,
+      ),
+    );
+  }
+}
+
+class _RuntimeInfoItem extends StatelessWidget {
+  const _RuntimeInfoItem({required this.label, required this.value});
+
+  final String label;
+  final String? value;
+
+  @override
+  Widget build(BuildContext context) {
+    final typography = Theme.of(context).extension<AppTypography>()!;
+    return SizedBox(
+      width: 160,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: typography.labelSmall),
+          Text(value ?? '-', style: typography.bodyMedium),
+        ],
+      ),
+    );
+  }
+}
+
 class _RuntimePage extends StatelessWidget {
   const _RuntimePage({
     required this.state,
@@ -964,6 +1009,7 @@ class _RuntimePage extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final colors = Theme.of(context).extension<AppColors>()!;
+    final typography = Theme.of(context).extension<AppTypography>()!;
     final label = switch (state.status) {
       RuntimeStatus.stopped => l10n.stopped,
       RuntimeStatus.starting => l10n.starting,
@@ -972,71 +1018,127 @@ class _RuntimePage extends StatelessWidget {
       RuntimeStatus.unhealthy => l10n.unhealthy,
       RuntimeStatus.crashed => l10n.crashed,
     };
-    return ListView(
-      padding: const EdgeInsets.all(24),
-      children: [
-        Text(label, style: Theme.of(context).textTheme.headlineMedium),
-        if (error != null || state.message != null) ...[
-          const SizedBox(height: 12),
-          Text(
-            error != null ? _localizedError(l10n, error) : state.message!,
-            style: TextStyle(color: colors.error),
+    final statusColor = switch (state.status) {
+      RuntimeStatus.running => colors.success,
+      RuntimeStatus.starting || RuntimeStatus.stopping => colors.warning,
+      RuntimeStatus.unhealthy || RuntimeStatus.crashed => colors.error,
+      RuntimeStatus.stopped => colors.onSurface,
+    };
+    final httpMetaLabel = switch (state.httpMetaStatus) {
+      HttpMetaStatus.disabled => l10n.httpMetaDisabled,
+      HttpMetaStatus.unavailable =>
+        state.httpMetaMessage == null
+            ? l10n.httpMetaUnavailable
+            : l10n.httpMetaUnavailableDetail(state.httpMetaMessage!),
+      HttpMetaStatus.starting => l10n.httpMetaStarting,
+      HttpMetaStatus.running => l10n.httpMetaRunning(
+        state.httpMetaPort ?? '-',
+        state.httpMetaVersion ?? '-',
+      ),
+      HttpMetaStatus.degraded =>
+        state.httpMetaMessage == null
+            ? l10n.httpMetaDegraded
+            : l10n.httpMetaDegradedDetail(state.httpMetaMessage!),
+      HttpMetaStatus.stopped => l10n.httpMetaStopped,
+    };
+    final backendPanel = _SurfacePanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.circle, size: 12, color: statusColor),
+              SizedBox(width: typography.spacingS),
+              Text(label, style: typography.titleLarge),
+            ],
           ),
-        ],
-        const SizedBox(height: 24),
-        _InfoRow(label: 'Node', value: info?.nodeVersion),
-        _InfoRow(label: 'Backend', value: info?.backendVersion),
-        _InfoRow(label: 'Port', value: info == null ? null : '${info!.port}'),
-        _InfoRow(
-          label: 'HTTP-META',
-          value: switch (state.httpMetaStatus) {
-            HttpMetaStatus.disabled => l10n.httpMetaDisabled,
-            HttpMetaStatus.unavailable =>
-              state.httpMetaMessage == null
-                  ? l10n.httpMetaUnavailable
-                  : l10n.httpMetaUnavailableDetail(state.httpMetaMessage!),
-            HttpMetaStatus.starting => l10n.httpMetaStarting,
-            HttpMetaStatus.running => l10n.httpMetaRunning(
-              state.httpMetaPort ?? '-',
-              state.httpMetaVersion ?? '-',
-            ),
-            HttpMetaStatus.degraded =>
-              state.httpMetaMessage == null
-                  ? l10n.httpMetaDegraded
-                  : l10n.httpMetaDegradedDetail(state.httpMetaMessage!),
-            HttpMetaStatus.stopped => l10n.httpMetaStopped,
-          },
-        ),
-        const SizedBox(height: 24),
-        Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          children: [
-            FilledButton.icon(
-              onPressed:
-                  actionInProgress || state.status == RuntimeStatus.running
-                  ? null
-                  : onStart,
-              icon: const Icon(Icons.play_arrow),
-              label: Text(l10n.start),
-            ),
-            OutlinedButton.icon(
-              onPressed:
-                  actionInProgress || state.status == RuntimeStatus.stopped
-                  ? null
-                  : onStop,
-              icon: const Icon(Icons.stop),
-              label: Text(l10n.stop),
-            ),
-            OutlinedButton.icon(
-              onPressed:
-                  actionInProgress || state.status != RuntimeStatus.running
-                  ? null
-                  : onRestart,
-              icon: const Icon(Icons.restart_alt),
-              label: Text(l10n.restart),
+          if (error != null || state.message != null) ...[
+            SizedBox(height: typography.spacingSm),
+            Text(
+              error != null ? _localizedError(l10n, error) : state.message!,
+              style: TextStyle(color: colors.error),
             ),
           ],
+          SizedBox(height: typography.spacingMd),
+          Wrap(
+            spacing: typography.spacingS,
+            runSpacing: typography.spacingS,
+            children: [
+              FilledButton.icon(
+                onPressed:
+                    actionInProgress || state.status == RuntimeStatus.running
+                    ? null
+                    : onStart,
+                icon: const Icon(Icons.play_arrow),
+                label: Text(l10n.start),
+              ),
+              OutlinedButton.icon(
+                onPressed:
+                    actionInProgress || state.status == RuntimeStatus.stopped
+                    ? null
+                    : onStop,
+                icon: const Icon(Icons.stop),
+                label: Text(l10n.stop),
+              ),
+              OutlinedButton.icon(
+                onPressed:
+                    actionInProgress || state.status != RuntimeStatus.running
+                    ? null
+                    : onRestart,
+                icon: const Icon(Icons.restart_alt),
+                label: Text(l10n.restart),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+    final httpMetaPanel = _SurfacePanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('HTTP-META', style: typography.titleMedium),
+          SizedBox(height: typography.spacingS),
+          Text(httpMetaLabel, style: TextStyle(color: statusColor)),
+        ],
+      ),
+    );
+    return ListView(
+      padding: EdgeInsets.all(typography.spacingLg),
+      children: [
+        LayoutBuilder(
+          builder: (context, constraints) => constraints.maxWidth < 760
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    backendPanel,
+                    SizedBox(height: typography.spacingLg),
+                    httpMetaPanel,
+                  ],
+                )
+              : Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(flex: 2, child: backendPanel),
+                    SizedBox(width: typography.spacingLg),
+                    Expanded(child: httpMetaPanel),
+                  ],
+                ),
+        ),
+        SizedBox(height: typography.spacingLg),
+        _SurfacePanel(
+          child: Wrap(
+            spacing: typography.spacingLg,
+            runSpacing: typography.spacingMd,
+            children: [
+              _RuntimeInfoItem(label: 'Node', value: info?.nodeVersion),
+              _RuntimeInfoItem(label: 'Backend', value: info?.backendVersion),
+              _RuntimeInfoItem(
+                label: 'Port',
+                value: info == null ? null : '${info!.port}',
+              ),
+            ],
+          ),
         ),
       ],
     );
@@ -1637,24 +1739,6 @@ class _ComponentCard extends StatelessWidget {
       ),
     );
   }
-}
-
-class _InfoRow extends StatelessWidget {
-  const _InfoRow({required this.label, required this.value});
-
-  final String label;
-  final String? value;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 12),
-    child: Row(
-      children: [
-        SizedBox(width: 120, child: Text(label)),
-        Expanded(child: Text(value ?? '-')),
-      ],
-    ),
-  );
 }
 
 /// Localizes an environment issue produced by the parse/validate layers.
