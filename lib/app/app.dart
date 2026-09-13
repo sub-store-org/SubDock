@@ -2354,8 +2354,10 @@ class _SettingsPageState extends State<_SettingsPage> {
         .showSnackBar(SnackBar(content: Text(l10n.saved)));
   }
 
-  Future<void> _saveBackendConfiguration() =>
-      _withPendingSave(_saveBackendConfigurationImpl);
+  Future<void> _saveBackendConfiguration() {
+    if (_pendingBackendSave != null) return Future<void>.value();
+    return _withPendingSave(_saveBackendConfigurationImpl);
+  }
 
   Future<void> _saveBackendConfigurationImpl() async {
     final l10n = AppLocalizations.of(context)!;
@@ -3102,7 +3104,9 @@ class _SettingsPageState extends State<_SettingsPage> {
                     _SettingsSection.subDockConfig =>
                       _configurationDirty ? _saveConfiguration : null,
                     _SettingsSection.backendConfig =>
-                      _backendDirty && _backendIssue == null
+                      _backendDirty &&
+                              _backendIssue == null &&
+                              _pendingBackendSave == null
                           ? _saveBackendConfiguration
                           : null,
                     _SettingsSection.advancedEnv =>
