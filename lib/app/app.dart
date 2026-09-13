@@ -316,7 +316,12 @@ class _SubDockAppState extends State<SubDockApp> {
   }
 
   Future<void> _saveDesktopPreferences(DesktopPreferences preferences) async {
-    await widget.preferencesStore?.save(preferences);
+    try {
+      await widget.preferencesStore?.save(preferences);
+    } catch (error) {
+      if (mounted) setState(() => _error = error);
+      rethrow;
+    }
     if (!mounted) return;
     setState(() {
       _savedPreferences = preferences;
@@ -2058,6 +2063,8 @@ class _SettingsPageState extends State<_SettingsPage> {
   var _section = _SettingsSection.home;
   var _dirty = false;
   var _configurationDirty = false;
+  late SubDockBackendConfig _savedBackend;
+  late SubDockBackendConfig _backendDraft;
   var _httpMetaEnabled = true;
   final _componentUpdates = <ComponentKind, ComponentUpdate>{};
   final _componentStatuses = <ComponentKind, ComponentVersionStatus>{};
@@ -2070,6 +2077,8 @@ class _SettingsPageState extends State<_SettingsPage> {
     _syncGeneral();
     _document = widget.environment;
     _configuration = widget.configuration;
+    _savedBackend = widget.configuration.backend;
+    _backendDraft = _savedBackend;
     _raw = TextEditingController();
     _host = TextEditingController();
     _port = TextEditingController();
@@ -2099,6 +2108,11 @@ class _SettingsPageState extends State<_SettingsPage> {
         oldWidget.configuration != widget.configuration) {
       _configuration = widget.configuration;
       _syncConfiguration();
+    }
+    if (oldWidget.configuration != widget.configuration && !_backendDirty) {
+      _savedBackend = widget.configuration.backend;
+      _backendDraft = _savedBackend;
+      _syncBackendControllers();
     }
   }
 
@@ -2133,6 +2147,8 @@ class _SettingsPageState extends State<_SettingsPage> {
       _recentLogLimit.text.trim() !=
           '${widget.savedPreferences.recentLogLimit}';
 
+  bool get _backendDirty => _backendDraft != _savedBackend;
+
   void _syncGeneral() {
     final preferences = widget.savedPreferences;
     _generalThemeMode = preferences.themeMode;
@@ -2166,20 +2182,23 @@ class _SettingsPageState extends State<_SettingsPage> {
     setState(() {});
   }
 
-  String _value(String key, String fallback) =>
-      _document.values[key] ?? fallback;
-
   void _syncControllers() {
     _updating = true;
     _raw.text = _document.rawText;
-    _host.text = _value(BackendEnvPolicy.host, '127.0.0.1');
-    _port.text = _value(BackendEnvPolicy.port, '3001');
-    _path.text = _value(BackendEnvPolicy.frontendBackendPath, '/');
-    _cors.text = _value(
-      BackendEnvPolicy.corsAllowedOrigins,
-      BackendEnvPolicy.localOrigin(_document).origin,
-    );
+    _syncBackendControllers();
     _updating = false;
+  }
+
+  void _syncBackendControllers() {
+    _host.text = _backendDraft.apiHost ?? '';
+    _port.text = _backendDraft.apiPort?.toString() ?? '';
+    _path.text = _backendDraft.frontendBackendPath ?? '';
+    _cors.text = _backendDraft.corsAllowedOrigins ?? '';
+  }
+
+  void _updateBackend(SubDockBackendConfig next) {
+    if (_updating) return;
+    setState(() => _backendDraft = next);
   }
 
   void _syncConfiguration() {
@@ -2229,12 +2248,51 @@ class _SettingsPageState extends State<_SettingsPage> {
     if (externalCors && !await _confirm(l10n.confirmExternalCors)) return;
     if (nonLoopback && !await _confirm(l10n.confirmNonLoopback)) return;
     try {
-      await widget.onSaveConfiguration(_configuration);
+      await widget.onSaveConfiguration(
+        widget.configuration.copyWith(httpMeta: _configuration.httpMeta),
+      );
     } on Object {
       return;
     }
     if (!mounted) return;
-    setState(() => _configurationDirty = false);
+    setState(() {
+      _configurationDirty = false;
+      _configuration = widget.configuration.copyWith(
+        httpMeta: _configuration.httpMeta,
+      );
+    });
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(l10n.saved)));
+  }
+
+  Future<void> _saveBackendConfiguration() async {
+    final l10n = AppLocalizations.of(context)!;
+    final next = widget.configuration.copyWith(backend: _backendDraft);
+    try {
+      final effective = EffectiveRuntimeConfig.resolve(
+        systemEnvironment: Platform.environment,
+        backendEnvironment: widget.environment,
+        config: next,
+      ).environment;
+      final document = BackendEnvDocument.parse(
+        '${BackendEnvPolicy.host}=${effective[BackendEnvPolicy.host]}\n'
+        '${BackendEnvPolicy.port}=${effective[BackendEnvPolicy.port]}\n'
+        '${BackendEnvPolicy.corsAllowedOrigins}=${effective[BackendEnvPolicy.corsAllowedOrigins]}',
+      );
+      if (BackendEnvPolicy.externalOrigins(document).isNotEmpty &&
+          !await _confirm(l10n.confirmExternalCors)) {
+        return;
+      }
+      if (BackendEnvPolicy.hasNonLoopbackHost(document) &&
+          !await _confirm(l10n.confirmNonLoopback)) {
+        return;
+      }
+      await widget.onSaveConfiguration(next);
+    } on Object {
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _savedBackend = _backendDraft);
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text(l10n.saved)));
   }
@@ -2243,15 +2301,6 @@ class _SettingsPageState extends State<_SettingsPage> {
     if (_updating) return;
     setState(() {
       _document = BackendEnvDocument.parse(value);
-      _dirty = true;
-      _syncControllers();
-    });
-  }
-
-  void _updateField(String key, String value) {
-    if (_updating) return;
-    setState(() {
-      _document = _document.withValue(key, value);
       _dirty = true;
       _syncControllers();
     });
@@ -2387,7 +2436,9 @@ class _SettingsPageState extends State<_SettingsPage> {
   }
 
   Future<bool> requestLeave() async {
-    if (!_generalDirty && !_dirty && !_configurationDirty) return true;
+    if (!_generalDirty && !_dirty && !_configurationDirty && !_backendDirty) {
+      return true;
+    }
     final l10n = AppLocalizations.of(context)!;
     final decision = await showDialog<_LeaveDecision>(
       context: context,
@@ -2422,6 +2473,11 @@ class _SettingsPageState extends State<_SettingsPage> {
         _syncConfiguration();
         _configurationDirty = false;
       }
+      if (_backendDirty) {
+        _backendDraft = widget.configuration.backend;
+        _savedBackend = _backendDraft;
+        _syncBackendControllers();
+      }
       setState(() {});
       return true;
     }
@@ -2429,6 +2485,10 @@ class _SettingsPageState extends State<_SettingsPage> {
     if (_configurationDirty) {
       await _saveConfiguration();
       if (_configurationDirty) return false;
+    }
+    if (_backendDirty) {
+      await _saveBackendConfiguration();
+      if (_backendDirty) return false;
     }
     if (_dirty) {
       await _save();
@@ -2678,13 +2738,6 @@ class _SettingsPageState extends State<_SettingsPage> {
                             configurationIssue,
                             style: TextStyle(color: colors.error),
                           ),
-                        FilledButton(
-                          onPressed:
-                              configurationIssue == null && _configurationDirty
-                              ? _saveConfiguration
-                              : null,
-                          child: Text(l10n.saveSubdockConfig),
-                        ),
                       ],
                     ),
                   ),
@@ -2705,8 +2758,11 @@ class _SettingsPageState extends State<_SettingsPage> {
                           decoration: const InputDecoration(
                             labelText: 'API Host',
                           ),
-                          onChanged: (value) =>
-                              _updateField(BackendEnvPolicy.host, value),
+                          onChanged: (value) => _updateBackend(
+                            _backendDraft.copyWith(
+                              apiHost: value.trim().isEmpty ? null : value,
+                            ),
+                          ),
                         ),
                         TextField(
                           controller: _port,
@@ -2714,16 +2770,18 @@ class _SettingsPageState extends State<_SettingsPage> {
                           decoration: const InputDecoration(
                             labelText: 'API Port',
                           ),
-                          onChanged: (value) =>
-                              _updateField(BackendEnvPolicy.port, value),
+                          onChanged: (value) => _updateBackend(
+                            _backendDraft.copyWith(
+                              apiPort: int.tryParse(value.trim()),
+                            ),
+                          ),
                         ),
                         SwitchListTile(
                           contentPadding: EdgeInsets.zero,
                           title: Text(l10n.mergeMode),
-                          value: BackendEnvPolicy.isMergeEnabledFor(_document),
-                          onChanged: (value) => _updateField(
-                            BackendEnvPolicy.merge,
-                            value ? 'true' : 'false',
+                          value: _backendDraft.merge ?? false,
+                          onChanged: (value) => _updateBackend(
+                            _backendDraft.copyWith(merge: value),
                           ),
                         ),
                         TextField(
@@ -2731,9 +2789,12 @@ class _SettingsPageState extends State<_SettingsPage> {
                           decoration: const InputDecoration(
                             labelText: 'Frontend Backend Path',
                           ),
-                          onChanged: (value) => _updateField(
-                            BackendEnvPolicy.frontendBackendPath,
-                            value,
+                          onChanged: (value) => _updateBackend(
+                            _backendDraft.copyWith(
+                              frontendBackendPath: value.trim().isEmpty
+                                  ? null
+                                  : value,
+                            ),
                           ),
                         ),
                         TextField(
@@ -2741,9 +2802,12 @@ class _SettingsPageState extends State<_SettingsPage> {
                           decoration: const InputDecoration(
                             labelText: 'CORS Allowed Origins',
                           ),
-                          onChanged: (value) => _updateField(
-                            BackendEnvPolicy.corsAllowedOrigins,
-                            value,
+                          onChanged: (value) => _updateBackend(
+                            _backendDraft.copyWith(
+                              corsAllowedOrigins: value.trim().isEmpty
+                                  ? null
+                                  : value,
+                            ),
                           ),
                         ),
                       ],
@@ -2755,40 +2819,44 @@ class _SettingsPageState extends State<_SettingsPage> {
                   _SurfacePanel(
                     key: const ValueKey('settings-raw-env'),
                     padding: EdgeInsets.zero,
-                    child: ExpansionTile(
-                      key: const ValueKey('settings-raw-env-expansion'),
-                      title: Text(l10n.advancedRawEnv),
-                      subtitle: Text(l10n.advancedRawEnvSubtitle),
-                      initiallyExpanded: false,
-                      childrenPadding: EdgeInsets.fromLTRB(
-                        typography.spacingMd,
-                        0,
-                        typography.spacingMd,
-                        typography.spacingMd,
-                      ),
+                    child: Column(
                       children: [
-                        TextField(
-                          key: const ValueKey('settings-raw-env-editor'),
-                          controller: _raw,
-                          minLines: 8,
-                          maxLines: 16,
-                          decoration: const InputDecoration(
-                            border: OutlineInputBorder(),
-                          ),
-                          onChanged: _updateRaw,
+                        ListTile(
+                          leading: const Icon(Icons.warning_amber),
+                          title: Text(l10n.structuredEnvPrecedenceWarning),
                         ),
-                        if (issues.isNotEmpty) ...[
-                          SizedBox(height: typography.spacingS),
-                          for (final issue in issues)
-                            Text(
-                              '${issue.line == null ? '' : l10n.lineNumber(issue.line!)}${_localizedIssue(l10n, issue)}',
-                              style: TextStyle(color: colors.error),
+                        ExpansionTile(
+                          key: const ValueKey('settings-raw-env-expansion'),
+                          title: Text(l10n.advancedRawEnv),
+                          subtitle: Text(l10n.advancedRawEnvSubtitle),
+                          initiallyExpanded: false,
+                          childrenPadding: EdgeInsets.fromLTRB(
+                            typography.spacingMd,
+                            0,
+                            typography.spacingMd,
+                            typography.spacingMd,
+                          ),
+                          children: [
+                            TextField(
+                              key: const ValueKey('settings-raw-env-editor'),
+                              controller: _raw,
+                              minLines: 8,
+                              maxLines: 16,
+                              decoration: const InputDecoration(
+                                border: OutlineInputBorder(),
+                              ),
+                              onChanged: _updateRaw,
                             ),
-                        ],
-                        SizedBox(height: typography.spacingMd),
-                        FilledButton(
-                          onPressed: issues.isEmpty && _dirty ? _save : null,
-                          child: Text(l10n.save),
+                            if (issues.isNotEmpty) ...[
+                              SizedBox(height: typography.spacingS),
+                              for (final issue in issues)
+                                Text(
+                                  '${issue.line == null ? '' : l10n.lineNumber(issue.line!)}${_localizedIssue(l10n, issue)}',
+                                  style: TextStyle(color: colors.error),
+                                ),
+                            ],
+                            SizedBox(height: typography.spacingMd),
+                          ],
                         ),
                       ],
                     ),
@@ -2850,6 +2918,31 @@ class _SettingsPageState extends State<_SettingsPage> {
                         }
                       : null,
                   child: Text(l10n.saveAll),
+                ),
+              ),
+            ),
+          ),
+        if (_section != _SettingsSection.home)
+          SafeArea(
+            top: false,
+            child: Padding(
+              padding: EdgeInsets.all(typography.spacingMd),
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: FilledButton(
+                  key: const ValueKey('settings-child-save'),
+                  onPressed: switch (_section) {
+                    _SettingsSection.subDockConfig =>
+                      _configurationDirty ? _saveConfiguration : null,
+                    _SettingsSection.backendConfig =>
+                      _backendDirty ? _saveBackendConfiguration : null,
+                    _SettingsSection.advancedEnv =>
+                      _dirty && BackendEnvPolicy.validate(_document).isEmpty
+                          ? _save
+                          : null,
+                    _SettingsSection.home => null,
+                  },
+                  child: Text(l10n.save),
                 ),
               ),
             ),

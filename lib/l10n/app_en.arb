@@ -109,6 +109,7 @@
   "closeToTray": "Close to tray",
   "recentLogs": "Recent logs",
   "recentLogPresets": "Preset limit",
+  "structuredEnvPrecedenceWarning": "Backend Configuration overrides matching Advanced ENV values.",
   "languageFollowSystem": "Follow system",
   "componentUpdatesHeading": "Component Updates",
   "checkForUpdates": "Check for updates",

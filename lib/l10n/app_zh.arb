@@ -109,6 +109,7 @@
   "closeToTray": "关闭到托盘",
   "recentLogs": "最近日志条数",
   "recentLogPresets": "选择预设条数",
+  "structuredEnvPrecedenceWarning": "Backend 配置会覆盖高级 ENV 中同名的值。",
   "languageFollowSystem": "跟随系统",
   "componentUpdatesHeading": "组件更新",
   "checkForUpdates": "检查更新",

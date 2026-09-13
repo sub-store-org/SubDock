@@ -214,7 +214,7 @@ void main() {
     await tester.tap(httpMetaSwitch);
     await tester.pump();
 
-    final save = find.widgetWithText(FilledButton, '保存 SubDock 配置');
+    final save = find.byKey(const ValueKey('settings-child-save'));
     expect(tester.widget<FilledButton>(save).onPressed, isNotNull);
     await tester.drag(
       find.byKey(const ValueKey('settings-list')),

@@ -368,6 +368,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get recentLogPresets => '选择预设条数';
 
   @override
+  String get structuredEnvPrecedenceWarning => 'Backend 配置会覆盖高级 ENV 中同名的值。';
+
+  @override
   String get languageFollowSystem => '跟随系统';
 
   @override

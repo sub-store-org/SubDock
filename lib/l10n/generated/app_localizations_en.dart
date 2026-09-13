@@ -377,6 +377,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get recentLogPresets => 'Preset limit';
 
   @override
+  String get structuredEnvPrecedenceWarning =>
+      'Backend Configuration overrides matching Advanced ENV values.';
+
+  @override
   String get languageFollowSystem => 'Follow system';
 
   @override

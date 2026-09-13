@@ -756,6 +756,12 @@ abstract class AppLocalizations {
   /// **'选择预设条数'**
   String get recentLogPresets;
 
+  /// No description provided for @structuredEnvPrecedenceWarning.
+  ///
+  /// In zh, this message translates to:
+  /// **'Backend 配置会覆盖高级 ENV 中同名的值。'**
+  String get structuredEnvPrecedenceWarning;
+
   /// No description provided for @languageFollowSystem.
   ///
   /// In zh, this message translates to:
