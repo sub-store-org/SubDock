@@ -12,6 +12,7 @@ import 'package:flutter/material.dart'
         OutlinedButton,
         SelectableText,
         SegmentedButton,
+        SwitchListTile,
         Theme,
         ThemeMode,
         ValueNotifier;
@@ -26,6 +27,7 @@ import 'package:subdock/runtime/runtime_directories.dart';
 import 'package:subdock/settings/backend_env_store.dart';
 import 'package:subdock/settings/config_error.dart';
 import 'package:subdock/settings/locale_preference_store.dart';
+import 'package:subdock/settings/subdock_config_store.dart';
 import 'package:subdock/settings/theme_mode_store.dart';
 
 void main() {
@@ -154,7 +156,64 @@ void main() {
     expect(find.byKey(const ValueKey('manage-recovery')), findsOneWidget);
     expect(find.text('Backend 未运行'), findsOneWidget);
     expect(find.text('查看运行状态'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, '查看运行状态'));
+    await tester.pump();
+    expect(
+      tester
+          .widget<Offstage>(find.byKey(const ValueKey('page-manage')))
+          .offstage,
+      isTrue,
+    );
+    expect(
+      tester
+          .widget<Offstage>(find.byKey(const ValueKey('page-runtime')))
+          .offstage,
+      isFalse,
+    );
     expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('saving SubDock configuration does not restart the runtime', (
+    WidgetTester tester,
+  ) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    final runtime = _FakeBackendRuntime();
+    final store = SubDockConfigStore(directories!);
+    final coordinator = AppCoordinator(
+      runtime: runtime,
+      environmentStore: BackendEnvStore(directories),
+      configurationStore: store,
+    );
+
+    await tester.pumpWidget(
+      SubDockApp(
+        coordinator: coordinator,
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('zh'),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(SwitchListTile, '启用 HTTP-META'));
+    await tester.pump();
+
+    final save = find.widgetWithText(FilledButton, '保存 SubDock 配置');
+    expect(tester.widget<FilledButton>(save).onPressed, isNotNull);
+    await tester.tap(save);
+    await tester.pump();
+    await _pumpRealIo(tester);
+
+    final saved = await tester.runAsync(store.load);
+    expect(saved!.httpMeta.enabled, isFalse);
+    expect(find.text('SubDock 配置已保存；不会自动重启服务。'), findsOneWidget);
+    expect(runtime.restarts, 0);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -863,6 +922,7 @@ class _FakeBackendRuntime extends BackendRuntime {
   final _states = StreamController<RuntimeState>.broadcast(sync: true);
   var starts = 0;
   var stops = 0;
+  var restarts = 0;
 
   void emitLog(RuntimeLog log) => _logs.add(log);
 
@@ -892,7 +952,9 @@ class _FakeBackendRuntime extends BackendRuntime {
   Future<bool> isHealthy() async => true;
 
   @override
-  Future<void> restart() async {}
+  Future<void> restart() async {
+    restarts++;
+  }
 
   @override
   Future<void> activateUserEnvironment(Map<String, String> environment) async {}
