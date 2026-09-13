@@ -1416,13 +1416,16 @@ class _LogsPageState extends State<_LogsPage> {
   var _sources = <String>{'Backend', 'HTTP-META'};
   var _levels = Set<_LogLevel>.of(_LogLevel.values);
   var _mode = _LogsMode.current;
-  var _historyLoading = false;
-  Object? _historyError;
+  var _historyListLoading = false;
+  Object? _historyListError;
+  var _historyDetailLoading = false;
+  Object? _historyDetailError;
   List<RuntimeLogRun> _historyRuns = const [];
   RuntimeLogRun? _selectedRun;
   List<RuntimeLog> _historyLogs = const [];
   var _historyPage = 0;
   var _historyHasNext = false;
+  var _historyListGeneration = 0;
   var _historyGeneration = 0;
   var _hasRecentDeletion = false;
 
@@ -1441,9 +1444,9 @@ class _LogsPageState extends State<_LogsPage> {
       _mode = _LogsMode.current;
       _selectedRun = null;
       _historyGeneration++;
-      _historyLoading = false;
+      _historyDetailLoading = false;
       _historyLogs = const [];
-      _historyError = null;
+      _historyDetailError = null;
     }
     if (oldWidget.sort != widget.sort && _selectedRun != null) {
       unawaited(_loadHistoryPage(_selectedRun!, page: 0));
@@ -1464,18 +1467,23 @@ class _LogsPageState extends State<_LogsPage> {
   Future<void> _loadHistoryRuns() async {
     final store = widget.logStore;
     if (store == null) return;
-    setState(() => _historyLoading = true);
+    final generation = ++_historyListGeneration;
+    setState(() => _historyListLoading = true);
     try {
       final runs = await store.listRuns();
-      if (!mounted) return;
+      if (!mounted || generation != _historyListGeneration) return;
       setState(() {
         _historyRuns = runs;
-        _historyError = null;
+        _historyListError = null;
       });
     } catch (error) {
-      if (mounted) setState(() => _historyError = error);
+      if (mounted && generation == _historyListGeneration) {
+        setState(() => _historyListError = error);
+      }
     } finally {
-      if (mounted) setState(() => _historyLoading = false);
+      if (mounted && generation == _historyListGeneration) {
+        setState(() => _historyListLoading = false);
+      }
     }
   }
 
@@ -1485,8 +1493,8 @@ class _LogsPageState extends State<_LogsPage> {
     final generation = ++_historyGeneration;
     setState(() {
       _selectedRun = run;
-      _historyLoading = true;
-      _historyError = null;
+      _historyDetailLoading = true;
+      _historyDetailError = null;
       _historyLogs = const [];
       _historyPage = page;
       _historyHasNext = false;
@@ -1512,20 +1520,20 @@ class _LogsPageState extends State<_LogsPage> {
       });
     } catch (error) {
       if (mounted && generation == _historyGeneration) {
-        setState(() => _historyError = error);
+        setState(() => _historyDetailError = error);
       }
     } finally {
       if (mounted && generation == _historyGeneration) {
-        setState(() => _historyLoading = false);
+        setState(() => _historyDetailLoading = false);
       }
     }
   }
 
   Widget _buildHistoryList(AppLocalizations l10n) {
-    if (_historyLoading) {
+    if (_historyListLoading) {
       return const Center(child: CircularProgressIndicator());
     }
-    if (_historyError != null) {
+    if (_historyListError != null) {
       return Center(child: Text(l10n.historyLoadError));
     }
     if (_historyRuns.isEmpty && !_hasRecentDeletion) {
@@ -1595,7 +1603,7 @@ class _LogsPageState extends State<_LogsPage> {
         );
       }
     } catch (error) {
-      if (mounted) setState(() => _historyError = error);
+      if (mounted) setState(() => _historyListError = error);
     }
   }
 
@@ -1618,7 +1626,7 @@ class _LogsPageState extends State<_LogsPage> {
         );
       }
     } catch (error) {
-      if (mounted) setState(() => _historyError = error);
+      if (mounted) setState(() => _historyListError = error);
     }
   }
 
@@ -1630,7 +1638,7 @@ class _LogsPageState extends State<_LogsPage> {
       if (mounted) setState(() => _hasRecentDeletion = false);
       await _loadHistoryRuns();
     } catch (error) {
-      if (mounted) setState(() => _historyError = error);
+      if (mounted) setState(() => _historyListError = error);
     }
   }
 
@@ -1731,10 +1739,10 @@ class _LogsPageState extends State<_LogsPage> {
                 setState(() {
                   _mode = next;
                   _historyGeneration++;
-                  _historyLoading = false;
                   _selectedRun = null;
                   _historyLogs = const [];
-                  _historyError = null;
+                  _historyDetailLoading = false;
+                  _historyDetailError = null;
                 });
                 if (next == _LogsMode.history) unawaited(_loadHistoryRuns());
               },
@@ -1749,10 +1757,10 @@ class _LogsPageState extends State<_LogsPage> {
                     key: const ValueKey('history-back'),
                     onPressed: () => setState(() {
                       _historyGeneration++;
-                      _historyLoading = false;
                       _selectedRun = null;
                       _historyLogs = const [];
-                      _historyError = null;
+                      _historyDetailLoading = false;
+                      _historyDetailError = null;
                     }),
                     child: Text(l10n.back),
                   ),
@@ -1826,9 +1834,9 @@ class _LogsPageState extends State<_LogsPage> {
               ),
               const Divider(height: 1),
               Expanded(
-                child: _historyLoading
+                child: _historyDetailLoading
                     ? const Center(child: CircularProgressIndicator())
-                    : _selectedRun != null && _historyError != null
+                    : _selectedRun != null && _historyDetailError != null
                     ? Center(child: Text(l10n.historyLoadError))
                     : visible.isEmpty
                     ? Center(
