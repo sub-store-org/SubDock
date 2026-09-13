@@ -72,6 +72,7 @@
   "deleteRun": "Delete run",
   "clearHistory": "Clear history",
   "undo": "Undo",
+  "unsavedChanges": "You have unsaved changes. Continue?",
   "recentlyDeleted": "Recently deleted",
   "previousPage": "Previous",
   "nextPage": "Next",

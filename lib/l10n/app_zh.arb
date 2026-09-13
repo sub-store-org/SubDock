@@ -72,6 +72,7 @@
   "deleteRun": "删除运行记录",
   "clearHistory": "清空历史",
   "undo": "撤销",
+  "unsavedChanges": "有未保存的更改，是否继续？",
   "recentlyDeleted": "已删除",
   "previousPage": "上一页",
   "nextPage": "下一页",

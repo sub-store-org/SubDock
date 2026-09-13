@@ -530,6 +530,12 @@ abstract class AppLocalizations {
   /// **'撤销'**
   String get undo;
 
+  /// No description provided for @unsavedChanges.
+  ///
+  /// In zh, this message translates to:
+  /// **'有未保存的更改，是否继续？'**
+  String get unsavedChanges;
+
   /// No description provided for @recentlyDeleted.
   ///
   /// In zh, this message translates to:

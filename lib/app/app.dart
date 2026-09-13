@@ -31,6 +31,8 @@ final _notMaximized = ValueNotifier<bool>(false);
 
 enum _AppPage { overview, manage, logs, settings }
 
+enum _SettingsSection { home, subDockConfig, backendConfig, advancedEnv }
+
 class _ShellDestination {
   const _ShellDestination({
     required this.icon,
@@ -90,6 +92,7 @@ class SubDockApp extends StatefulWidget {
 }
 
 class _SubDockAppState extends State<SubDockApp> {
+  final _settingsKey = GlobalKey<_SettingsPageState>();
   late final StreamSubscription<RuntimeState> _stateSubscription;
   late final StreamSubscription<RuntimeLog> _logSubscription;
   late final AppLifecycleListener _lifecycleListener;
@@ -107,6 +110,8 @@ class _SubDockAppState extends State<SubDockApp> {
   late int _currentRunLogLimit;
   var _logsEntryGeneration = 0;
   var _historyRefreshGeneration = 0;
+  var _settingsChild = false;
+  CloseApprovalHandler? _previousCloseApproval;
 
   @override
   void initState() {
@@ -127,12 +132,19 @@ class _SubDockAppState extends State<SubDockApp> {
       onDetach: () => unawaited(widget.coordinator.dispose()),
     );
     widget.desktopWarning?.addListener(_onDesktopWarning);
+    final guard = widget.closeRequestGuard;
+    if (guard != null) {
+      _previousCloseApproval = guard.approvalHandler;
+      guard.approvalHandler = _approveCloseRequest;
+    }
     unawaited(_loadOverviewComponentStatuses());
     if (widget.autoStart) unawaited(_autoStart());
   }
 
   @override
   void dispose() {
+    final guard = widget.closeRequestGuard;
+    if (guard != null) guard.approvalHandler = _previousCloseApproval;
     widget.desktopWarning?.removeListener(_onDesktopWarning);
     _lifecycleListener.dispose();
     _stateSubscription.cancel();
@@ -209,7 +221,19 @@ class _SubDockAppState extends State<SubDockApp> {
     }
   }
 
-  void _selectPage(_AppPage page) {
+  Future<bool> _approveCloseRequest() async {
+    final previous = _previousCloseApproval;
+    if (previous != null && !await previous()) return false;
+    if (_page != _AppPage.settings) return true;
+    return _settingsKey.currentState?.requestLeave() ?? true;
+  }
+
+  Future<void> _selectPage(_AppPage page) async {
+    if (_page == page) return;
+    if (_page == _AppPage.settings &&
+        !await (_settingsKey.currentState?.requestLeave() ?? true)) {
+      return;
+    }
     if (_page != _AppPage.logs && page == _AppPage.logs) {
       _logsEntryGeneration++;
     }
@@ -271,6 +295,36 @@ class _SubDockAppState extends State<SubDockApp> {
     } finally {
       if (mounted) setState(() => _actionInProgress = false);
     }
+  }
+
+  Future<void> _saveConfiguration(SubDockConfig configuration) async {
+    if (_actionInProgress) {
+      throw StateError('operation already in progress');
+    }
+    setState(() {
+      _actionInProgress = true;
+      _error = null;
+    });
+    try {
+      await widget.coordinator.saveConfiguration(configuration);
+    } catch (error) {
+      if (mounted) setState(() => _error = error);
+      rethrow;
+    } finally {
+      if (mounted) setState(() => _actionInProgress = false);
+    }
+  }
+
+  Future<void> _saveDesktopPreferences(DesktopPreferences preferences) async {
+    await widget.preferencesStore?.save(preferences);
+    if (!mounted) return;
+    setState(() {
+      _savedPreferences = preferences;
+      _themeMode = preferences.themeMode;
+      _localeOverride = preferences.locale == null
+          ? null
+          : Locale(preferences.locale!);
+    });
   }
 
   @override
@@ -403,6 +457,7 @@ class _SubDockAppState extends State<SubDockApp> {
         onSortChanged: _onLogSortChanged,
       ),
       _SettingsPage(
+        key: _settingsKey,
         environment: widget.coordinator.environment,
         configuration: widget.coordinator.configuration,
         configurationError: widget.coordinator.configurationError,
@@ -412,10 +467,15 @@ class _SubDockAppState extends State<SubDockApp> {
         localeOverride: _localeOverride,
         onLocaleSelected: (locale) => unawaited(_onLocaleSelected(locale)),
         onSave: _saveEnvironment,
-        onSaveConfiguration: (configuration) =>
-            _run(() => widget.coordinator.saveConfiguration(configuration)),
+        onSaveConfiguration: _saveConfiguration,
+        onSaveEnvironment: _saveEnvironment,
+        savedPreferences: _savedPreferences,
+        onSavePreferences: _saveDesktopPreferences,
+        onPreviewTheme: _onThemeModeSelected,
+        onPreviewLocale: _onLocaleSelected,
         onResetConfiguration: () => _run(widget.coordinator.resetConfiguration),
         onRestart: () => _run(widget.coordinator.restart),
+        onChildStateChanged: (child) => setState(() => _settingsChild = child),
       ),
     ];
     final body = Stack(
@@ -464,20 +524,21 @@ class _SubDockAppState extends State<SubDockApp> {
                   return Column(
                     children: [
                       Expanded(child: pageFrame),
-                      NavigationBar(
-                        selectedIndex: _page.index,
-                        onDestinationSelected: (index) =>
-                            _selectPage(_AppPage.values[index]),
-                        destinations: destinations
-                            .map(
-                              (destination) => NavigationDestination(
-                                icon: destination.icon,
-                                selectedIcon: destination.selectedIcon,
-                                label: destination.label,
-                              ),
-                            )
-                            .toList(growable: false),
-                      ),
+                      if (!(_page == _AppPage.settings && _settingsChild))
+                        NavigationBar(
+                          selectedIndex: _page.index,
+                          onDestinationSelected: (index) =>
+                              unawaited(_selectPage(_AppPage.values[index])),
+                          destinations: destinations
+                              .map(
+                                (destination) => NavigationDestination(
+                                  icon: destination.icon,
+                                  selectedIcon: destination.selectedIcon,
+                                  label: destination.label,
+                                ),
+                              )
+                              .toList(growable: false),
+                        ),
                     ],
                   );
                 }
@@ -488,7 +549,7 @@ class _SubDockAppState extends State<SubDockApp> {
                       selectedIndex: _page.index,
                       destinations: destinations,
                       onDestinationSelected: (index) =>
-                          _selectPage(_AppPage.values[index]),
+                          unawaited(_selectPage(_AppPage.values[index])),
                     ),
                     const VerticalDivider(width: 1),
                     Expanded(child: pageFrame),
@@ -1930,8 +1991,29 @@ String _formatDuration(RuntimeLogRun run) {
   return '${(seconds ~/ 3600).toString().padLeft(2, '0')}:${((seconds % 3600) ~/ 60).toString().padLeft(2, '0')}:${(seconds % 60).toString().padLeft(2, '0')}';
 }
 
+class _SettingsSectionTile extends StatelessWidget {
+  const _SettingsSectionTile({
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => ListTile(
+    title: Text(title),
+    subtitle: Text(subtitle),
+    trailing: const Icon(Icons.chevron_right),
+    onTap: onTap,
+  );
+}
+
 class _SettingsPage extends StatefulWidget {
   const _SettingsPage({
+    super.key,
     required this.environment,
     required this.configuration,
     required this.configurationError,
@@ -1942,8 +2024,14 @@ class _SettingsPage extends StatefulWidget {
     required this.onLocaleSelected,
     required this.onSave,
     required this.onSaveConfiguration,
+    required this.onSaveEnvironment,
+    required this.savedPreferences,
+    required this.onSavePreferences,
+    required this.onPreviewTheme,
+    required this.onPreviewLocale,
     required this.onResetConfiguration,
     required this.onRestart,
+    required this.onChildStateChanged,
   });
 
   final BackendEnvDocument environment;
@@ -1956,8 +2044,14 @@ class _SettingsPage extends StatefulWidget {
   final ValueChanged<Locale?> onLocaleSelected;
   final Future<void> Function(BackendEnvDocument document) onSave;
   final Future<void> Function(SubDockConfig configuration) onSaveConfiguration;
+  final Future<void> Function(BackendEnvDocument document) onSaveEnvironment;
+  final DesktopPreferences savedPreferences;
+  final Future<void> Function(DesktopPreferences preferences) onSavePreferences;
+  final Future<void> Function(ThemeMode mode) onPreviewTheme;
+  final Future<void> Function(Locale? locale) onPreviewLocale;
   final Future<void> Function() onResetConfiguration;
   final VoidCallback onRestart;
+  final ValueChanged<bool> onChildStateChanged;
 
   @override
   State<_SettingsPage> createState() => _SettingsPageState();
@@ -1972,6 +2066,7 @@ class _SettingsPageState extends State<_SettingsPage> {
   late final TextEditingController _path;
   late final TextEditingController _cors;
   var _updating = false;
+  var _section = _SettingsSection.home;
   var _dirty = false;
   var _configurationDirty = false;
   var _httpMetaEnabled = true;
@@ -2243,6 +2338,19 @@ class _SettingsPageState extends State<_SettingsPage> {
     }
   }
 
+  Future<bool> requestLeave() async {
+    if (!_dirty && !_configurationDirty) return true;
+    return await _confirm(AppLocalizations.of(context)!.unsavedChanges);
+  }
+
+  Future<void> _openSection(_SettingsSection section) async {
+    if (!await requestLeave() || !mounted) return;
+    setState(() => _section = section);
+    widget.onChildStateChanged(section != _SettingsSection.home);
+  }
+
+  void _backToHome() => unawaited(_openSection(_SettingsSection.home));
+
   @override
   Widget build(BuildContext context) {
     final issues = BackendEnvPolicy.validate(_document);
@@ -2261,253 +2369,295 @@ class _SettingsPageState extends State<_SettingsPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                _SurfacePanel(
-                  key: const ValueKey('settings-appearance'),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        l10n.appearanceHeading,
-                        style: typography.titleMedium,
-                      ),
-                      SizedBox(height: typography.spacingSm),
-                      Wrap(
-                        spacing: typography.spacingLg,
-                        runSpacing: typography.spacingSm,
-                        children: [
-                          SegmentedButton<ThemeMode>(
-                            segments: [
-                              ButtonSegment(
-                                value: ThemeMode.system,
-                                icon: const Icon(Icons.brightness_auto),
-                                label: Text(l10n.themeFollowSystem),
-                              ),
-                              ButtonSegment(
-                                value: ThemeMode.light,
-                                icon: const Icon(Icons.light_mode),
-                                label: Text(l10n.themeLight),
-                              ),
-                              ButtonSegment(
-                                value: ThemeMode.dark,
-                                icon: const Icon(Icons.dark_mode),
-                                label: Text(l10n.themeDark),
-                              ),
-                            ],
-                            selected: {widget.themeMode},
-                            onSelectionChanged: (selection) =>
-                                widget.onThemeModeSelected(selection.first),
-                          ),
-                          SizedBox(
-                            width: 220,
-                            child: DropdownButton<String>(
-                              isExpanded: true,
-                              value:
-                                  widget.localeOverride?.languageCode ??
-                                  'system',
-                              items: [
-                                DropdownMenuItem(
-                                  value: 'system',
-                                  child: Text(l10n.languageFollowSystem),
-                                ),
-                                for (final language
-                                    in LocalePreferenceStore.supported)
-                                  DropdownMenuItem(
-                                    value: language,
-                                    child: Text(_languageLabel(language)),
-                                  ),
-                              ],
-                              onChanged: (value) => widget.onLocaleSelected(
-                                value == null || value == 'system'
-                                    ? null
-                                    : Locale(value),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
+                if (_section != _SettingsSection.home)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton(
+                      key: const ValueKey('settings-back'),
+                      onPressed: _backToHome,
+                      child: Text(l10n.back),
+                    ),
                   ),
-                ),
-                SizedBox(height: typography.spacingLg),
-                _SurfacePanel(
-                  key: const ValueKey('settings-subdock-config'),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        l10n.subdockConfigHeading,
-                        style: typography.titleMedium,
-                      ),
-                      if (widget.configurationError != null) ...[
+                if (_section == _SettingsSection.home) ...[
+                  _SettingsSectionTile(
+                    title: l10n.subdockConfigHeading,
+                    subtitle: l10n.enableHttpMetaSubtitle,
+                    onTap: () =>
+                        unawaited(_openSection(_SettingsSection.subDockConfig)),
+                  ),
+                  _SettingsSectionTile(
+                    title: l10n.backendConfigHeading,
+                    subtitle: 'Host, Port, Merge, Path, CORS',
+                    onTap: () =>
+                        unawaited(_openSection(_SettingsSection.backendConfig)),
+                  ),
+                  _SettingsSectionTile(
+                    title: l10n.advancedRawEnv,
+                    subtitle: l10n.advancedRawEnvSubtitle,
+                    onTap: () =>
+                        unawaited(_openSection(_SettingsSection.advancedEnv)),
+                  ),
+                ],
+                if (_section == _SettingsSection.home) ...[
+                  _SurfacePanel(
+                    key: const ValueKey('settings-appearance'),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                         Text(
-                          l10n.configurationInvalid(
-                            _localizedConfigError(
-                              l10n,
-                              widget.configurationError!,
-                            ),
-                          ),
-                          style: TextStyle(color: colors.error),
+                          l10n.appearanceHeading,
+                          style: typography.titleMedium,
                         ),
-                        SizedBox(height: typography.spacingS),
-                        OutlinedButton(
-                          onPressed: _configurationDirty
-                              ? null
-                              : () => unawaited(widget.onResetConfiguration()),
-                          child: Text(l10n.resetSubdockConfig),
+                        SizedBox(height: typography.spacingSm),
+                        Wrap(
+                          spacing: typography.spacingLg,
+                          runSpacing: typography.spacingSm,
+                          children: [
+                            SegmentedButton<ThemeMode>(
+                              segments: [
+                                ButtonSegment(
+                                  value: ThemeMode.system,
+                                  icon: const Icon(Icons.brightness_auto),
+                                  label: Text(l10n.themeFollowSystem),
+                                ),
+                                ButtonSegment(
+                                  value: ThemeMode.light,
+                                  icon: const Icon(Icons.light_mode),
+                                  label: Text(l10n.themeLight),
+                                ),
+                                ButtonSegment(
+                                  value: ThemeMode.dark,
+                                  icon: const Icon(Icons.dark_mode),
+                                  label: Text(l10n.themeDark),
+                                ),
+                              ],
+                              selected: {widget.themeMode},
+                              onSelectionChanged: (selection) =>
+                                  widget.onThemeModeSelected(selection.first),
+                            ),
+                            SizedBox(
+                              width: 220,
+                              child: DropdownButton<String>(
+                                isExpanded: true,
+                                value:
+                                    widget.localeOverride?.languageCode ??
+                                    'system',
+                                items: [
+                                  DropdownMenuItem(
+                                    value: 'system',
+                                    child: Text(l10n.languageFollowSystem),
+                                  ),
+                                  for (final language
+                                      in LocalePreferenceStore.supported)
+                                    DropdownMenuItem(
+                                      value: language,
+                                      child: Text(_languageLabel(language)),
+                                    ),
+                                ],
+                                onChanged: (value) => widget.onLocaleSelected(
+                                  value == null || value == 'system'
+                                      ? null
+                                      : Locale(value),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: Text(l10n.enableHttpMeta),
-                        subtitle: Text(l10n.enableHttpMetaSubtitle),
-                        value: _httpMetaEnabled,
-                        onChanged: (value) => _updateConfiguration(
-                          _configuration.httpMeta.copyWith(enabled: value),
-                        ),
-                      ),
-                      if (configurationIssue != null)
-                        Text(
-                          configurationIssue,
-                          style: TextStyle(color: colors.error),
-                        ),
-                      FilledButton(
-                        onPressed:
-                            configurationIssue == null && _configurationDirty
-                            ? _saveConfiguration
-                            : null,
-                        child: Text(l10n.saveSubdockConfig),
-                      ),
-                    ],
-                  ),
-                ),
-                SizedBox(height: typography.spacingLg),
-                _SurfacePanel(
-                  key: const ValueKey('settings-backend-config'),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        l10n.backendConfigHeading,
-                        style: typography.titleMedium,
-                      ),
-                      TextField(
-                        controller: _host,
-                        decoration: const InputDecoration(
-                          labelText: 'API Host',
-                        ),
-                        onChanged: (value) =>
-                            _updateField(BackendEnvPolicy.host, value),
-                      ),
-                      TextField(
-                        controller: _port,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: 'API Port',
-                        ),
-                        onChanged: (value) =>
-                            _updateField(BackendEnvPolicy.port, value),
-                      ),
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: Text(l10n.mergeMode),
-                        value: BackendEnvPolicy.isMergeEnabledFor(_document),
-                        onChanged: (value) => _updateField(
-                          BackendEnvPolicy.merge,
-                          value ? 'true' : 'false',
-                        ),
-                      ),
-                      TextField(
-                        controller: _path,
-                        decoration: const InputDecoration(
-                          labelText: 'Frontend Backend Path',
-                        ),
-                        onChanged: (value) => _updateField(
-                          BackendEnvPolicy.frontendBackendPath,
-                          value,
-                        ),
-                      ),
-                      TextField(
-                        controller: _cors,
-                        decoration: const InputDecoration(
-                          labelText: 'CORS Allowed Origins',
-                        ),
-                        onChanged: (value) => _updateField(
-                          BackendEnvPolicy.corsAllowedOrigins,
-                          value,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                SizedBox(height: typography.spacingLg),
-                _SurfacePanel(
-                  key: const ValueKey('settings-raw-env'),
-                  padding: EdgeInsets.zero,
-                  child: ExpansionTile(
-                    key: const ValueKey('settings-raw-env-expansion'),
-                    title: Text(l10n.advancedRawEnv),
-                    subtitle: Text(l10n.advancedRawEnvSubtitle),
-                    initiallyExpanded: false,
-                    childrenPadding: EdgeInsets.fromLTRB(
-                      typography.spacingMd,
-                      0,
-                      typography.spacingMd,
-                      typography.spacingMd,
                     ),
-                    children: [
-                      TextField(
-                        key: const ValueKey('settings-raw-env-editor'),
-                        controller: _raw,
-                        minLines: 8,
-                        maxLines: 16,
-                        decoration: const InputDecoration(
-                          border: OutlineInputBorder(),
+                  ),
+                ],
+                SizedBox(height: typography.spacingLg),
+                if (_section == _SettingsSection.home ||
+                    _section == _SettingsSection.subDockConfig) ...[
+                  _SurfacePanel(
+                    key: const ValueKey('settings-subdock-config'),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          l10n.subdockConfigHeading,
+                          style: typography.titleMedium,
                         ),
-                        onChanged: _updateRaw,
-                      ),
-                      if (issues.isNotEmpty) ...[
-                        SizedBox(height: typography.spacingS),
-                        for (final issue in issues)
+                        if (widget.configurationError != null) ...[
                           Text(
-                            '${issue.line == null ? '' : l10n.lineNumber(issue.line!)}${_localizedIssue(l10n, issue)}',
+                            l10n.configurationInvalid(
+                              _localizedConfigError(
+                                l10n,
+                                widget.configurationError!,
+                              ),
+                            ),
                             style: TextStyle(color: colors.error),
                           ),
-                      ],
-                      SizedBox(height: typography.spacingMd),
-                      FilledButton(
-                        onPressed: issues.isEmpty && _dirty ? _save : null,
-                        child: Text(l10n.save),
-                      ),
-                    ],
-                  ),
-                ),
-                SizedBox(height: typography.spacingLg),
-                _SurfacePanel(
-                  key: const ValueKey('settings-component-updates'),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        l10n.componentUpdatesHeading,
-                        style: typography.titleMedium,
-                      ),
-                      SizedBox(height: typography.spacingSm),
-                      for (final kind in ComponentKind.values)
-                        _ComponentCard(
-                          kind: kind,
-                          status: _componentStatuses[kind],
-                          update: _componentUpdates[kind],
-                          error: _componentErrors[kind],
-                          busy: _componentBusy.contains(kind),
-                          onCheck: () => _checkComponent(kind),
-                          onUpdate: _componentUpdates[kind] == null
-                              ? null
-                              : () => _applyComponent(_componentUpdates[kind]!),
-                          onRollback: () => _rollbackComponent(kind),
+                          SizedBox(height: typography.spacingS),
+                          OutlinedButton(
+                            onPressed: _configurationDirty
+                                ? null
+                                : () =>
+                                      unawaited(widget.onResetConfiguration()),
+                            child: Text(l10n.resetSubdockConfig),
+                          ),
+                        ],
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(l10n.enableHttpMeta),
+                          subtitle: Text(l10n.enableHttpMetaSubtitle),
+                          value: _httpMetaEnabled,
+                          onChanged: (value) => _updateConfiguration(
+                            _configuration.httpMeta.copyWith(enabled: value),
+                          ),
                         ),
-                    ],
+                        if (configurationIssue != null)
+                          Text(
+                            configurationIssue,
+                            style: TextStyle(color: colors.error),
+                          ),
+                        FilledButton(
+                          onPressed:
+                              configurationIssue == null && _configurationDirty
+                              ? _saveConfiguration
+                              : null,
+                          child: Text(l10n.saveSubdockConfig),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
+                ],
+                SizedBox(height: typography.spacingLg),
+                if (_section == _SettingsSection.home ||
+                    _section == _SettingsSection.backendConfig) ...[
+                  _SurfacePanel(
+                    key: const ValueKey('settings-backend-config'),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          l10n.backendConfigHeading,
+                          style: typography.titleMedium,
+                        ),
+                        TextField(
+                          controller: _host,
+                          decoration: const InputDecoration(
+                            labelText: 'API Host',
+                          ),
+                          onChanged: (value) =>
+                              _updateField(BackendEnvPolicy.host, value),
+                        ),
+                        TextField(
+                          controller: _port,
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(
+                            labelText: 'API Port',
+                          ),
+                          onChanged: (value) =>
+                              _updateField(BackendEnvPolicy.port, value),
+                        ),
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(l10n.mergeMode),
+                          value: BackendEnvPolicy.isMergeEnabledFor(_document),
+                          onChanged: (value) => _updateField(
+                            BackendEnvPolicy.merge,
+                            value ? 'true' : 'false',
+                          ),
+                        ),
+                        TextField(
+                          controller: _path,
+                          decoration: const InputDecoration(
+                            labelText: 'Frontend Backend Path',
+                          ),
+                          onChanged: (value) => _updateField(
+                            BackendEnvPolicy.frontendBackendPath,
+                            value,
+                          ),
+                        ),
+                        TextField(
+                          controller: _cors,
+                          decoration: const InputDecoration(
+                            labelText: 'CORS Allowed Origins',
+                          ),
+                          onChanged: (value) => _updateField(
+                            BackendEnvPolicy.corsAllowedOrigins,
+                            value,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+                SizedBox(height: typography.spacingLg),
+                if (_section == _SettingsSection.home ||
+                    _section == _SettingsSection.advancedEnv)
+                  _SurfacePanel(
+                    key: const ValueKey('settings-raw-env'),
+                    padding: EdgeInsets.zero,
+                    child: ExpansionTile(
+                      key: const ValueKey('settings-raw-env-expansion'),
+                      title: Text(l10n.advancedRawEnv),
+                      subtitle: Text(l10n.advancedRawEnvSubtitle),
+                      initiallyExpanded: false,
+                      childrenPadding: EdgeInsets.fromLTRB(
+                        typography.spacingMd,
+                        0,
+                        typography.spacingMd,
+                        typography.spacingMd,
+                      ),
+                      children: [
+                        TextField(
+                          key: const ValueKey('settings-raw-env-editor'),
+                          controller: _raw,
+                          minLines: 8,
+                          maxLines: 16,
+                          decoration: const InputDecoration(
+                            border: OutlineInputBorder(),
+                          ),
+                          onChanged: _updateRaw,
+                        ),
+                        if (issues.isNotEmpty) ...[
+                          SizedBox(height: typography.spacingS),
+                          for (final issue in issues)
+                            Text(
+                              '${issue.line == null ? '' : l10n.lineNumber(issue.line!)}${_localizedIssue(l10n, issue)}',
+                              style: TextStyle(color: colors.error),
+                            ),
+                        ],
+                        SizedBox(height: typography.spacingMd),
+                        FilledButton(
+                          onPressed: issues.isEmpty && _dirty ? _save : null,
+                          child: Text(l10n.save),
+                        ),
+                      ],
+                    ),
+                  ),
+                SizedBox(height: typography.spacingLg),
+                if (_section == _SettingsSection.home)
+                  _SurfacePanel(
+                    key: const ValueKey('settings-component-updates'),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          l10n.componentUpdatesHeading,
+                          style: typography.titleMedium,
+                        ),
+                        SizedBox(height: typography.spacingSm),
+                        for (final kind in ComponentKind.values)
+                          _ComponentCard(
+                            kind: kind,
+                            status: _componentStatuses[kind],
+                            update: _componentUpdates[kind],
+                            error: _componentErrors[kind],
+                            busy: _componentBusy.contains(kind),
+                            onCheck: () => _checkComponent(kind),
+                            onUpdate: _componentUpdates[kind] == null
+                                ? null
+                                : () =>
+                                      _applyComponent(_componentUpdates[kind]!),
+                            onRollback: () => _rollbackComponent(kind),
+                          ),
+                      ],
+                    ),
+                  ),
               ],
             ),
           ),

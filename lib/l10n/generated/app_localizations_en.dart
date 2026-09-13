@@ -244,6 +244,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get undo => 'Undo';
 
   @override
+  String get unsavedChanges => 'You have unsaved changes. Continue?';
+
+  @override
   String get recentlyDeleted => 'Recently deleted';
 
   @override

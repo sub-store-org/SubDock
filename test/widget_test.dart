@@ -207,11 +207,18 @@ void main() {
     );
     await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
     await tester.pumpAndSettle();
+    await tester.tap(find.text('SubDock 配置').last);
+    await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(SwitchListTile, '启用 HTTP-META'));
     await tester.pump();
 
     final save = find.widgetWithText(FilledButton, '保存 SubDock 配置');
     expect(tester.widget<FilledButton>(save).onPressed, isNotNull);
+    await tester.drag(
+      find.byKey(const ValueKey('settings-list')),
+      const Offset(0, -300),
+    );
+    await tester.pump();
     await tester.tap(save);
     await tester.pump();
     await _pumpRealIo(tester);

@@ -240,6 +240,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get undo => '撤销';
 
   @override
+  String get unsavedChanges => '有未保存的更改，是否继续？';
+
+  @override
   String get recentlyDeleted => '已删除';
 
   @override
