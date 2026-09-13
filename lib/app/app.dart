@@ -1041,6 +1041,12 @@ class _RuntimePage extends StatelessWidget {
             : l10n.httpMetaDegradedDetail(state.httpMetaMessage!),
       HttpMetaStatus.stopped => l10n.httpMetaStopped,
     };
+    final httpMetaColor = switch (state.httpMetaStatus) {
+      HttpMetaStatus.running => colors.success,
+      HttpMetaStatus.starting || HttpMetaStatus.degraded => colors.warning,
+      HttpMetaStatus.unavailable => colors.error,
+      HttpMetaStatus.disabled || HttpMetaStatus.stopped => colors.onSurface,
+    };
     final backendPanel = _SurfacePanel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1099,7 +1105,7 @@ class _RuntimePage extends StatelessWidget {
         children: [
           Text('HTTP-META', style: typography.titleMedium),
           SizedBox(height: typography.spacingS),
-          Text(httpMetaLabel, style: TextStyle(color: statusColor)),
+          Text(httpMetaLabel, style: TextStyle(color: httpMetaColor)),
         ],
       ),
     );

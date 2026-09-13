@@ -42,6 +42,8 @@ void main() {
       environmentStore: BackendEnvStore(directories!),
     );
 
+    await tester.binding.setSurfaceSize(const Size(600, 480));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
       SubDockApp(
         coordinator: coordinator,
@@ -51,8 +53,6 @@ void main() {
       ),
     );
 
-    await tester.binding.setSurfaceSize(const Size(600, 480));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
     expect(find.byKey(const ValueKey('desktop-chrome')), findsOneWidget);
     expect(find.byKey(const ValueKey('desktop-sidebar')), findsOneWidget);
     expect(find.byKey(const ValueKey('page-title')), findsOneWidget);
