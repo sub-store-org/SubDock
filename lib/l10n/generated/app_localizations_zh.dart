@@ -183,6 +183,36 @@ class AppLocalizationsZh extends AppLocalizations {
   String get noLogs => '暂无日志';
 
   @override
+  String get logSearch => '搜索日志消息';
+
+  @override
+  String get logNewest => '最新在前';
+
+  @override
+  String get logOldest => '最早在前';
+
+  @override
+  String get copyLog => '复制日志';
+
+  @override
+  String get copyFilteredLogs => '复制筛选结果';
+
+  @override
+  String get noFilteredLogs => '没有匹配的日志';
+
+  @override
+  String get logLevelDebug => '调试';
+
+  @override
+  String get logLevelInfo => '信息';
+
+  @override
+  String get logLevelWarning => '警告';
+
+  @override
+  String get logLevelError => '错误';
+
+  @override
   String get confirmExternalCors => '允许外部 origin 会使其能够访问 Backend API。是否继续保存？';
 
   @override

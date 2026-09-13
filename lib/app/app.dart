@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_all/webview_all.dart';
@@ -101,11 +102,14 @@ class _SubDockAppState extends State<SubDockApp> {
   var _actionInProgress = false;
   late ThemeMode _themeMode;
   Locale? _localeOverride;
+  late DesktopPreferences _savedPreferences;
+  var _logsEntryGeneration = 0;
 
   @override
   void initState() {
     super.initState();
     final preferences = widget.preferences ?? DesktopPreferences.defaults;
+    _savedPreferences = preferences;
     _themeMode = preferences.themeMode;
     _localeOverride = preferences.locale == null
         ? widget.locale
@@ -119,7 +123,6 @@ class _SubDockAppState extends State<SubDockApp> {
       onDetach: () => unawaited(widget.coordinator.dispose()),
     );
     widget.desktopWarning?.addListener(_onDesktopWarning);
-    unawaited(_loadLogTail());
     unawaited(_loadOverviewComponentStatuses());
     if (widget.autoStart) unawaited(_autoStart());
   }
@@ -162,7 +165,15 @@ class _SubDockAppState extends State<SubDockApp> {
 
   void _onState(RuntimeState state) {
     if (!mounted) return;
-    setState(() => _state = state);
+    setState(() {
+      _state = state;
+      if (state.status == RuntimeStatus.starting) {
+        _logs.clear();
+      } else if (state.status == RuntimeStatus.stopped ||
+          state.status == RuntimeStatus.crashed) {
+        _logs.clear();
+      }
+    });
     if (state.status == RuntimeStatus.running) unawaited(_loadInfo());
   }
 
@@ -170,7 +181,8 @@ class _SubDockAppState extends State<SubDockApp> {
     if (!mounted) return;
     setState(() {
       _logs.add(log);
-      if (_logs.length > 2000) _logs.removeRange(0, _logs.length - 2000);
+      final limit = _savedPreferences.recentLogLimit;
+      if (_logs.length > limit) _logs.removeRange(0, _logs.length - limit);
     });
   }
 
@@ -191,35 +203,26 @@ class _SubDockAppState extends State<SubDockApp> {
   }
 
   void _selectPage(_AppPage page) {
+    if (_page != _AppPage.logs && page == _AppPage.logs) {
+      _logsEntryGeneration++;
+    }
     setState(() => _page = page);
     if (page == _AppPage.overview) {
       unawaited(_loadOverviewComponentStatuses());
     }
   }
 
-  Future<void> _loadLogTail() async {
-    final file = File.fromUri(
-      widget.coordinator.environmentStore.directories.logs.uri.resolve(
-        'backend.log',
-      ),
-    );
-    if (!await file.exists()) return;
-    final length = await file.length();
-    final start = length > 64 * 1024 ? length - 64 * 1024 : 0;
-    final lines = await file
-        .openRead(start)
-        .transform(utf8.decoder)
-        .transform(const LineSplitter())
-        .toList();
-    for (final line in lines) {
-      _appendLog(
-        RuntimeLog(
-          timestamp: DateTime.now(),
-          source: RuntimeLogSource.stdout,
-          message: line,
-        ),
-      );
+  Future<void> _onLogSortChanged(LogSort sort) async {
+    final next = _savedPreferences.copyWith(logSort: sort);
+    if (widget.preferencesStore != null) {
+      try {
+        await widget.preferencesStore!.save(next);
+      } catch (error) {
+        if (mounted) setState(() => _error = error);
+        return;
+      }
     }
+    if (mounted) setState(() => _savedPreferences = next);
   }
 
   Future<void> _loadInfo() async {
@@ -384,7 +387,12 @@ class _SubDockAppState extends State<SubDockApp> {
               : _AppPage.settings,
         ),
       ),
-      _LogsPage(logs: _logs),
+      _LogsPage(
+        logs: _logs,
+        sort: _savedPreferences.logSort,
+        entryGeneration: _logsEntryGeneration,
+        onSortChanged: _onLogSortChanged,
+      ),
       _SettingsPage(
         environment: widget.coordinator.environment,
         configuration: widget.coordinator.configuration,
@@ -1317,41 +1325,251 @@ class _OverviewPage extends StatelessWidget {
   }
 }
 
-class _LogsPage extends StatelessWidget {
-  const _LogsPage({required this.logs});
+enum _LogLevel { debug, info, warning, error }
+
+class _ClassifiedLog {
+  const _ClassifiedLog(this.log, this.source, this.level);
+
+  final RuntimeLog log;
+  final String source;
+  final _LogLevel level;
+}
+
+_ClassifiedLog _classifyLog(RuntimeLog log) {
+  final source = switch (log.source) {
+    RuntimeLogSource.stdout || RuntimeLogSource.stderr => 'Backend',
+    RuntimeLogSource.httpMetaStdout ||
+    RuntimeLogSource.httpMetaStderr => 'HTTP-META',
+  };
+  final token = RegExp(
+    r'^\s*\[(trace|debug|info|warn|warning|error|fatal)\]',
+    caseSensitive: false,
+  ).firstMatch(log.message)?.group(1)?.toLowerCase();
+  final level = switch (token) {
+    'trace' || 'debug' => _LogLevel.debug,
+    'info' => _LogLevel.info,
+    'warn' || 'warning' => _LogLevel.warning,
+    'error' || 'fatal' => _LogLevel.error,
+    _
+        when log.source == RuntimeLogSource.stderr ||
+            log.source == RuntimeLogSource.httpMetaStderr =>
+      _LogLevel.error,
+    _ => _LogLevel.info,
+  };
+  return _ClassifiedLog(log, source, level);
+}
+
+String _formatLog(_ClassifiedLog item, BuildContext context) {
+  final now = DateTime.now();
+  final local = item.log.timestamp.toLocal();
+  final sameDay =
+      now.year == local.year &&
+      now.month == local.month &&
+      now.day == local.day;
+  final time = sameDay
+      ? '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}:${local.second.toString().padLeft(2, '0')}'
+      : '${local.year}-${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')} ${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
+  final l10n = AppLocalizations.of(context)!;
+  final level = switch (item.level) {
+    _LogLevel.debug => l10n.logLevelDebug,
+    _LogLevel.info => l10n.logLevelInfo,
+    _LogLevel.warning => l10n.logLevelWarning,
+    _LogLevel.error => l10n.logLevelError,
+  };
+  return '$time [${item.source}] [$level] ${item.log.message}';
+}
+
+class _LogsPage extends StatefulWidget {
+  const _LogsPage({
+    required this.logs,
+    required this.sort,
+    required this.entryGeneration,
+    required this.onSortChanged,
+  });
 
   final List<RuntimeLog> logs;
+  final LogSort sort;
+  final int entryGeneration;
+  final Future<void> Function(LogSort) onSortChanged;
+
+  @override
+  State<_LogsPage> createState() => _LogsPageState();
+}
+
+class _LogsPageState extends State<_LogsPage> {
+  final _query = TextEditingController();
+  var _sources = <String>{'Backend', 'HTTP-META'};
+  var _levels = Set<_LogLevel>.of(_LogLevel.values);
+
+  @override
+  void didUpdateWidget(covariant _LogsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.entryGeneration != widget.entryGeneration) {
+      _query.clear();
+      setState(() {
+        _sources = {'Backend', 'HTTP-META'};
+        _levels = Set<_LogLevel>.of(_LogLevel.values);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _query.dispose();
+    super.dispose();
+  }
+
+  List<_ClassifiedLog> get _visible {
+    final query = _query.text.toLowerCase();
+    final result = widget.logs.map(_classifyLog).where((item) {
+      return _sources.contains(item.source) &&
+          _levels.contains(item.level) &&
+          item.log.message.toLowerCase().contains(query);
+    }).toList();
+    if (widget.sort == LogSort.newestFirst) return result.reversed.toList();
+    return result;
+  }
+
+  void _toggleSource(String source) => setState(() {
+    if (!_sources.remove(source)) _sources.add(source);
+  });
+
+  void _toggleLevel(_LogLevel level) => setState(() {
+    if (!_levels.remove(level)) _levels.add(level);
+  });
+
+  Future<void> _copy(
+    BuildContext context,
+    Iterable<_ClassifiedLog> logs,
+  ) async {
+    await Clipboard.setData(
+      ClipboardData(
+        text: logs.map((log) => _formatLog(log, context)).join('\n'),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final typography = Theme.of(context).extension<AppTypography>()!;
+    final visible = _visible;
     return Padding(
       padding: EdgeInsets.all(typography.spacingLg),
-      child: SizedBox.expand(
-        child: _SurfacePanel(
-          key: const ValueKey('logs-surface'),
-          padding: EdgeInsets.zero,
-          child: logs.isEmpty
-              ? Center(child: Text(l10n.noLogs))
-              : ListView.builder(
-                  padding: EdgeInsets.all(typography.spacingSm),
-                  itemCount: logs.length,
-                  itemBuilder: (context, index) {
-                    final log = logs[index];
-                    return SelectableText(
-                      '${log.timestamp.toIso8601String()} [${log.source.name}] ${log.message}',
-                      style: typography.bodySmall.copyWith(
-                        fontFamily: 'monospace',
+      child: _SurfacePanel(
+        key: const ValueKey('logs-surface'),
+        padding: EdgeInsets.zero,
+        child: Column(
+          children: [
+            Padding(
+              padding: EdgeInsets.all(typography.spacingSm),
+              child: Column(
+                children: [
+                  TextField(
+                    controller: _query,
+                    onChanged: (_) => setState(() {}),
+                    decoration: InputDecoration(
+                      hintText: l10n.logSearch,
+                      prefixIcon: const Icon(Icons.search),
+                    ),
+                  ),
+                  Wrap(
+                    spacing: 4,
+                    children: [
+                      for (final source in ['Backend', 'HTTP-META'])
+                        FilterChip(
+                          label: Text(source),
+                          selected: _sources.contains(source),
+                          onSelected: (_) => _toggleSource(source),
+                        ),
+                      for (final level in _LogLevel.values)
+                        FilterChip(
+                          label: Text(_levelLabel(l10n, level)),
+                          selected: _levels.contains(level),
+                          onSelected: (_) => _toggleLevel(level),
+                        ),
+                    ],
+                  ),
+                  Row(
+                    children: [
+                      SegmentedButton<LogSort>(
+                        segments: [
+                          ButtonSegment(
+                            value: LogSort.newestFirst,
+                            label: Text(l10n.logNewest),
+                          ),
+                          ButtonSegment(
+                            value: LogSort.newestLast,
+                            label: Text(l10n.logOldest),
+                          ),
+                        ],
+                        selected: {widget.sort},
+                        onSelectionChanged: (value) =>
+                            unawaited(widget.onSortChanged(value.first)),
                       ),
-                    );
-                  },
-                ),
+                      const Spacer(),
+                      TextButton(
+                        onPressed: visible.isEmpty
+                            ? null
+                            : () => unawaited(_copy(context, visible)),
+                        child: Text(l10n.copyFilteredLogs),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: visible.isEmpty
+                  ? Center(
+                      child: Text(
+                        widget.logs.isEmpty ? l10n.noLogs : l10n.noFilteredLogs,
+                      ),
+                    )
+                  : ListView.separated(
+                      itemCount: visible.length,
+                      separatorBuilder: (_, _) => const Divider(height: 1),
+                      itemBuilder: (context, index) {
+                        final item = visible[index];
+                        return Padding(
+                          padding: EdgeInsets.all(typography.spacingSm),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: SelectableText(
+                                  _formatLog(item, context),
+                                  style: typography.bodySmall.copyWith(
+                                    fontFamily: 'monospace',
+                                  ),
+                                ),
+                              ),
+                              IconButton(
+                                tooltip: l10n.copyLog,
+                                icon: const Icon(Icons.copy, size: 18),
+                                onPressed: () =>
+                                    unawaited(_copy(context, [item])),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
         ),
       ),
     );
   }
 }
+
+String _levelLabel(AppLocalizations l10n, _LogLevel level) => switch (level) {
+  _LogLevel.debug => l10n.logLevelDebug,
+  _LogLevel.info => l10n.logLevelInfo,
+  _LogLevel.warning => l10n.logLevelWarning,
+  _LogLevel.error => l10n.logLevelError,
+};
 
 class _SettingsPage extends StatefulWidget {
   const _SettingsPage({

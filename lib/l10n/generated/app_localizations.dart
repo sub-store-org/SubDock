@@ -416,6 +416,66 @@ abstract class AppLocalizations {
   /// **'暂无日志'**
   String get noLogs;
 
+  /// No description provided for @logSearch.
+  ///
+  /// In zh, this message translates to:
+  /// **'搜索日志消息'**
+  String get logSearch;
+
+  /// No description provided for @logNewest.
+  ///
+  /// In zh, this message translates to:
+  /// **'最新在前'**
+  String get logNewest;
+
+  /// No description provided for @logOldest.
+  ///
+  /// In zh, this message translates to:
+  /// **'最早在前'**
+  String get logOldest;
+
+  /// No description provided for @copyLog.
+  ///
+  /// In zh, this message translates to:
+  /// **'复制日志'**
+  String get copyLog;
+
+  /// No description provided for @copyFilteredLogs.
+  ///
+  /// In zh, this message translates to:
+  /// **'复制筛选结果'**
+  String get copyFilteredLogs;
+
+  /// No description provided for @noFilteredLogs.
+  ///
+  /// In zh, this message translates to:
+  /// **'没有匹配的日志'**
+  String get noFilteredLogs;
+
+  /// No description provided for @logLevelDebug.
+  ///
+  /// In zh, this message translates to:
+  /// **'调试'**
+  String get logLevelDebug;
+
+  /// No description provided for @logLevelInfo.
+  ///
+  /// In zh, this message translates to:
+  /// **'信息'**
+  String get logLevelInfo;
+
+  /// No description provided for @logLevelWarning.
+  ///
+  /// In zh, this message translates to:
+  /// **'警告'**
+  String get logLevelWarning;
+
+  /// No description provided for @logLevelError.
+  ///
+  /// In zh, this message translates to:
+  /// **'错误'**
+  String get logLevelError;
+
   /// No description provided for @confirmExternalCors.
   ///
   /// In zh, this message translates to:

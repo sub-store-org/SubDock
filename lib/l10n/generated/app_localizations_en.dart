@@ -187,6 +187,36 @@ class AppLocalizationsEn extends AppLocalizations {
   String get noLogs => 'No logs yet';
 
   @override
+  String get logSearch => 'Search log messages';
+
+  @override
+  String get logNewest => 'Newest first';
+
+  @override
+  String get logOldest => 'Newest last';
+
+  @override
+  String get copyLog => 'Copy log';
+
+  @override
+  String get copyFilteredLogs => 'Copy filtered logs';
+
+  @override
+  String get noFilteredLogs => 'No matching logs';
+
+  @override
+  String get logLevelDebug => 'Debug';
+
+  @override
+  String get logLevelInfo => 'Info';
+
+  @override
+  String get logLevelWarning => 'Warning';
+
+  @override
+  String get logLevelError => 'Error';
+
+  @override
   String get confirmExternalCors =>
       'Allowing an external origin lets it reach the Backend API. Save anyway?';
 
