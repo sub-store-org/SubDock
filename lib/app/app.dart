@@ -106,6 +106,7 @@ class _SubDockAppState extends State<SubDockApp> {
   late DesktopPreferences _savedPreferences;
   late int _currentRunLogLimit;
   var _logsEntryGeneration = 0;
+  var _historyRefreshGeneration = 0;
 
   @override
   void initState() {
@@ -176,6 +177,7 @@ class _SubDockAppState extends State<SubDockApp> {
       } else if (state.status == RuntimeStatus.stopped ||
           state.status == RuntimeStatus.crashed) {
         _logs.clear();
+        _historyRefreshGeneration++;
       }
     });
     if (state.status == RuntimeStatus.running) unawaited(_loadInfo());
@@ -394,6 +396,7 @@ class _SubDockAppState extends State<SubDockApp> {
       ),
       _LogsPage(
         logs: _logs,
+        historyRefreshGeneration: _historyRefreshGeneration,
         logStore: widget.coordinator.logStore,
         sort: _savedPreferences.logSort,
         entryGeneration: _logsEntryGeneration,
@@ -1390,6 +1393,7 @@ String _formatLog(_ClassifiedLog item, BuildContext context) {
 class _LogsPage extends StatefulWidget {
   const _LogsPage({
     required this.logs,
+    required this.historyRefreshGeneration,
     required this.logStore,
     required this.sort,
     required this.entryGeneration,
@@ -1397,6 +1401,7 @@ class _LogsPage extends StatefulWidget {
   });
 
   final List<RuntimeLog> logs;
+  final int historyRefreshGeneration;
   final RuntimeLogStore? logStore;
   final LogSort sort;
   final int entryGeneration;
@@ -1418,9 +1423,9 @@ class _LogsPageState extends State<_LogsPage> {
   RuntimeLogRun? _selectedRun;
   List<RuntimeLog> _historyLogs = const [];
   var _historyPage = 0;
-  var _historyHasPrevious = false;
   var _historyHasNext = false;
   var _historyGeneration = 0;
+  var _hasRecentDeletion = false;
 
   @override
   void initState() {
@@ -1440,6 +1445,10 @@ class _LogsPageState extends State<_LogsPage> {
     }
     if (oldWidget.sort != widget.sort && _selectedRun != null) {
       unawaited(_loadHistoryPage(_selectedRun!, page: 0));
+    }
+    if (oldWidget.historyRefreshGeneration != widget.historyRefreshGeneration &&
+        _mode == _LogsMode.history) {
+      unawaited(_loadHistoryRuns());
     }
   }
 
@@ -1476,23 +1485,26 @@ class _LogsPageState extends State<_LogsPage> {
       _selectedRun = run;
       _historyLoading = true;
       _historyError = null;
+      _historyLogs = const [];
+      _historyPage = page;
+      _historyHasNext = false;
     });
     try {
       final pageLogs = <RuntimeLog>[];
+      var matchingIndex = 0;
       await for (final log in store.readRunStream(
         run.id,
         reverse: widget.sort == LogSort.newestFirst,
       )) {
-        if (pageLogs.length >= page * 200 &&
-            pageLogs.length < (page + 1) * 200 + 1) {
-          pageLogs.add(log);
-        }
+        final classified = _classifyLog(log);
+        if (!_matchesLog(classified)) continue;
+        if (matchingIndex++ < page * 200) continue;
+        if (pageLogs.length < 201) pageLogs.add(log);
         if (pageLogs.length >= (page + 1) * 200 + 1) break;
       }
       if (!mounted || generation != _historyGeneration) return;
       setState(() {
         _historyPage = page;
-        _historyHasPrevious = page > 0;
         _historyHasNext = pageLogs.length > 200;
         _historyLogs = pageLogs.take(200).toList();
       });
@@ -1514,7 +1526,9 @@ class _LogsPageState extends State<_LogsPage> {
     if (_historyError != null) {
       return Center(child: Text(l10n.historyLoadError));
     }
-    if (_historyRuns.isEmpty) return Center(child: Text(l10n.noHistory));
+    if (_historyRuns.isEmpty && !_hasRecentDeletion) {
+      return Center(child: Text(l10n.noHistory));
+    }
     return Column(
       children: [
         Align(
@@ -1527,13 +1541,25 @@ class _LogsPageState extends State<_LogsPage> {
         Expanded(
           child: ListView.builder(
             controller: _historyScroll,
-            itemCount: _historyRuns.length,
+            itemCount: _historyRuns.length + (_hasRecentDeletion ? 1 : 0),
             itemBuilder: (context, index) {
-              final run = _historyRuns[index];
+              if (_hasRecentDeletion && index == 0) {
+                return ListTile(
+                  key: const ValueKey('recently-deleted'),
+                  title: Text(l10n.recentlyDeleted),
+                  trailing: TextButton(
+                    onPressed: () => unawaited(_undoDeletion()),
+                    child: Text(l10n.undo),
+                  ),
+                );
+              }
+              final run = _historyRuns[index - (_hasRecentDeletion ? 1 : 0)];
               return ListTile(
                 key: ValueKey('history-run-${run.id}'),
-                title: Text(run.start.toLocal().toString()),
-                subtitle: Text('${run.eventCount} ${l10n.logEvents}'),
+                title: Text(_formatRunDate(run.start)),
+                subtitle: Text(
+                  '${_formatDuration(run)} · ${run.eventCount} ${l10n.logEvents}',
+                ),
                 trailing: IconButton(
                   tooltip: l10n.deleteRun,
                   icon: const Icon(Icons.delete_outline),
@@ -1553,6 +1579,7 @@ class _LogsPageState extends State<_LogsPage> {
     if (store == null) return;
     try {
       await store.deleteRun(run.id);
+      if (mounted) setState(() => _hasRecentDeletion = true);
       await _loadHistoryRuns();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1575,6 +1602,7 @@ class _LogsPageState extends State<_LogsPage> {
     if (store == null || _historyRuns.isEmpty) return;
     try {
       await store.clearHistory();
+      if (mounted) setState(() => _hasRecentDeletion = true);
       await _loadHistoryRuns();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1595,29 +1623,46 @@ class _LogsPageState extends State<_LogsPage> {
   Future<void> _undoDeletion() async {
     final store = widget.logStore;
     if (store == null) return;
-    await store.undoLastDeletion();
-    await _loadHistoryRuns();
+    try {
+      await store.undoLastDeletion();
+      if (mounted) setState(() => _hasRecentDeletion = false);
+      await _loadHistoryRuns();
+    } catch (error) {
+      if (mounted) setState(() => _historyError = error);
+    }
   }
 
   List<_ClassifiedLog> get _visible {
     final source = _selectedRun == null ? widget.logs : _historyLogs;
-    final query = _query.text.toLowerCase();
-    final result = source.map(_classifyLog).where((item) {
-      return _sources.contains(item.source) &&
-          _levels.contains(item.level) &&
-          item.log.message.toLowerCase().contains(query);
-    }).toList();
-    if (widget.sort == LogSort.newestFirst) return result.reversed.toList();
+    final result = source.map(_classifyLog).where(_matchesLog).toList();
+    if (_selectedRun == null && widget.sort == LogSort.newestFirst) {
+      return result.reversed.toList();
+    }
     return result;
   }
 
-  void _toggleSource(String source) => setState(() {
-    if (!_sources.remove(source)) _sources.add(source);
-  });
+  bool _matchesLog(_ClassifiedLog item) =>
+      _sources.contains(item.source) &&
+      _levels.contains(item.level) &&
+      item.log.message.toLowerCase().contains(_query.text.toLowerCase());
 
-  void _toggleLevel(_LogLevel level) => setState(() {
-    if (!_levels.remove(level)) _levels.add(level);
-  });
+  void _toggleSource(String source) {
+    setState(() {
+      if (!_sources.remove(source)) _sources.add(source);
+    });
+    if (_selectedRun != null) {
+      unawaited(_loadHistoryPage(_selectedRun!, page: 0));
+    }
+  }
+
+  void _toggleLevel(_LogLevel level) {
+    setState(() {
+      if (!_levels.remove(level)) _levels.add(level);
+    });
+    if (_selectedRun != null) {
+      unawaited(_loadHistoryPage(_selectedRun!, page: 0));
+    }
+  }
 
   Future<void> _copy(
     BuildContext context,
@@ -1628,6 +1673,25 @@ class _LogsPageState extends State<_LogsPage> {
         text: logs.map((log) => _formatLog(log, context)).join('\n'),
       ),
     );
+  }
+
+  Future<void> _copyFilteredHistory(BuildContext context) async {
+    final store = widget.logStore;
+    final run = _selectedRun;
+    if (store == null || run == null) return;
+    final buffer = StringBuffer();
+    var first = true;
+    await for (final log in store.readRunStream(
+      run.id,
+      reverse: widget.sort == LogSort.newestFirst,
+    )) {
+      final classified = _classifyLog(log);
+      if (!_matchesLog(classified)) continue;
+      if (!first) buffer.writeln();
+      first = false;
+      buffer.write(_formatLog(classified, context));
+    }
+    await Clipboard.setData(ClipboardData(text: buffer.toString()));
   }
 
   @override
@@ -1659,6 +1723,7 @@ class _LogsPageState extends State<_LogsPage> {
                 if (next == _mode) return;
                 setState(() {
                   _mode = next;
+                  _historyGeneration++;
                   _selectedRun = null;
                   _historyError = null;
                 });
@@ -1673,7 +1738,11 @@ class _LogsPageState extends State<_LogsPage> {
                   alignment: Alignment.centerLeft,
                   child: TextButton(
                     key: const ValueKey('history-back'),
-                    onPressed: () => setState(() => _selectedRun = null),
+                    onPressed: () => setState(() {
+                      _historyGeneration++;
+                      _selectedRun = null;
+                      _historyLogs = const [];
+                    }),
                     child: Text(l10n.back),
                   ),
                 ),
@@ -1683,7 +1752,12 @@ class _LogsPageState extends State<_LogsPage> {
                   children: [
                     TextField(
                       controller: _query,
-                      onChanged: (_) => setState(() {}),
+                      onChanged: (_) {
+                        setState(() {});
+                        if (_selectedRun != null) {
+                          unawaited(_loadHistoryPage(_selectedRun!, page: 0));
+                        }
+                      },
                       decoration: InputDecoration(
                         hintText: l10n.logSearch,
                         prefixIcon: const Icon(Icons.search),
@@ -1727,7 +1801,11 @@ class _LogsPageState extends State<_LogsPage> {
                         TextButton(
                           onPressed: visible.isEmpty
                               ? null
-                              : () => unawaited(_copy(context, visible)),
+                              : () => unawaited(
+                                  _selectedRun == null
+                                      ? _copy(context, visible)
+                                      : _copyFilteredHistory(context),
+                                ),
                           child: Text(l10n.copyFilteredLogs),
                         ),
                       ],
@@ -1737,10 +1815,13 @@ class _LogsPageState extends State<_LogsPage> {
               ),
               const Divider(height: 1),
               Expanded(
-                child: visible.isEmpty
+                child: _historyLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : visible.isEmpty
                     ? Center(
                         child: Text(
-                          widget.logs.isEmpty
+                          (_selectedRun == null ? widget.logs : _historyLogs)
+                                  .isEmpty
                               ? l10n.noLogs
                               : l10n.noFilteredLogs,
                         ),
@@ -1780,7 +1861,7 @@ class _LogsPageState extends State<_LogsPage> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     TextButton(
-                      onPressed: _historyHasPrevious
+                      onPressed: _historyPage > 0
                           ? () => unawaited(
                               _loadHistoryPage(
                                 _selectedRun!,
@@ -1817,6 +1898,18 @@ String _levelLabel(AppLocalizations l10n, _LogLevel level) => switch (level) {
   _LogLevel.warning => l10n.logLevelWarning,
   _LogLevel.error => l10n.logLevelError,
 };
+
+String _formatRunDate(DateTime value) {
+  final local = value.toLocal();
+  return '${local.year}-${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')} '
+      '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
+}
+
+String _formatDuration(RuntimeLogRun run) {
+  final duration = (run.end ?? run.start).difference(run.start);
+  final seconds = duration.inSeconds.clamp(0, 863999);
+  return '${(seconds ~/ 3600).toString().padLeft(2, '0')}:${((seconds % 3600) ~/ 60).toString().padLeft(2, '0')}:${(seconds % 60).toString().padLeft(2, '0')}';
+}
 
 class _SettingsPage extends StatefulWidget {
   const _SettingsPage({
