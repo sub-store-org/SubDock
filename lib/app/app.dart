@@ -1346,7 +1346,7 @@ _ClassifiedLog _classifyLog(RuntimeLog log) {
     RuntimeLogSource.httpMetaStderr => 'HTTP-META',
   };
   final token = RegExp(
-    r'(?<![a-z])(trace|debug|info|warn|warning|error|fatal|panic)(?![a-z])',
+    r'(?<![A-Za-z0-9_])(trace|debug|info|warn|warning|error|fatal|panic)(?![A-Za-z0-9_])',
     caseSensitive: false,
   ).firstMatch(log.message)?.group(1)?.toLowerCase();
   final level = switch (token) {

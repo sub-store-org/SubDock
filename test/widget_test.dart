@@ -6,6 +6,7 @@ import 'package:flutter/material.dart'
     show
         Brightness,
         DropdownButton,
+        FilterChip,
         FilledButton,
         Locale,
         NavigationBar,
@@ -15,6 +16,7 @@ import 'package:flutter/material.dart'
         SwitchListTile,
         Theme,
         ThemeMode,
+        TextField,
         ValueNotifier;
 import 'package:flutter/scheduler.dart' show AppLifecycleState;
 import 'package:flutter/widgets.dart'
@@ -48,7 +50,6 @@ void main() {
       runtime: runtime,
       environmentStore: BackendEnvStore(directories!),
     );
-
     await tester.binding.setSurfaceSize(const Size(600, 480));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
@@ -281,6 +282,11 @@ void main() {
     );
     await tester.binding.setSurfaceSize(const Size(600, 480));
     addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.runAsync(
+      () =>
+          File.fromUri(directories.logs.uri.resolve('backend.log'))
+              .writeAsString('legacy entry'),
+    );
     await tester.pumpWidget(
       SubDockApp(
         coordinator: coordinator,
@@ -293,11 +299,6 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('nav-item-logs')));
     await tester.pump();
 
-    await tester.runAsync(
-      () =>
-          File.fromUri(directories.logs.uri.resolve('backend.log'))
-              .writeAsString('legacy entry'),
-    );
     expect(find.text('legacy entry'), findsNothing);
 
     runtime.emitState(RuntimeStatus.starting);
@@ -341,6 +342,22 @@ void main() {
       RuntimeLog(
         timestamp: DateTime.now(),
         source: RuntimeLogSource.stdout,
+        message: 'debug1 error404 panic_mode',
+      ),
+    );
+    await tester.pump();
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is SelectableText &&
+            widget.data?.contains('[信息] debug1 error404 panic_mode') == true,
+      ),
+      findsOneWidget,
+    );
+    runtime.emitLog(
+      RuntimeLog(
+        timestamp: DateTime.now(),
+        source: RuntimeLogSource.stdout,
         message: 'non-prefix panic',
       ),
     );
@@ -353,6 +370,65 @@ void main() {
       ),
       findsOneWidget,
     );
+
+    await tester.enterText(find.byType(TextField), 'Backend');
+    await tester.pump();
+    expect(find.byType(SelectableText), findsNothing);
+    await tester.enterText(find.byType(TextField), 'log-59');
+    await tester.pump();
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is SelectableText && widget.data?.contains('log-59') == true,
+      ),
+      findsOneWidget,
+    );
+    await tester.tap(find.widgetWithText(FilterChip, 'Backend'));
+    await tester.pump();
+    expect(find.byType(SelectableText), findsNothing);
+    await tester.tap(find.widgetWithText(FilterChip, 'Backend'));
+    await tester.pump();
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is SelectableText && widget.data?.contains('log-59') == true,
+      ),
+      findsOneWidget,
+    );
+
+    await tester.enterText(find.byType(TextField), '');
+    await tester.tap(find.text('最早在前'));
+    await tester.pump();
+    expect(
+      tester
+          .widget<SegmentedButton<LogSort>>(
+            find.byType(SegmentedButton<LogSort>),
+          )
+          .selected,
+      {LogSort.newestLast},
+    );
+    await tester.tap(find.text('最新在前'));
+    await tester.pump();
+    expect(
+      tester
+          .widget<SegmentedButton<LogSort>>(
+            find.byType(SegmentedButton<LogSort>),
+          )
+          .selected,
+      {LogSort.newestFirst},
+    );
+
+    await tester.enterText(find.byType(TextField), 'panic');
+    await tester.tap(find.byKey(const ValueKey('nav-item-overview')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('nav-item-logs')));
+    await tester.pump();
+    expect(find.byType(TextField), findsOneWidget);
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).controller!.text,
+      '',
+    );
+    expect(find.textContaining('panic'), findsWidgets);
 
     runtime.emitState(RuntimeStatus.stopping);
     await tester.pump();
