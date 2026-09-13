@@ -267,23 +267,43 @@ class _SubDockAppState extends State<SubDockApp> {
       locale: _localeOverride,
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
-        useMaterial3: true,
-        extensions: [AppColors.light, AppTypography.light],
+      theme: _buildTheme(
+        Brightness.light,
+        AppColors.light,
+        AppTypography.light,
       ),
-      darkTheme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.teal,
-          brightness: Brightness.dark,
-        ),
-        useMaterial3: true,
-        extensions: [AppColors.dark, AppTypography.dark],
+      darkTheme: _buildTheme(
+        Brightness.dark,
+        AppColors.dark,
+        AppTypography.dark,
       ),
       themeMode: _themeMode,
       home: Builder(builder: _buildHome),
     );
   }
+
+  ThemeData _buildTheme(
+    Brightness brightness,
+    AppColors colors,
+    AppTypography typography,
+  ) => ThemeData(
+    colorScheme: ColorScheme.fromSeed(
+      seedColor: Colors.teal,
+      brightness: brightness,
+    ),
+    useMaterial3: true,
+    scaffoldBackgroundColor: colors.surfaceLowest,
+    dividerTheme: DividerThemeData(color: colors.divider),
+    cardTheme: CardThemeData(
+      color: colors.surfaceLow,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(typography.radiusMd),
+        side: BorderSide(color: colors.divider),
+      ),
+    ),
+    extensions: [colors, typography],
+  );
 
   Widget _buildHome(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -432,12 +452,12 @@ class _SubDockAppState extends State<SubDockApp> {
                 }
                 return Row(
                   children: [
-                    NavigationRail(
+                    _DesktopSidebar(
+                      key: const Key('desktop-sidebar'),
                       selectedIndex: _page.index,
+                      destinations: destinations,
                       onDestinationSelected: (index) =>
                           setState(() => _page = _AppPage.values[index]),
-                      labelType: NavigationRailLabelType.all,
-                      destinations: destinations,
                     ),
                     const VerticalDivider(width: 1),
                     Expanded(child: body),
@@ -447,6 +467,70 @@ class _SubDockAppState extends State<SubDockApp> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _DesktopSidebar extends StatelessWidget {
+  const _DesktopSidebar({
+    super.key,
+    required this.selectedIndex,
+    required this.destinations,
+    required this.onDestinationSelected,
+  });
+
+  final int selectedIndex;
+  final List<NavigationRailDestination> destinations;
+  final ValueChanged<int> onDestinationSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<AppColors>()!;
+    final typography = Theme.of(context).extension<AppTypography>()!;
+    return SizedBox(
+      width: 140,
+      child: ListView.builder(
+        padding: EdgeInsets.all(typography.spacingSm),
+        itemCount: destinations.length,
+        itemBuilder: (context, index) {
+          final destination = destinations[index];
+          final selected = index == selectedIndex;
+          return Padding(
+            padding: EdgeInsets.only(bottom: typography.spacingXs),
+            child: Material(
+              color: selected ? colors.surfaceHigh : Colors.transparent,
+              borderRadius: BorderRadius.circular(typography.radiusLg),
+              child: InkWell(
+                key: Key('nav-item-${_AppPage.values[index].name}'),
+                borderRadius: BorderRadius.circular(typography.radiusLg),
+                onTap: () => onDestinationSelected(index),
+                child: Padding(
+                  padding: EdgeInsets.symmetric(vertical: typography.spacingSm),
+                  child: Row(
+                    children: [
+                      IconTheme(
+                        data: IconThemeData(
+                          color: selected ? colors.accent : colors.onSurface,
+                        ),
+                        child: selected
+                            ? destination.selectedIcon
+                            : destination.icon,
+                      ),
+                      SizedBox(width: typography.spacingXs),
+                      Expanded(
+                        child: DefaultTextStyle(
+                          style: typography.labelSmall,
+                          child: destination.label,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }

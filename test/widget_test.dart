@@ -164,7 +164,7 @@ void main() {
     },
   );
 
-  testWidgets('uses a navigation bar below the 600 pixel breakpoint', (
+  testWidgets('uses responsive navigation at the 600 pixel breakpoint', (
     WidgetTester tester,
   ) async {
     late Directory temp;
@@ -193,7 +193,8 @@ void main() {
 
     await tester.binding.setSurfaceSize(const Size(600, 800));
     await tester.pump();
-    expect(find.byType(NavigationRail), findsOneWidget);
+    expect(find.byKey(const ValueKey<String>('desktop-sidebar')), findsOneWidget);
+    expect(find.byType(NavigationBar), findsNothing);
     await tester.pumpWidget(const SizedBox());
   });
 
