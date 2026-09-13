@@ -236,17 +236,23 @@ abstract class AppLocalizations {
   /// **'最小化'**
   String get minimizeTooltip;
 
-  /// No description provided for @toggleFullscreenTooltip.
+  /// No description provided for @maximizeTooltip.
   ///
   /// In zh, this message translates to:
-  /// **'切换全屏'**
-  String get toggleFullscreenTooltip;
+  /// **'最大化'**
+  String get maximizeTooltip;
 
-  /// No description provided for @closeToTrayTooltip.
+  /// No description provided for @restoreTooltip.
   ///
   /// In zh, this message translates to:
-  /// **'关闭到托盘'**
-  String get closeToTrayTooltip;
+  /// **'还原'**
+  String get restoreTooltip;
+
+  /// No description provided for @closeTooltip.
+  ///
+  /// In zh, this message translates to:
+  /// **'关闭'**
+  String get closeTooltip;
 
   /// No description provided for @webView2Missing.
   ///

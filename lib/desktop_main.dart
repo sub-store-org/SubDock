@@ -92,6 +92,7 @@ Future<void> main() async {
   );
   final lifecycle = DesktopLifecycle(
     onExit: coordinator.dispose,
+    closeBehavior: () async => (await preferencesStore.load()).closeBehavior,
     trayLabels: (item) {
       final l10n = lookupAppLocalizations(currentLocale);
       return switch (item) {
@@ -109,8 +110,9 @@ Future<void> main() async {
       initialError: startupBlocker,
       desktopWarning: lifecycle.warning,
       onMinimize: lifecycle.minimize,
-      onToggleFullscreen: lifecycle.toggleFullscreen,
-      onCloseToTray: lifecycle.closeToTray,
+      onToggleMaximize: lifecycle.toggleMaximize,
+      onClose: lifecycle.closeToTray,
+      isMaximized: lifecycle.isMaximized,
       onStartDragging: windowManager.startDragging,
       preferences: preferences,
       preferencesStore: preferencesStore,

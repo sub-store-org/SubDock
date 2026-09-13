@@ -260,49 +260,48 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets(
-    'desktop controls minimize, toggle fullscreen, and close to tray',
-    (WidgetTester tester) async {
-      late Directory temp;
-      addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
-      final directories = await tester.runAsync(() async {
-        temp = await Directory.systemTemp.createTemp('subdock_widget_');
-        return RuntimeDirectories.fromBaseDirectory(temp);
-      });
-      final coordinator = AppCoordinator(
-        runtime: _FakeBackendRuntime(),
-        environmentStore: BackendEnvStore(directories!),
-      );
-      var minimizes = 0;
-      var fullscreenToggles = 0;
-      var closesToTray = 0;
-      var drags = 0;
+  testWidgets('desktop controls minimize, maximize, and close', (
+    WidgetTester tester,
+  ) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    final coordinator = AppCoordinator(
+      runtime: _FakeBackendRuntime(),
+      environmentStore: BackendEnvStore(directories!),
+    );
+    var minimizes = 0;
+    var maximizeToggles = 0;
+    var closes = 0;
+    var drags = 0;
 
-      await tester.pumpWidget(
-        SubDockApp(
-          coordinator: coordinator,
-          autoStart: false,
-          enableWebView: false,
-          locale: const Locale('zh'),
-          onMinimize: () async => minimizes++,
-          onToggleFullscreen: () async => fullscreenToggles++,
-          onCloseToTray: () async => closesToTray++,
-          onStartDragging: () async => drags++,
-        ),
-      );
+    await tester.pumpWidget(
+      SubDockApp(
+        coordinator: coordinator,
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('zh'),
+        onMinimize: () async => minimizes++,
+        onToggleMaximize: () async => maximizeToggles++,
+        onClose: () async => closes++,
+        onStartDragging: () async => drags++,
+      ),
+    );
 
-      await tester.tap(find.byTooltip('最小化'));
-      await tester.tap(find.byTooltip('切换全屏'));
-      await tester.tap(find.byTooltip('关闭到托盘'));
-      await tester.drag(find.text('SubDock'), const Offset(40, 0));
+    await tester.tap(find.byTooltip('最小化'));
+    await tester.tap(find.byTooltip('最大化'));
+    await tester.tap(find.byTooltip('关闭'));
+    await tester.drag(find.text('SubDock'), const Offset(40, 0));
 
-      expect(minimizes, 1);
-      expect(fullscreenToggles, 1);
-      expect(closesToTray, 1);
-      expect(drags, 1);
-      await tester.pumpWidget(const SizedBox());
-    },
-  );
+    expect(minimizes, 1);
+    expect(maximizeToggles, 1);
+    expect(closes, 1);
+    expect(drags, 1);
+    await tester.pumpWidget(const SizedBox());
+  });
 
   testWidgets('uses responsive navigation at the 600 pixel breakpoint', (
     WidgetTester tester,

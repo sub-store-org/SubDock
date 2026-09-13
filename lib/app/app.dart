@@ -24,8 +24,9 @@ import 'app_coordinator.dart';
 import 'app_typography.dart';
 
 const navigationBreakpoint = 600.0;
+final _notMaximized = ValueNotifier<bool>(false);
 
-enum _AppPage { manage, overview, logs, settings }
+enum _AppPage { overview, manage, logs, settings }
 
 class _ShellDestination {
   const _ShellDestination({
@@ -48,8 +49,9 @@ class SubDockApp extends StatefulWidget {
     this.initialError,
     this.desktopWarning,
     this.onMinimize,
-    this.onToggleFullscreen,
-    this.onCloseToTray,
+    this.onToggleMaximize,
+    this.onClose,
+    this.isMaximized,
     this.onStartDragging,
     this.preferences,
     this.preferencesStore,
@@ -63,8 +65,9 @@ class SubDockApp extends StatefulWidget {
   final Object? initialError;
   final ValueListenable<Object?>? desktopWarning;
   final Future<void> Function()? onMinimize;
-  final Future<void> Function()? onToggleFullscreen;
-  final Future<void> Function()? onCloseToTray;
+  final Future<void> Function()? onToggleMaximize;
+  final Future<void> Function()? onClose;
+  final ValueListenable<bool>? isMaximized;
   final Future<void> Function()? onStartDragging;
   final DesktopPreferences? preferences;
   final DesktopPreferencesStore? preferencesStore;
@@ -335,14 +338,14 @@ class _SubDockAppState extends State<SubDockApp> {
     final colors = Theme.of(context).extension<AppColors>()!;
     final destinations = <_ShellDestination>[
       _ShellDestination(
-        icon: const Icon(Icons.web_asset_outlined),
-        selectedIcon: const Icon(Icons.web_asset),
-        label: l10n.manage,
-      ),
-      _ShellDestination(
         icon: const Icon(Icons.dashboard_outlined),
         selectedIcon: const Icon(Icons.dashboard),
         label: l10n.overview,
+      ),
+      _ShellDestination(
+        icon: const Icon(Icons.web_asset_outlined),
+        selectedIcon: const Icon(Icons.web_asset),
+        label: l10n.manage,
       ),
       _ShellDestination(
         icon: const Icon(Icons.subject_outlined),
@@ -356,17 +359,6 @@ class _SubDockAppState extends State<SubDockApp> {
       ),
     ];
     final pages = <Widget>[
-      _ManagePage(
-        state: _state,
-        coordinator: widget.coordinator,
-        error: _error,
-        enabled: widget.enableWebView,
-        onRecover: () => _selectPage(
-          widget.coordinator.canOpenWebUi
-              ? _AppPage.overview
-              : _AppPage.settings,
-        ),
-      ),
       _OverviewPage(
         state: _state,
         info: _info,
@@ -378,6 +370,17 @@ class _SubDockAppState extends State<SubDockApp> {
         onStart: () => _run(widget.coordinator.start),
         onStop: () => _run(widget.coordinator.stop),
         onRestart: () => _run(widget.coordinator.restart),
+      ),
+      _ManagePage(
+        state: _state,
+        coordinator: widget.coordinator,
+        error: _error,
+        enabled: widget.enableWebView,
+        onRecover: () => _selectPage(
+          widget.coordinator.canOpenWebUi
+              ? _AppPage.overview
+              : _AppPage.settings,
+        ),
       ),
       _LogsPage(logs: _logs),
       _SettingsPage(
@@ -417,11 +420,13 @@ class _SubDockAppState extends State<SubDockApp> {
             title: l10n.appTitle,
             onStartDragging: widget.onStartDragging,
             onMinimize: widget.onMinimize,
-            onToggleFullscreen: widget.onToggleFullscreen,
-            onCloseToTray: widget.onCloseToTray,
+            onToggleMaximize: widget.onToggleMaximize,
+            onClose: widget.onClose,
+            isMaximized: widget.isMaximized,
             minimizeTooltip: l10n.minimizeTooltip,
-            toggleFullscreenTooltip: l10n.toggleFullscreenTooltip,
-            closeToTrayTooltip: l10n.closeToTrayTooltip,
+            maximizeTooltip: l10n.maximizeTooltip,
+            restoreTooltip: l10n.restoreTooltip,
+            closeTooltip: l10n.closeTooltip,
           ),
           if (widget.desktopWarning?.value case final warning?)
             Container(
@@ -564,20 +569,24 @@ class _DesktopChrome extends StatelessWidget {
     required this.title,
     required this.onStartDragging,
     required this.onMinimize,
-    required this.onToggleFullscreen,
-    required this.onCloseToTray,
+    required this.onToggleMaximize,
+    required this.onClose,
+    required this.isMaximized,
     required this.minimizeTooltip,
-    required this.toggleFullscreenTooltip,
-    required this.closeToTrayTooltip,
+    required this.maximizeTooltip,
+    required this.restoreTooltip,
+    required this.closeTooltip,
   });
   final String title,
       minimizeTooltip,
-      toggleFullscreenTooltip,
-      closeToTrayTooltip;
+      maximizeTooltip,
+      restoreTooltip,
+      closeTooltip;
   final Future<void> Function()? onStartDragging,
       onMinimize,
-      onToggleFullscreen,
-      onCloseToTray;
+      onToggleMaximize,
+      onClose;
+  final ValueListenable<bool>? isMaximized;
 
   @override
   Widget build(BuildContext context) {
@@ -616,16 +625,19 @@ class _DesktopChrome extends StatelessWidget {
                 onPressed: () => unawaited(onMinimize!()),
                 icon: const Icon(Icons.minimize),
               ),
-            if (onToggleFullscreen != null)
-              IconButton(
-                tooltip: toggleFullscreenTooltip,
-                onPressed: () => unawaited(onToggleFullscreen!()),
-                icon: const Icon(Icons.fullscreen),
+            if (onToggleMaximize != null)
+              ValueListenableBuilder<bool>(
+                valueListenable: isMaximized ?? _notMaximized,
+                builder: (context, maximized, child) => IconButton(
+                  tooltip: maximized ? restoreTooltip : maximizeTooltip,
+                  onPressed: () => unawaited(onToggleMaximize!()),
+                  icon: Icon(maximized ? Icons.filter_none : Icons.maximize),
+                ),
               ),
-            if (onCloseToTray != null)
+            if (onClose != null)
               IconButton(
-                tooltip: closeToTrayTooltip,
-                onPressed: () => unawaited(onCloseToTray!()),
+                tooltip: closeTooltip,
+                onPressed: () => unawaited(onClose!()),
                 icon: const Icon(Icons.close),
               ),
           ],

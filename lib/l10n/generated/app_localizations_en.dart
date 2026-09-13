@@ -79,10 +79,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get minimizeTooltip => 'Minimize';
 
   @override
-  String get toggleFullscreenTooltip => 'Toggle fullscreen';
+  String get maximizeTooltip => 'Maximize';
 
   @override
-  String get closeToTrayTooltip => 'Close to tray';
+  String get restoreTooltip => 'Restore';
+
+  @override
+  String get closeTooltip => 'Close';
 
   @override
   String get webView2Missing =>

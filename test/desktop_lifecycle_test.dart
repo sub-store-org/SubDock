@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:subdock/desktop_lifecycle.dart';
+import 'package:subdock/settings/desktop_preferences.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -58,13 +59,14 @@ void main() {
 
     await DesktopLifecycle(onExit: () async {}).initialize();
 
-    expect(windowCalls, hasLength(1));
-    expect(windowCalls.single.method, 'setPreventClose');
-    expect(windowCalls.single.arguments, {'isPreventClose': true});
+    expect(windowCalls.map((call) => call.method), [
+      'setPreventClose',
+      'isMaximized',
+    ]);
   });
 
   test(
-    'forwards minimize and fullscreen controls to the desktop window',
+    'forwards minimize and maximize controls to the desktop window',
     () async {
       final windowCalls = <MethodCall>[];
       final messenger =
@@ -72,7 +74,7 @@ void main() {
       const windowChannel = MethodChannel('window_manager');
       messenger.setMockMethodCallHandler(windowChannel, (call) async {
         windowCalls.add(call);
-        if (call.method == 'isFullScreen') return false;
+        if (call.method == 'isMaximized') return false;
         return true;
       });
       addTearDown(
@@ -81,16 +83,55 @@ void main() {
       final lifecycle = DesktopLifecycle(onExit: () async {});
 
       await lifecycle.minimize();
-      await lifecycle.toggleFullscreen();
+      await lifecycle.toggleMaximize();
 
       expect(windowCalls.map((call) => call.method), [
         'minimize',
-        'isFullScreen',
-        'setFullScreen',
+        'isMaximized',
+        'maximize',
       ]);
-      expect(windowCalls.last.arguments, {'isFullScreen': true});
+      expect(windowCalls.last.arguments, {'vertically': false});
     },
   );
+
+  test('close behavior exits or hides only after approval', () async {
+    final calls = <String>[];
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    const channel = MethodChannel('window_manager');
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      calls.add(call.method);
+      return true;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+    final exiting = DesktopLifecycle(
+      onExit: () async => calls.add('exit'),
+      closeBehavior: () async => CloseBehavior.exitApp,
+    );
+    exiting.onWindowClose();
+    await Future<void>.delayed(Duration.zero);
+    expect(calls, contains('exit'));
+    expect(calls, contains('destroy'));
+
+    calls.clear();
+    final tray = DesktopLifecycle(
+      onExit: () async => calls.add('exit'),
+      closeBehavior: () async => CloseBehavior.closeToTray,
+    );
+    tray.onWindowClose();
+    await Future<void>.delayed(Duration.zero);
+    expect(calls, contains('exit'));
+  });
+
+  test('maximize events update the public state', () {
+    final lifecycle = DesktopLifecycle(onExit: () async {});
+    expect(lifecycle.isMaximized.value, isFalse);
+    lifecycle.onWindowMaximize();
+    expect(lifecycle.isMaximized.value, isTrue);
+    lifecycle.onWindowUnmaximize();
+    expect(lifecycle.isMaximized.value, isFalse);
+  });
 
   test('restores a minimized window when opening it from the tray', () async {
     final windowCalls = <MethodCall>[];

@@ -79,10 +79,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get minimizeTooltip => '最小化';
 
   @override
-  String get toggleFullscreenTooltip => '切换全屏';
+  String get maximizeTooltip => '最大化';
 
   @override
-  String get closeToTrayTooltip => '关闭到托盘';
+  String get restoreTooltip => '还原';
+
+  @override
+  String get closeTooltip => '关闭';
 
   @override
   String get webView2Missing => '未检测到 Microsoft Edge WebView2 Runtime。请安装后重试。';
