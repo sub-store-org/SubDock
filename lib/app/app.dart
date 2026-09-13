@@ -103,6 +103,7 @@ class _SubDockAppState extends State<SubDockApp> {
   late ThemeMode _themeMode;
   Locale? _localeOverride;
   late DesktopPreferences _savedPreferences;
+  late int _currentRunLogLimit;
   var _logsEntryGeneration = 0;
 
   @override
@@ -110,6 +111,7 @@ class _SubDockAppState extends State<SubDockApp> {
     super.initState();
     final preferences = widget.preferences ?? DesktopPreferences.defaults;
     _savedPreferences = preferences;
+    _currentRunLogLimit = preferences.recentLogLimit;
     _themeMode = preferences.themeMode;
     _localeOverride = preferences.locale == null
         ? widget.locale
@@ -168,6 +170,7 @@ class _SubDockAppState extends State<SubDockApp> {
     setState(() {
       _state = state;
       if (state.status == RuntimeStatus.starting) {
+        _currentRunLogLimit = _savedPreferences.recentLogLimit;
         _logs.clear();
       } else if (state.status == RuntimeStatus.stopped ||
           state.status == RuntimeStatus.crashed) {
@@ -181,8 +184,9 @@ class _SubDockAppState extends State<SubDockApp> {
     if (!mounted) return;
     setState(() {
       _logs.add(log);
-      final limit = _savedPreferences.recentLogLimit;
-      if (_logs.length > limit) _logs.removeRange(0, _logs.length - limit);
+      if (_logs.length > _currentRunLogLimit) {
+        _logs.removeRange(0, _logs.length - _currentRunLogLimit);
+      }
     });
   }
 
@@ -1342,14 +1346,14 @@ _ClassifiedLog _classifyLog(RuntimeLog log) {
     RuntimeLogSource.httpMetaStderr => 'HTTP-META',
   };
   final token = RegExp(
-    r'^\s*\[(trace|debug|info|warn|warning|error|fatal)\]',
+    r'(?<![a-z])(trace|debug|info|warn|warning|error|fatal|panic)(?![a-z])',
     caseSensitive: false,
   ).firstMatch(log.message)?.group(1)?.toLowerCase();
   final level = switch (token) {
     'trace' || 'debug' => _LogLevel.debug,
     'info' => _LogLevel.info,
     'warn' || 'warning' => _LogLevel.warning,
-    'error' || 'fatal' => _LogLevel.error,
+    'error' || 'fatal' || 'panic' => _LogLevel.error,
     _
         when log.source == RuntimeLogSource.stderr ||
             log.source == RuntimeLogSource.httpMetaStderr =>
@@ -1406,10 +1410,8 @@ class _LogsPageState extends State<_LogsPage> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.entryGeneration != widget.entryGeneration) {
       _query.clear();
-      setState(() {
-        _sources = {'Backend', 'HTTP-META'};
-        _levels = Set<_LogLevel>.of(_LogLevel.values);
-      });
+      _sources = {'Backend', 'HTTP-META'};
+      _levels = Set<_LogLevel>.of(_LogLevel.values);
     }
   }
 

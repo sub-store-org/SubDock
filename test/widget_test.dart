@@ -265,6 +265,104 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
+  testWidgets('current logs capture the run limit and classify levels', (
+    WidgetTester tester,
+  ) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final runtime = _FakeBackendRuntime();
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    final coordinator = AppCoordinator(
+      runtime: runtime,
+      environmentStore: BackendEnvStore(directories!),
+    );
+    await tester.binding.setSurfaceSize(const Size(600, 480));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      SubDockApp(
+        coordinator: coordinator,
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('zh'),
+        preferences: DesktopPreferences.defaults.copyWith(recentLogLimit: 50),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-logs')));
+    await tester.pump();
+
+    await tester.runAsync(
+      () =>
+          File.fromUri(directories.logs.uri.resolve('backend.log'))
+              .writeAsString('legacy entry'),
+    );
+    expect(find.text('legacy entry'), findsNothing);
+
+    runtime.emitState(RuntimeStatus.starting);
+    for (var index = 0; index < 60; index++) {
+      runtime.emitLog(
+        RuntimeLog(
+          timestamp: DateTime.now(),
+          source: RuntimeLogSource.stdout,
+          message: 'log-$index',
+        ),
+      );
+    }
+    await tester.pump();
+    expect(find.textContaining('log-59'), findsOneWidget);
+    expect(find.textContaining('log-0'), findsNothing);
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is SelectableText && widget.data?.contains('log-9') == true,
+      ),
+      findsNothing,
+    );
+
+    runtime.emitLog(
+      RuntimeLog(
+        timestamp: DateTime.now(),
+        source: RuntimeLogSource.stdout,
+        message: 'non-prefix trace panic',
+      ),
+    );
+    await tester.pump();
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is SelectableText &&
+            widget.data?.contains('[调试] non-prefix trace panic') == true,
+      ),
+      findsOneWidget,
+    );
+    runtime.emitLog(
+      RuntimeLog(
+        timestamp: DateTime.now(),
+        source: RuntimeLogSource.stdout,
+        message: 'non-prefix panic',
+      ),
+    );
+    await tester.pump();
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is SelectableText &&
+            widget.data?.contains('[错误] non-prefix panic') == true,
+      ),
+      findsOneWidget,
+    );
+
+    runtime.emitState(RuntimeStatus.stopping);
+    await tester.pump();
+    expect(find.byType(SelectableText), findsWidgets);
+    runtime.emitState(RuntimeStatus.stopped);
+    await tester.pump();
+    expect(find.byType(SelectableText), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('overview uses local component status without remote checks', (
     WidgetTester tester,
   ) async {
