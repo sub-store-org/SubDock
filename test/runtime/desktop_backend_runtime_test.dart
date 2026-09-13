@@ -20,7 +20,11 @@ void main() {
     });
 
     tearDown(() async {
-      await runtime.dispose();
+      try {
+        await runtime.dispose();
+      } on Object {
+        // The finalization-failure fixture intentionally rejects cleanup.
+      }
       await temp.delete(recursive: true);
     });
 
@@ -80,7 +84,85 @@ void main() {
       );
 
       expect(runtime.currentState.status, RuntimeStatus.crashed);
+      final runs = await runtime.logStore.listRuns();
+      expect(runs, hasLength(1));
+      expect((await runtime.logStore.readRun(runs.single.id)), isNotEmpty);
+    });
+
+    test('publishes startup failure only after history is finalized', () async {
+      final blockedPort = await _unusedPort();
+      final blocker = await ServerSocket.bind(
+        InternetAddress.loopbackIPv4,
+        blockedPort,
+      );
+      addTearDown(blocker.close);
+      runtime = await _createRuntime(temp, port: blockedPort);
+      final runsAtCrash = <int>[];
+      final subscription = runtime.state.listen((state) async {
+        if (state.status == RuntimeStatus.crashed) {
+          runsAtCrash.add(
+            await runtime.logStore.listRuns().then((runs) => runs.length),
+          );
+        }
+      });
+      addTearDown(subscription.cancel);
+
+      await expectLater(runtime.start(), throwsStateError);
+      await _waitFor(() => runsAtCrash.isNotEmpty);
+      expect(runsAtCrash.single, 1);
+    });
+
+    test('finalizes a run when a running backend exits unexpectedly', () async {
+      runtime = await _createRuntime(temp, mode: 'unexpected-exit');
+      final states = <RuntimeState>[];
+      final subscription = runtime.state.listen(states.add);
+      addTearDown(subscription.cancel);
+
+      await runtime.start();
+      await _waitFor(
+        () => states.any((state) => state.status == RuntimeStatus.crashed),
+      );
+
       expect(await runtime.logStore.listRuns(), hasLength(1));
+      expect(runtime.currentState.status, RuntimeStatus.crashed);
+    });
+
+    test('reports finalization failure after an unexpected exit', () async {
+      runtime = await _createRuntime(
+        temp,
+        mode: 'unexpected-exit',
+        failingFinalize: true,
+      );
+      final states = <RuntimeState>[];
+      final subscription = runtime.state.listen(states.add);
+      addTearDown(subscription.cancel);
+
+      await runtime.start();
+      await _waitFor(
+        () => states.any((state) => state.status == RuntimeStatus.crashed),
+      );
+
+      expect(runtime.currentState.status, RuntimeStatus.crashed);
+      expect(runtime.currentState.message, contains('finalize'));
+    });
+
+    test('persists HTTP-META stdout and stderr in the same run', () async {
+      final httpMetaPort = await _unusedPort();
+      runtime = await _createRuntime(temp, httpMetaPort: httpMetaPort);
+
+      await runtime.start();
+      await runtime.stop();
+
+      final runs = await runtime.logStore.listRuns();
+      expect(runs, hasLength(1));
+      final logs = await runtime.logStore.readRun(runs.single.id);
+      expect(
+        logs.map((log) => log.source),
+        containsAll(<RuntimeLogSource>[
+          RuntimeLogSource.httpMetaStdout,
+          RuntimeLogSource.httpMetaStderr,
+        ]),
+      );
     });
 
     test(
@@ -227,15 +309,22 @@ void main() {
       await runtime.restart();
       await runtime.stop();
 
-      expect(await runtime.logStore.listRuns(), hasLength(2));
+      final runs = await runtime.logStore.listRuns();
+      expect(runs, hasLength(2));
+      for (final run in runs) {
+        expect(
+          (await runtime.logStore.readRun(run.id)).map((log) => log.message),
+          contains('fixture stdout'),
+        );
+      }
       expect(
         states.where((state) => state.status == RuntimeStatus.starting),
         hasLength(2),
       );
     });
 
-    test('times out when an HTTP response never completes', () async {
-      runtime = await _createRuntime(temp, mode: 'stall');
+    test('reports a startup failure after the backend exits', () async {
+      runtime = await _createRuntime(temp, mode: 'crash');
       final states = <RuntimeState>[];
       final subscription = runtime.state.listen(states.add);
       addTearDown(subscription.cancel);
@@ -245,6 +334,9 @@ void main() {
         throwsStateError,
       );
 
+      await _waitFor(
+        () => states.any((state) => state.status == RuntimeStatus.crashed),
+      );
       expect(states.last.status, RuntimeStatus.crashed);
     });
   });
@@ -258,6 +350,9 @@ Future<DesktopBackendRuntime> _createRuntime(
   List<String> externalBinaries = const <String>[],
   int? port,
   String? activeBackendVersion,
+  RuntimeLogStore? logStore,
+  int? httpMetaPort,
+  bool failingFinalize = false,
 }) async {
   final bundle = Directory.fromUri(temp.uri.resolve('bundle/'));
   final backend = Directory.fromUri(bundle.uri.resolve('data/backend/'));
@@ -268,6 +363,18 @@ Future<DesktopBackendRuntime> _createRuntime(
     "const mode = process.env.TEST_BACKEND_MODE || 'healthy';",
     "const mode = '$mode';",
   );
+  if (mode == 'unexpected-exit') {
+    source = source.replaceFirst(
+      "server.listen(process.env.SUB_STORE_BACKEND_API_PORT, '127.0.0.1');",
+      "server.listen(process.env.SUB_STORE_BACKEND_API_PORT, '127.0.0.1');\n  setTimeout(() => server.close(() => process.exit(1)), 150);",
+    );
+  }
+  if (mode == 'stall') {
+    source = source.replaceFirst(
+      "server.listen(process.env.SUB_STORE_BACKEND_API_PORT, '127.0.0.1');",
+      "server.listen(process.env.SUB_STORE_BACKEND_API_PORT, '127.0.0.1');\n  process.on('SIGTERM', () => process.exit(0));\n  setTimeout(() => process.exit(1), 500);",
+    );
+  }
   await File.fromUri(backend.uri.resolve('sub-store.bundle.js'))
       .writeAsString(source);
   await File.fromUri(
@@ -292,8 +399,42 @@ Future<DesktopBackendRuntime> _createRuntime(
   final directories = await RuntimeDirectories.fromBaseDirectory(
     Directory.fromUri(temp.uri.resolve('application-support/')),
   );
-  final logStore = RuntimeLogStore(directories);
-  await logStore.initialize();
+  if (httpMetaPort != null) {
+    final httpMeta = Directory.fromUri(
+      bundle.uri.resolve('data/http-meta/meta/'),
+    );
+    await httpMeta.create(recursive: true);
+    await File.fromUri(bundle.uri.resolve('data/http-meta/version'))
+        .writeAsString('fixture-http-meta\n');
+    await File.fromUri(httpMeta.uri.resolve('tpl.yaml')).writeAsString('tpl');
+    await File.fromUri(httpMeta.uri.resolve('mihomo-version'))
+        .writeAsString('fixture-mihomo\n');
+    final mihomo = File.fromUri(
+      httpMeta.uri.resolve(Platform.isWindows ? 'mihomo.exe' : 'mihomo'),
+    );
+    await mihomo.writeAsString('fixture');
+    if (!Platform.isWindows) {
+      await Process.run('chmod', <String>['755', mihomo.path]);
+    }
+    await File.fromUri(bundle.uri.resolve('data/http-meta/http-meta.bundle.js'))
+        .writeAsString('''
+const http = require('node:http');
+console.log('http-meta stdout');
+console.error('http-meta stderr');
+const server = http.createServer((request, response) => {
+  response.statusCode = 200;
+  response.end('{}');
+});
+server.listen(process.env.PORT, '127.0.0.1');
+process.on('SIGTERM', () => server.close(() => process.exit(0)));
+''');
+  }
+  final store =
+      logStore ??
+      (failingFinalize
+          ? _FailingFinalizeStore(directories)
+          : RuntimeLogStore(directories));
+  await store.initialize();
   if (activeBackendVersion != null) {
     final candidate = Directory.fromUri(
       directories.components.uri.resolve('backend/$activeBackendVersion/'),
@@ -312,12 +453,24 @@ Future<DesktopBackendRuntime> _createRuntime(
       ComponentMetadata(baseline: '2.38.4', active: activeBackendVersion),
     );
   }
-  return DesktopBackendRuntime(
+  final result = DesktopBackendRuntime(
     directories: directories,
-    logStore: logStore,
+    logStore: store,
     bundleDirectory: bundle,
     port: port ?? await _unusedPort(),
   );
+  if (httpMetaPort != null) {
+    await result.activateUserEnvironment({'PORT': '$httpMetaPort'});
+  }
+  return result;
+}
+
+class _FailingFinalizeStore extends RuntimeLogStore {
+  _FailingFinalizeStore(super.directories);
+
+  @override
+  Future<void> finalize({DateTime? end}) =>
+      Future<void>.error(StateError('finalize fixture failure'));
 }
 
 Future<int> _unusedPort() async {

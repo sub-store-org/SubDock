@@ -76,6 +76,7 @@ class DesktopBackendRuntime implements BackendRuntime {
   String? _activeLogRunId;
   Future<void>? _finalizeRunOperation;
   final _captureDrains = <Future<void>>[];
+  final _captureSubscriptions = <StreamSubscription<dynamic>>[];
   Timer? _healthTimer;
   bool _stopping = false;
   bool _checkingHealth = false;
@@ -213,11 +214,7 @@ class DesktopBackendRuntime implements BackendRuntime {
         try {
           await process.exitCode.then((code) => _handleExit(process, code));
         } on Object catch (error) {
-          if (identical(_process, process)) {
-            _process = null;
-            await _finalizeActiveLogRun();
-            _emit(RuntimeStatus.crashed, '$error');
-          }
+          _emit(RuntimeStatus.crashed, '$error');
         }
       }());
 
@@ -254,8 +251,18 @@ class DesktopBackendRuntime implements BackendRuntime {
         if (identical(_httpMetaProcess, metaProcess)) _httpMetaProcess = null;
       }
       _closeHttpClient();
-      _emit(RuntimeStatus.crashed, '$error');
-      await _finalizeActiveLogRun();
+      Object? finalizationError;
+      try {
+        await _finalizeActiveLogRun();
+      } on Object catch (cleanupError) {
+        finalizationError = cleanupError;
+      }
+      _emit(
+        RuntimeStatus.crashed,
+        finalizationError == null
+            ? '$error'
+            : '$error; log finalization failed: $finalizationError',
+      );
       Error.throwWithStackTrace(error, stackTrace);
     }
   }
@@ -646,7 +653,7 @@ class DesktopBackendRuntime implements BackendRuntime {
     RuntimeLogSource source,
     String runId,
   ) {
-    final drain = stream
+    final subscription = stream
         .transform(utf8.decoder)
         .transform(const LineSplitter())
         .listen((line) {
@@ -660,8 +667,9 @@ class DesktopBackendRuntime implements BackendRuntime {
             if (_activeLogRunId == runId) await logStore.append(log);
           });
           _logWrites = next.catchError((Object _) {});
-        })
-        .asFuture<void>();
+        });
+    final drain = subscription.asFuture<void>();
+    _captureSubscriptions.add(subscription);
     _captureDrains.add(drain);
   }
 
@@ -672,16 +680,19 @@ class DesktopBackendRuntime implements BackendRuntime {
     if (existing != null) return existing;
     final operation = () async {
       try {
-        await Future.wait(List<Future<void>>.of(_captureDrains))
-            .timeout(_stopTimeout);
+        await Future.wait(
+          _captureSubscriptions.map((subscription) => subscription.cancel()),
+        );
+        await Future.wait(List<Future<void>>.of(_captureDrains));
       } on Object {
-        // A terminated child may not close a broken output stream promptly.
+        // Capture errors are irrelevant after the stream has been closed.
       }
       await _logWrites;
       if (_activeLogRunId == id) {
         await logStore.finalize(end: DateTime.now());
         _activeLogRunId = null;
         _captureDrains.clear();
+        _captureSubscriptions.clear();
       }
     }();
     late final Future<void> completed;
