@@ -2072,6 +2072,7 @@ class _SettingsPageState extends State<_SettingsPage> {
   Completer<void>? _saveBarrier;
   late SubDockBackendConfig _savedBackend;
   late SubDockBackendConfig _backendDraft;
+  SubDockBackendConfig? _pendingBackendSave;
   late _NullableBoolDraft _mergeDraft;
   var _httpMetaEnabled = true;
   final _componentUpdates = <ComponentKind, ComponentUpdate>{};
@@ -2118,7 +2119,9 @@ class _SettingsPageState extends State<_SettingsPage> {
       _configuration = widget.configuration;
       _syncConfiguration();
     }
-    if (oldWidget.configuration != widget.configuration && !_backendDirty) {
+    if (oldWidget.configuration != widget.configuration &&
+        !_backendDirty &&
+        _pendingBackendSave == null) {
       _savedBackend = widget.configuration.backend;
       _backendDraft = _savedBackend;
       _mergeDraft = _mergeState(_backendDraft.merge);
@@ -2382,9 +2385,12 @@ class _SettingsPageState extends State<_SettingsPage> {
           !await _confirm(l10n.confirmNonLoopback)) {
         return;
       }
+      _pendingBackendSave = backend;
       await widget.onSaveConfiguration(next);
     } on Object {
       return;
+    } finally {
+      _pendingBackendSave = null;
     }
     if (!mounted) return;
     setState(() {
