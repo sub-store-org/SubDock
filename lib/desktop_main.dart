@@ -7,6 +7,7 @@ import 'package:windows_single_instance/windows_single_instance.dart';
 
 import 'app/app.dart';
 import 'app/app_coordinator.dart';
+import 'app/close_request_guard.dart';
 import 'desktop_lifecycle.dart';
 import 'l10n/generated/app_localizations.dart';
 import 'runtime/desktop_backend_runtime.dart';
@@ -90,8 +91,10 @@ Future<void> main() async {
     preferences.locale,
     WidgetsBinding.instance.platformDispatcher.locales,
   );
+  final closeRequestGuard = CloseRequestGuard();
   final lifecycle = DesktopLifecycle(
     onExit: coordinator.dispose,
+    closeRequestGuard: closeRequestGuard,
     closeBehavior: () async => (await preferencesStore.load()).closeBehavior,
     trayLabels: (item) {
       final l10n = lookupAppLocalizations(currentLocale);
@@ -113,6 +116,7 @@ Future<void> main() async {
       onToggleMaximize: lifecycle.toggleMaximize,
       onClose: lifecycle.closeToTray,
       isMaximized: lifecycle.isMaximized,
+      closeRequestGuard: closeRequestGuard,
       onStartDragging: windowManager.startDragging,
       preferences: preferences,
       preferencesStore: preferencesStore,

@@ -22,6 +22,7 @@ import '../update/component_update_service.dart';
 import 'app_colors.dart';
 import 'app_coordinator.dart';
 import 'app_typography.dart';
+import 'close_request_guard.dart';
 
 const navigationBreakpoint = 600.0;
 final _notMaximized = ValueNotifier<bool>(false);
@@ -52,6 +53,7 @@ class SubDockApp extends StatefulWidget {
     this.onToggleMaximize,
     this.onClose,
     this.isMaximized,
+    this.closeRequestGuard,
     this.onStartDragging,
     this.preferences,
     this.preferencesStore,
@@ -68,6 +70,7 @@ class SubDockApp extends StatefulWidget {
   final Future<void> Function()? onToggleMaximize;
   final Future<void> Function()? onClose;
   final ValueListenable<bool>? isMaximized;
+  final CloseRequestGuard? closeRequestGuard;
   final Future<void> Function()? onStartDragging;
   final DesktopPreferences? preferences;
   final DesktopPreferencesStore? preferencesStore;
@@ -604,7 +607,13 @@ class _DesktopChrome extends StatelessWidget {
           children: [
             Expanded(
               child: GestureDetector(
+                key: const ValueKey('titlebar-drag-area'),
                 behavior: HitTestBehavior.translucent,
+                onDoubleTap:
+                    onToggleMaximize == null ||
+                        !(Platform.isLinux || Platform.isWindows)
+                    ? null
+                    : () => unawaited(onToggleMaximize!()),
                 onPanStart: onStartDragging == null
                     ? null
                     : (_) => unawaited(onStartDragging!()),

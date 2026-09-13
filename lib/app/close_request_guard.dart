@@ -3,7 +3,7 @@ typedef CloseApprovalHandler = Future<bool> Function();
 class CloseRequestGuard {
   CloseRequestGuard({this.approvalHandler});
 
-  final CloseApprovalHandler? approvalHandler;
+  CloseApprovalHandler? approvalHandler;
   Future<bool>? _pending;
 
   Future<bool> request() {

@@ -32,4 +32,17 @@ void main() {
     expect(results, [true, true]);
     expect(approvals, 1);
   });
+
+  test(
+    'allows replacing and clearing the handler for later requests',
+    () async {
+      final guard = CloseRequestGuard(approvalHandler: () async => false);
+
+      expect(await guard.request(), isFalse);
+      guard.approvalHandler = () async => true;
+      expect(await guard.request(), isTrue);
+      guard.approvalHandler = null;
+      expect(await guard.request(), isTrue);
+    },
+  );
 }

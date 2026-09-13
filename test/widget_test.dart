@@ -18,7 +18,7 @@ import 'package:flutter/material.dart'
         ValueNotifier;
 import 'package:flutter/scheduler.dart' show AppLifecycleState;
 import 'package:flutter/widgets.dart'
-    show Offstage, Scrollable, SizedBox, ValueKey;
+    show GestureDetector, Offstage, Scrollable, SizedBox, ValueKey;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:subdock/app/app.dart';
 import 'package:subdock/app/app_coordinator.dart';
@@ -294,12 +294,47 @@ void main() {
     await tester.tap(find.byTooltip('最小化'));
     await tester.tap(find.byTooltip('最大化'));
     await tester.tap(find.byTooltip('关闭'));
+    await tester.pump(const Duration(milliseconds: 50));
     await tester.drag(find.text('SubDock'), const Offset(40, 0));
+    await tester.pump(const Duration(milliseconds: 50));
 
     expect(minimizes, 1);
     expect(maximizeToggles, 1);
     expect(closes, 1);
     expect(drags, 1);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('double-clicking the Linux title area toggles maximize', (
+    WidgetTester tester,
+  ) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    final coordinator = AppCoordinator(
+      runtime: _FakeBackendRuntime(),
+      environmentStore: BackendEnvStore(directories!),
+    );
+    var toggles = 0;
+    await tester.pumpWidget(
+      SubDockApp(
+        coordinator: coordinator,
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('zh'),
+        onToggleMaximize: () async => toggles++,
+      ),
+    );
+
+    final titleArea = tester.widget<GestureDetector>(
+      find.byKey(const ValueKey('titlebar-drag-area')),
+    );
+    titleArea.onDoubleTap!();
+
+    expect(toggles, 1);
     await tester.pumpWidget(const SizedBox());
   });
 
