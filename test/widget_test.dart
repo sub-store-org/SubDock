@@ -16,7 +16,8 @@ import 'package:flutter/material.dart'
         ThemeMode,
         ValueNotifier;
 import 'package:flutter/scheduler.dart' show AppLifecycleState;
-import 'package:flutter/widgets.dart' show Offstage, SizedBox, ValueKey;
+import 'package:flutter/widgets.dart'
+    show Offstage, Scrollable, SizedBox, ValueKey;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:subdock/app/app.dart';
 import 'package:subdock/app/app_coordinator.dart';
@@ -454,6 +455,65 @@ void main() {
       Theme.of(tester.element(find.text('SubDock'))).brightness,
       Brightness.dark,
     );
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('settings surfaces fit the minimum desktop window', (
+    WidgetTester tester,
+  ) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    final coordinator = AppCoordinator(
+      runtime: _FakeBackendRuntime(),
+      environmentStore: BackendEnvStore(directories!),
+    );
+
+    await tester.binding.setSurfaceSize(const Size(600, 480));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      SubDockApp(
+        coordinator: coordinator,
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('zh'),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
+    await tester.pumpAndSettle();
+
+    final settingsList = find.byKey(const ValueKey('settings-list'));
+    final scrollable = find
+        .descendant(of: settingsList, matching: find.byType(Scrollable))
+        .first;
+    expect(find.byKey(const ValueKey('settings-appearance')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    for (final key in [
+      'settings-subdock-config',
+      'settings-backend-config',
+      'settings-raw-env',
+      'settings-component-updates',
+    ]) {
+      final section = find.byKey(ValueKey(key));
+      await tester.scrollUntilVisible(section, 180, scrollable: scrollable);
+      expect(section, findsOneWidget);
+      expect(tester.takeException(), isNull);
+    }
+
+    final expansion = find.byKey(const ValueKey('settings-raw-env-expansion'));
+    await tester.ensureVisible(expansion);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('settings-raw-env-editor')), findsNothing);
+    await tester.tap(expansion);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('settings-raw-env-editor')),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
   });
 

@@ -298,24 +298,52 @@ class _SubDockAppState extends State<SubDockApp> {
     Brightness brightness,
     AppColors colors,
     AppTypography typography,
-  ) => ThemeData(
-    colorScheme: ColorScheme.fromSeed(
-      seedColor: Colors.teal,
-      brightness: brightness,
-    ),
-    useMaterial3: true,
-    scaffoldBackgroundColor: colors.surfaceLowest,
-    dividerTheme: DividerThemeData(color: colors.divider),
-    cardTheme: CardThemeData(
-      color: colors.surfaceLow,
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(typography.radiusMd),
-        side: BorderSide(color: colors.divider),
+  ) {
+    final radius = BorderRadius.circular(typography.radiusMd);
+    final enabledBorder = OutlineInputBorder(
+      borderRadius: radius,
+      borderSide: BorderSide(color: colors.divider),
+    );
+    final focusedBorder = OutlineInputBorder(
+      borderRadius: radius,
+      borderSide: BorderSide(color: colors.accent),
+    );
+    final buttonShape = RoundedRectangleBorder(borderRadius: radius);
+
+    return ThemeData(
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: Colors.teal,
+        brightness: brightness,
       ),
-    ),
-    extensions: [colors, typography],
-  );
+      useMaterial3: true,
+      scaffoldBackgroundColor: colors.surfaceLowest,
+      dividerTheme: DividerThemeData(color: colors.divider),
+      cardTheme: CardThemeData(
+        color: colors.surfaceLow,
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: radius,
+          side: BorderSide(color: colors.divider),
+        ),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        isDense: true,
+        border: enabledBorder,
+        enabledBorder: enabledBorder,
+        focusedBorder: focusedBorder,
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(shape: buttonShape),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(shape: buttonShape),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(shape: buttonShape),
+      ),
+      extensions: [colors, typography],
+    );
+  }
 
   Widget _buildHome(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -1739,11 +1767,15 @@ class _SettingsPageState extends State<_SettingsPage> {
                     title: Text(l10n.advancedRawEnv),
                     subtitle: Text(l10n.advancedRawEnvSubtitle),
                     initiallyExpanded: false,
-                    childrenPadding: EdgeInsets.only(
-                      bottom: typography.spacingSm,
+                    childrenPadding: EdgeInsets.fromLTRB(
+                      typography.spacingMd,
+                      0,
+                      typography.spacingMd,
+                      typography.spacingMd,
                     ),
                     children: [
                       TextField(
+                        key: const ValueKey('settings-raw-env-editor'),
                         controller: _raw,
                         minLines: 8,
                         maxLines: 16,
