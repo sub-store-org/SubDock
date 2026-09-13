@@ -24,7 +24,7 @@ import 'app_typography.dart';
 
 const navigationBreakpoint = 600.0;
 
-enum _AppPage { manage, runtime, logs, settings }
+enum _AppPage { manage, overview, logs, settings }
 
 class _ShellDestination {
   const _ShellDestination({
@@ -88,7 +88,9 @@ class _SubDockAppState extends State<SubDockApp> {
   late final AppLifecycleListener _lifecycleListener;
   late RuntimeState _state;
   final _logs = <RuntimeLog>[];
-  _AppPage _page = _AppPage.manage;
+  _AppPage _page = _AppPage.overview;
+  final _overviewComponentStatuses = <ComponentKind, ComponentVersionStatus>{};
+  final _overviewComponentUnavailable = <ComponentKind>{};
   BackendInfo? _info;
   Object? _error;
   var _actionInProgress = false;
@@ -102,7 +104,7 @@ class _SubDockAppState extends State<SubDockApp> {
     _localeOverride = widget.locale;
     _state = widget.coordinator.runtime.currentState;
     _error = widget.initialError;
-    if (_error != null) _page = _AppPage.runtime;
+    if (_error != null) _page = _AppPage.overview;
     _stateSubscription = widget.coordinator.runtime.state.listen(_onState);
     _logSubscription = widget.coordinator.runtime.logs.listen(_appendLog);
     _lifecycleListener = AppLifecycleListener(
@@ -110,6 +112,7 @@ class _SubDockAppState extends State<SubDockApp> {
     );
     widget.desktopWarning?.addListener(_onDesktopWarning);
     unawaited(_loadLogTail());
+    unawaited(_loadOverviewComponentStatuses());
     unawaited(_loadThemeMode());
     unawaited(_loadLocalePreference());
     if (widget.autoStart) unawaited(_autoStart());
@@ -186,7 +189,7 @@ class _SubDockAppState extends State<SubDockApp> {
     } catch (error) {
       if (!mounted) return;
       setState(() {
-        _page = _AppPage.runtime;
+        _page = _AppPage.overview;
         _error = error;
       });
     }
@@ -204,6 +207,29 @@ class _SubDockAppState extends State<SubDockApp> {
       _logs.add(log);
       if (_logs.length > 2000) _logs.removeRange(0, _logs.length - 2000);
     });
+  }
+
+  Future<void> _loadOverviewComponentStatuses() async {
+    for (final kind in ComponentKind.values) {
+      try {
+        final status = await widget.coordinator.componentStatus(kind);
+        if (!mounted) return;
+        setState(() {
+          _overviewComponentStatuses[kind] = status;
+          _overviewComponentUnavailable.remove(kind);
+        });
+      } catch (_) {
+        if (!mounted) return;
+        setState(() => _overviewComponentUnavailable.add(kind));
+      }
+    }
+  }
+
+  void _selectPage(_AppPage page) {
+    setState(() => _page = page);
+    if (page == _AppPage.overview) {
+      unawaited(_loadOverviewComponentStatuses());
+    }
   }
 
   Future<void> _loadLogTail() async {
@@ -350,14 +376,14 @@ class _SubDockAppState extends State<SubDockApp> {
     final colors = Theme.of(context).extension<AppColors>()!;
     final destinations = <_ShellDestination>[
       _ShellDestination(
-        icon: const Icon(Icons.dashboard_outlined),
-        selectedIcon: const Icon(Icons.dashboard),
+        icon: const Icon(Icons.web_asset_outlined),
+        selectedIcon: const Icon(Icons.web_asset),
         label: l10n.manage,
       ),
       _ShellDestination(
-        icon: const Icon(Icons.memory_outlined),
-        selectedIcon: const Icon(Icons.memory),
-        label: l10n.runtimeStatus,
+        icon: const Icon(Icons.dashboard_outlined),
+        selectedIcon: const Icon(Icons.dashboard),
+        label: l10n.overview,
       ),
       _ShellDestination(
         icon: const Icon(Icons.subject_outlined),
@@ -376,16 +402,19 @@ class _SubDockAppState extends State<SubDockApp> {
         coordinator: widget.coordinator,
         error: _error,
         enabled: widget.enableWebView,
-        onRecover: () => setState(
-          () => _page = widget.coordinator.canOpenWebUi
-              ? _AppPage.runtime
+        onRecover: () => _selectPage(
+          widget.coordinator.canOpenWebUi
+              ? _AppPage.overview
               : _AppPage.settings,
         ),
       ),
-      _RuntimePage(
+      _OverviewPage(
         state: _state,
         info: _info,
         error: _error,
+        logs: _logs,
+        componentStatuses: _overviewComponentStatuses,
+        unavailableComponents: _overviewComponentUnavailable,
         actionInProgress: _actionInProgress,
         onStart: () => _run(widget.coordinator.start),
         onStop: () => _run(widget.coordinator.stop),
@@ -455,7 +484,7 @@ class _SubDockAppState extends State<SubDockApp> {
                       NavigationBar(
                         selectedIndex: _page.index,
                         onDestinationSelected: (index) =>
-                            setState(() => _page = _AppPage.values[index]),
+                            _selectPage(_AppPage.values[index]),
                         destinations: destinations
                             .map(
                               (destination) => NavigationDestination(
@@ -476,7 +505,7 @@ class _SubDockAppState extends State<SubDockApp> {
                       selectedIndex: _page.index,
                       destinations: destinations,
                       onDestinationSelected: (index) =>
-                          setState(() => _page = _AppPage.values[index]),
+                          _selectPage(_AppPage.values[index]),
                     ),
                     const VerticalDivider(width: 1),
                     Expanded(child: pageFrame),
@@ -520,36 +549,46 @@ class _DesktopSidebar extends StatelessWidget {
             child: Material(
               color: selected ? colors.surfaceHigh : Colors.transparent,
               borderRadius: BorderRadius.circular(typography.radiusLg),
-              child: InkWell(
+              child: Semantics(
                 key: Key('nav-item-${_AppPage.values[index].name}'),
-                borderRadius: BorderRadius.circular(typography.radiusLg),
-                onTap: () => onDestinationSelected(index),
-                child: Padding(
-                  padding: EdgeInsets.symmetric(vertical: typography.spacingSm),
-                  child: Row(
-                    children: [
-                      IconTheme(
-                        data: IconThemeData(
-                          color: selected ? colors.accent : colors.onSurface,
-                        ),
-                        child: selected
-                            ? destination.selectedIcon
-                            : destination.icon,
-                      ),
-                      SizedBox(width: typography.spacingXs),
-                      Expanded(
-                        child: DefaultTextStyle(
-                          style: typography.labelSmall.copyWith(
+                button: true,
+                selected: selected,
+                label: destination.label,
+                excludeSemantics: true,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(typography.radiusLg),
+                  onTap: () => onDestinationSelected(index),
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(
+                      vertical: typography.spacingSm,
+                    ),
+                    child: Row(
+                      children: [
+                        IconTheme(
+                          data: IconThemeData(
                             color: selected ? colors.accent : colors.onSurface,
                           ),
-                          child: Text(
-                            destination.label,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                          child: selected
+                              ? destination.selectedIcon
+                              : destination.icon,
+                        ),
+                        SizedBox(width: typography.spacingXs),
+                        Expanded(
+                          child: DefaultTextStyle(
+                            style: typography.labelSmall.copyWith(
+                              color: selected
+                                  ? colors.accent
+                                  : colors.onSurface,
+                            ),
+                            child: Text(
+                              destination.label,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -659,18 +698,21 @@ class _PageHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).extension<AppColors>()!;
     final typography = Theme.of(context).extension<AppTypography>()!;
-    return Container(
-      key: const Key('page-title'),
-      width: double.infinity,
-      padding: EdgeInsets.symmetric(
-        horizontal: typography.spacingLg,
-        vertical: typography.spacingMd,
+    return Semantics(
+      header: true,
+      child: Container(
+        key: const Key('page-title'),
+        width: double.infinity,
+        padding: EdgeInsets.symmetric(
+          horizontal: typography.spacingLg,
+          vertical: typography.spacingMd,
+        ),
+        decoration: BoxDecoration(
+          color: colors.surfaceLowest,
+          border: Border(bottom: BorderSide(color: colors.divider)),
+        ),
+        child: Text(title, style: typography.titleLarge),
       ),
-      decoration: BoxDecoration(
-        color: colors.surfaceLowest,
-        border: Border(bottom: BorderSide(color: colors.divider)),
-      ),
-      child: Text(title, style: typography.titleLarge),
     );
   }
 }
@@ -956,7 +998,7 @@ class _ManagePageState extends State<_ManagePage> {
                     onPressed: widget.onRecover,
                     child: Text(
                       widget.coordinator.canOpenWebUi
-                          ? l10n.viewRuntimeStatus
+                          ? l10n.viewOverview
                           : l10n.fixConfiguration,
                     ),
                   ),
@@ -970,6 +1012,15 @@ class _ManagePageState extends State<_ManagePage> {
     return Stack(
       children: [
         Positioned.fill(child: WebViewWidget(controller: _controller!)),
+        Positioned.fill(
+          child: IgnorePointer(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                border: Border.all(color: colors.divider),
+              ),
+            ),
+          ),
+        ),
         if (_webViewError != null)
           Align(
             alignment: Alignment.topCenter,
@@ -1048,11 +1099,14 @@ class _RuntimeInfoItem extends StatelessWidget {
   }
 }
 
-class _RuntimePage extends StatelessWidget {
-  const _RuntimePage({
+class _OverviewPage extends StatelessWidget {
+  const _OverviewPage({
     required this.state,
     required this.info,
     required this.error,
+    required this.logs,
+    required this.componentStatuses,
+    required this.unavailableComponents,
     required this.actionInProgress,
     required this.onStart,
     required this.onStop,
@@ -1062,6 +1116,9 @@ class _RuntimePage extends StatelessWidget {
   final RuntimeState state;
   final BackendInfo? info;
   final Object? error;
+  final List<RuntimeLog> logs;
+  final Map<ComponentKind, ComponentVersionStatus> componentStatuses;
+  final Set<ComponentKind> unavailableComponents;
   final bool actionInProgress;
   final VoidCallback onStart;
   final VoidCallback onStop;
@@ -1171,6 +1228,45 @@ class _RuntimePage extends StatelessWidget {
         ],
       ),
     );
+    final recentLogs = logs.length <= 3 ? logs : logs.sublist(logs.length - 3);
+    final recentLogsPanel = _SurfacePanel(
+      key: const ValueKey('overview-recent-logs'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(l10n.recentLogsHeading, style: typography.titleMedium),
+          SizedBox(height: typography.spacingS),
+          if (recentLogs.isEmpty)
+            Text(l10n.noLogs)
+          else
+            for (final log in recentLogs)
+              Text(
+                '${log.timestamp.toIso8601String()} [${log.source.name}] ${log.message}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: typography.bodySmall.copyWith(fontFamily: 'monospace'),
+              ),
+        ],
+      ),
+    );
+    final componentStatusPanel = _SurfacePanel(
+      key: const ValueKey('overview-component-status'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(l10n.componentStatusHeading, style: typography.titleMedium),
+          SizedBox(height: typography.spacingS),
+          for (final kind in ComponentKind.values)
+            Text(
+              '${kind.name}: ${unavailableComponents.contains(kind)
+                  ? l10n.unavailable
+                  : componentStatuses[kind] == null
+                  ? l10n.componentReadingVersion
+                  : l10n.componentCurrentWithPrevious(componentStatuses[kind]!.current, componentStatuses[kind]!.previous ?? '-')}',
+            ),
+        ],
+      ),
+    );
     return ListView(
       padding: EdgeInsets.all(typography.spacingLg),
       children: [
@@ -1207,6 +1303,26 @@ class _RuntimePage extends StatelessWidget {
               ),
             ],
           ),
+        ),
+        SizedBox(height: typography.spacingLg),
+        LayoutBuilder(
+          builder: (context, constraints) => constraints.maxWidth < 760
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    recentLogsPanel,
+                    SizedBox(height: typography.spacingLg),
+                    componentStatusPanel,
+                  ],
+                )
+              : Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: recentLogsPanel),
+                    SizedBox(width: typography.spacingLg),
+                    Expanded(child: componentStatusPanel),
+                  ],
+                ),
         ),
       ],
     );

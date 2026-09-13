@@ -16,7 +16,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get manage => '管理';
 
   @override
-  String get runtimeStatus => '运行状态';
+  String get overview => '概览';
 
   @override
   String get logs => '日志';
@@ -110,7 +110,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get backendNotRunning => 'Backend 未运行';
 
   @override
-  String get viewRuntimeStatus => '查看运行状态';
+  String get viewOverview => '查看概览';
+
+  @override
+  String get recentLogsHeading => '最近日志';
+
+  @override
+  String get componentStatusHeading => '组件状态';
 
   @override
   String get fixConfiguration => '修复配置';

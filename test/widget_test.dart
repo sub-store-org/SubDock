@@ -61,9 +61,6 @@ void main() {
     expect(find.byKey(const ValueKey('desktop-sidebar')), findsOneWidget);
     expect(find.byKey(const ValueKey('page-title')), findsOneWidget);
 
-    await tester.tap(find.text('运行状态'));
-    await tester.pump();
-
     final managementPage = find.byKey(const ValueKey('page-manage'));
     expect(managementPage, findsOneWidget);
     expect(tester.widget<Offstage>(managementPage).offstage, isTrue);
@@ -153,10 +150,12 @@ void main() {
       ),
     );
 
+    await tester.tap(find.byKey(const ValueKey('nav-item-manage')));
+    await tester.pump();
     expect(find.byKey(const ValueKey('manage-recovery')), findsOneWidget);
     expect(find.text('Backend 未运行'), findsOneWidget);
-    expect(find.text('查看运行状态'), findsOneWidget);
-    await tester.tap(find.widgetWithText(FilledButton, '查看运行状态'));
+    expect(find.text('查看概览'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, '查看概览'));
     await tester.pump();
     expect(
       tester
@@ -166,7 +165,7 @@ void main() {
     );
     expect(
       tester
-          .widget<Offstage>(find.byKey(const ValueKey('page-runtime')))
+          .widget<Offstage>(find.byKey(const ValueKey('page-overview')))
           .offstage,
       isFalse,
     );
@@ -380,10 +379,15 @@ void main() {
         Brightness.dark,
       );
 
-      for (final label in ['运行状态', '日志', '设置', '管理']) {
-        await tester.tap(find.text(label));
+      for (final key in [
+        'nav-item-overview',
+        'nav-item-logs',
+        'nav-item-settings',
+        'nav-item-manage',
+      ]) {
+        await tester.tap(find.byKey(ValueKey(key)));
         await tester.pump();
-        expect(tester.takeException(), isNull, reason: label);
+        expect(tester.takeException(), isNull, reason: key);
       }
       await tester.pumpWidget(const SizedBox());
     },
@@ -729,7 +733,7 @@ void main() {
     );
 
     expect(find.text('Settings'), findsWidgets);
-    expect(find.text('Runtime Status'), findsWidgets);
+    expect(find.text('Overview'), findsWidgets);
     expect(find.text('Logs'), findsWidgets);
     expect(find.text('Manage'), findsWidgets);
     await tester.pumpWidget(const SizedBox());

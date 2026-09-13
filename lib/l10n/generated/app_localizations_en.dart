@@ -16,7 +16,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get manage => 'Manage';
 
   @override
-  String get runtimeStatus => 'Runtime Status';
+  String get overview => 'Overview';
 
   @override
   String get logs => 'Logs';
@@ -112,7 +112,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get backendNotRunning => 'Backend is not running';
 
   @override
-  String get viewRuntimeStatus => 'View runtime status';
+  String get viewOverview => 'View overview';
+
+  @override
+  String get recentLogsHeading => 'Recent Logs';
+
+  @override
+  String get componentStatusHeading => 'Component Status';
 
   @override
   String get fixConfiguration => 'Fix configuration';

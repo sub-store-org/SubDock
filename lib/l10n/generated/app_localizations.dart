@@ -110,11 +110,11 @@ abstract class AppLocalizations {
   /// **'管理'**
   String get manage;
 
-  /// No description provided for @runtimeStatus.
+  /// No description provided for @overview.
   ///
   /// In zh, this message translates to:
-  /// **'运行状态'**
-  String get runtimeStatus;
+  /// **'概览'**
+  String get overview;
 
   /// No description provided for @logs.
   ///
@@ -290,11 +290,23 @@ abstract class AppLocalizations {
   /// **'Backend 未运行'**
   String get backendNotRunning;
 
-  /// No description provided for @viewRuntimeStatus.
+  /// No description provided for @viewOverview.
   ///
   /// In zh, this message translates to:
-  /// **'查看运行状态'**
-  String get viewRuntimeStatus;
+  /// **'查看概览'**
+  String get viewOverview;
+
+  /// No description provided for @recentLogsHeading.
+  ///
+  /// In zh, this message translates to:
+  /// **'最近日志'**
+  String get recentLogsHeading;
+
+  /// No description provided for @componentStatusHeading.
+  ///
+  /// In zh, this message translates to:
+  /// **'组件状态'**
+  String get componentStatusHeading;
 
   /// No description provided for @fixConfiguration.
   ///
