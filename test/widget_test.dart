@@ -962,6 +962,9 @@ void main() {
       find.byKey(const ValueKey('component-update-recheck-frontend')),
     );
     await _pumpRealIo(tester);
+    final updateCount = updates.updateCalls.length;
+    final rollbackCount = updates.rollbackCalls.length;
+    final restartCount = runtime.restarts;
     await tester.tap(
       find.byKey(const ValueKey('component-release-notes-frontend')),
     );
@@ -970,6 +973,14 @@ void main() {
       find.textContaining('system browser could not open'),
       findsOneWidget,
     );
+    expect(find.textContaining('Current version: 1.1.0'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('component-release-notes-frontend')),
+      findsOneWidget,
+    );
+    expect(updates.updateCalls.length, updateCount);
+    expect(updates.rollbackCalls.length, rollbackCount);
+    expect(runtime.restarts, restartCount);
     await tester.pumpWidget(const SizedBox());
   });
 
