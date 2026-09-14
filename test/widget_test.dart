@@ -1805,7 +1805,17 @@ void main() {
       const Offset(0, -500),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('关于 SubDock'));
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('settings-card-about')),
+      -200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.drag(
+      find.byKey(const ValueKey('settings-list')),
+      const Offset(0, -160),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('settings-card-about')));
     await _pumpRealIo(tester);
     expect(find.text('SubDock 版本: 1.0.0'), findsOneWidget);
     expect(find.text('构建号: 1'), findsOneWidget);
