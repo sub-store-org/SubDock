@@ -1392,14 +1392,26 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('关于 SubDock'));
     await _pumpRealIo(tester);
-    for (final label in ['SubDock 版本', '构建号', '许可证', '项目主页', '操作系统', '架构']) {
-      expect(find.textContaining(label), findsOneWidget);
-    }
+    expect(find.text('SubDock 版本: 1.0.0'), findsOneWidget);
+    expect(find.text('构建号: 1'), findsOneWidget);
+    expect(find.text('许可证: GPL-3.0'), findsOneWidget);
+    expect(
+      find.text('项目主页: https://github.com/Delusions6515/SubDock'),
+      findsOneWidget,
+    );
+    expect(find.text('操作系统: linux'), findsOneWidget);
+    expect(find.text('架构: x64'), findsOneWidget);
     expect(find.byKey(const ValueKey('settings-child-save')), findsNothing);
     expect(
       find.byKey(const ValueKey('component-update-local-status-backend')),
       findsNothing,
     );
+    expect(
+      find.byKey(const ValueKey('component-update-local-status-frontend')),
+      findsNothing,
+    );
+    expect(find.text('当前版本'), findsNothing);
+    expect(find.text('上一版本'), findsNothing);
     await tester.pumpWidget(const SizedBox());
   });
 
