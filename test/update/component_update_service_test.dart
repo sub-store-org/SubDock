@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:subdock/runtime/backend_runtime.dart';
 import 'package:subdock/runtime/runtime_directories.dart';
@@ -114,21 +115,65 @@ void main() {
         );
         await fixture.metadata.save(ComponentKind.frontend, frontendMetadata);
         await fixture.metadata.save(ComponentKind.backend, backendMetadata);
+        await _write(
+          fixture.directories.components,
+          'frontend/2.32.0/index.html',
+          'frontend',
+        );
+        await _write(
+          fixture.directories.components,
+          'frontend/2.31.3/index.html',
+          'previous frontend',
+        );
+        await _write(
+          fixture.directories.components,
+          'backend/2.39.0/sub-store.bundle.js',
+          'backend',
+        );
+        await _write(
+          fixture.directories.components,
+          'backend/2.38.4/sub-store.bundle.js',
+          'previous backend',
+        );
+        await _write(fixture.directories.data, 'settings.json', 'current');
+        await fixture.backups.create(fixture.directories.data);
+        await _write(fixture.directories.data, 'settings.json', 'current');
         final update = ComponentUpdate(
           kind: ComponentKind.frontend,
           currentVersion: '2.31.3',
-          availableVersion: '2.32.0',
+          availableVersion: '2.33.0',
           release: GithubRelease(
-            version: '2.32.0',
+            version: '2.33.0',
             releaseUri: Uri.parse('https://example.invalid/release'),
-            assets: [],
+            assets: [
+              GithubReleaseAsset(
+                name: 'dist.zip',
+                downloadUri: Uri(),
+                sha256: '0' * 64,
+              ),
+            ],
           ),
         );
         final backendUpdate = ComponentUpdate(
           kind: ComponentKind.backend,
           currentVersion: '2.38.4',
-          availableVersion: '2.39.0',
-          release: update.release,
+          availableVersion: '2.40.0',
+          release: GithubRelease(
+            version: '2.40.0',
+            releaseUri: Uri.parse('https://example.invalid/release'),
+            assets: [
+              GithubReleaseAsset(
+                name: 'sub-store.bundle.js',
+                downloadUri: Uri(),
+                sha256: '0' * 64,
+              ),
+              GithubReleaseAsset(
+                name: 'runtime-manifest.json',
+                downloadUri: Uri(),
+                sha256: '1' * 64,
+              ),
+            ],
+          ),
         );
 
         for (final action in <Future<void> Function()>[
@@ -384,9 +429,24 @@ Future<_Fixture> _fixture({
 }
 
 class _FakeDownloads implements GithubReleaseDownloader {
+  var calls = 0;
+
   @override
-  Future<void> downloadVerified(GithubReleaseAsset asset, File target) =>
-      throw UnimplementedError();
+  Future<void> downloadVerified(GithubReleaseAsset asset, File target) async {
+    calls++;
+    await target.parent.create(recursive: true);
+    if (asset.name == 'dist.zip') {
+      final archive = Archive()
+        ..add(ArchiveFile.string('index.html', 'updated frontend'));
+      await target.writeAsBytes(ZipEncoder().encode(archive));
+    } else {
+      await target.writeAsString(
+        asset.name == 'runtime-manifest.json'
+            ? '{"testedNode":"24.15.0","externalBinary":[]}'
+            : 'updated backend',
+      );
+    }
+  }
 
   @override
   Future<GithubRelease> latest(String repository) => throw UnimplementedError();
