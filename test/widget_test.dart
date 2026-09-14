@@ -1359,6 +1359,109 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
+  testWidgets('desktop navigation exposes semantic tap actions and selection', (
+    tester,
+  ) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    final semantics = tester.ensureSemantics();
+    final coordinator = AppCoordinator(
+      runtime: _FakeBackendRuntime(),
+      environmentStore: BackendEnvStore(directories!),
+    );
+    await tester.pumpWidget(
+      SubDockApp(
+        coordinator: coordinator,
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('en'),
+      ),
+    );
+    final overview = tester.getSemantics(
+      find.byKey(const ValueKey('nav-item-overview')),
+    );
+    expect(
+      overview,
+      matchesSemantics(
+        label: 'Overview',
+        isButton: true,
+        isSelected: true,
+        hasSelectedState: true,
+        hasTapAction: true,
+      ),
+    );
+    expect(
+      tester.getSemantics(find.byKey(const ValueKey('nav-item-manage'))),
+      matchesSemantics(
+        label: 'Manage',
+        isButton: true,
+        isSelected: false,
+        hasSelectedState: true,
+        hasTapAction: true,
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-manage')));
+    await tester.pumpAndSettle();
+    expect(
+      tester.getSemantics(find.byKey(const ValueKey('nav-item-overview'))),
+      matchesSemantics(
+        label: 'Overview',
+        isButton: true,
+        isSelected: false,
+        hasSelectedState: true,
+        hasTapAction: true,
+      ),
+    );
+    expect(
+      tester.getSemantics(find.byKey(const ValueKey('nav-item-manage'))),
+      matchesSemantics(
+        label: 'Manage',
+        isButton: true,
+        isSelected: true,
+        hasSelectedState: true,
+        hasTapAction: true,
+      ),
+    );
+    semantics.dispose();
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('desktop navigation localizes semantic labels', (tester) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    final semantics = tester.ensureSemantics();
+    await tester.pumpWidget(
+      SubDockApp(
+        coordinator: AppCoordinator(
+          runtime: _FakeBackendRuntime(),
+          environmentStore: BackendEnvStore(directories!),
+        ),
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('zh'),
+      ),
+    );
+    expect(
+      tester.getSemantics(find.byKey(const ValueKey('nav-item-settings'))),
+      matchesSemantics(
+        label: '设置',
+        isButton: true,
+        hasSelectedState: true,
+        hasTapAction: true,
+      ),
+    );
+    semantics.dispose();
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('settings about page localizes Chinese labels', (tester) async {
     late Directory temp;
     addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));

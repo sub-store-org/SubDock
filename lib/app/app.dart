@@ -614,8 +614,10 @@ class _DesktopSidebar extends StatelessWidget {
                 button: true,
                 selected: selected,
                 label: destination.label,
+                onTap: () => onDestinationSelected(index),
                 excludeSemantics: true,
                 child: InkWell(
+                  excludeFromSemantics: true,
                   borderRadius: BorderRadius.circular(typography.radiusLg),
                   onTap: () => onDestinationSelected(index),
                   child: Padding(
