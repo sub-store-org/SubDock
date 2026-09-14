@@ -481,7 +481,11 @@ void main() {
     final displayed = tester
         .widget<SelectableText>(find.byType(SelectableText).first)
         .data;
-    await tester.tap(find.byTooltip('复制日志').first);
+    final copy = find.byTooltip('复制日志').first;
+    await tester.ensureVisible(copy);
+    await tester.pump();
+    expect(tester.getSize(copy), const Size(48, 48));
+    await tester.tap(copy);
     await tester.pump();
     expect(copied, displayed);
 
@@ -667,7 +671,9 @@ void main() {
       const Offset(0, -500),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Frontend Update'));
+    await tester.tap(
+      find.byKey(const ValueKey('settings-card-frontend-update')),
+    );
     await _pumpRealIo(tester);
     expect(updates.checkCalls[ComponentKind.frontend], 1);
     expect(updates.checkCalls[ComponentKind.backend], isNull);
@@ -716,7 +722,13 @@ void main() {
       const Offset(0, -500),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Backend Update'));
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('settings-card-backend-update')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('settings-card-backend-update')),
+    );
     await _pumpRealIo(tester);
     expect(updates.checkCalls[ComponentKind.backend], 1);
     expect(updates.checkCalls[ComponentKind.frontend], isNull);
@@ -804,7 +816,13 @@ void main() {
       const Offset(0, -500),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Backend Update'));
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('settings-card-backend-update')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('settings-card-backend-update')),
+    );
     await _pumpRealIo(tester);
     expect(updates.checkCalls[ComponentKind.backend], 2);
     expect(updates.checkCalls[ComponentKind.frontend], isNull);
@@ -846,7 +864,9 @@ void main() {
       const Offset(0, -500),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Frontend Update'));
+    await tester.tap(
+      find.byKey(const ValueKey('settings-card-frontend-update')),
+    );
     await _pumpRealIo(tester);
     expect(updates.checkCalls[ComponentKind.frontend], 1);
     expect(updates.checkCalls[ComponentKind.backend], isNull);
@@ -922,7 +942,13 @@ void main() {
       const Offset(0, -500),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Frontend Update'));
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('settings-card-frontend-update')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('settings-card-frontend-update')),
+    );
     await _pumpRealIo(tester);
     expect(
       find.byKey(const ValueKey('component-release-notes-frontend')),
@@ -1029,8 +1055,19 @@ void main() {
       const Offset(0, -500),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Backend Update'));
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('settings-card-backend-update')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('settings-card-backend-update')),
+    );
     await _pumpRealIo(tester);
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('component-rollback-action-backend')),
+      -200,
+      scrollable: find.byType(Scrollable).first,
+    );
     await tester.tap(
       find.byKey(const ValueKey('component-rollback-action-backend')),
     );
@@ -1098,7 +1135,9 @@ void main() {
       const Offset(0, -500),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Frontend Update'));
+    await tester.tap(
+      find.byKey(const ValueKey('settings-card-frontend-update')),
+    );
     await _pumpRealIo(tester);
     await tester.tap(
       find.byKey(const ValueKey('component-update-action-frontend')),
@@ -1163,7 +1202,9 @@ void main() {
       const Offset(0, -500),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Frontend Update'));
+    await tester.tap(
+      find.byKey(const ValueKey('settings-card-frontend-update')),
+    );
     await _pumpRealIo(tester);
     await tester.tap(
       find.byKey(const ValueKey('component-update-action-frontend')),
@@ -1223,7 +1264,9 @@ void main() {
       const Offset(0, -500),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Backend Update'));
+    await tester.tap(
+      find.byKey(const ValueKey('settings-card-backend-update')),
+    );
     await _pumpRealIo(tester);
     await tester.tap(
       find.byKey(const ValueKey('component-rollback-action-backend')),
@@ -1912,6 +1955,38 @@ void main() {
     expect(find.byKey(const ValueKey('settings-subdock-config')), findsNothing);
     expect(find.byKey(const ValueKey('settings-backend-config')), findsNothing);
     expect(find.byKey(const ValueKey('settings-raw-env')), findsNothing);
+    expect(tester.takeException(), isNull);
+
+    await tester.binding.setSurfaceSize(const Size(800, 600));
+    await tester.pumpAndSettle();
+    final close = tester.getRect(
+      find.byKey(const ValueKey('settings-close-behavior')),
+    );
+    final preset = tester.getRect(
+      find.byKey(const ValueKey('settings-recent-log-presets')),
+    );
+    final limit = tester.getRect(
+      find.byKey(const ValueKey('settings-recent-log-limit')),
+    );
+    expect(preset.top, greaterThan(close.bottom));
+    expect(limit.top, greaterThan(preset.bottom));
+    expect((close.left - preset.left).abs(), lessThan(1));
+    expect((close.left - limit.left).abs(), lessThan(1));
+
+    await tester.binding.setSurfaceSize(const Size(1000, 700));
+    await tester.pumpAndSettle();
+    final wideClose = tester.getRect(
+      find.byKey(const ValueKey('settings-close-behavior')),
+    );
+    final widePreset = tester.getRect(
+      find.byKey(const ValueKey('settings-recent-log-presets')),
+    );
+    final wideLimit = tester.getRect(
+      find.byKey(const ValueKey('settings-recent-log-limit')),
+    );
+    expect((wideClose.center.dy - widePreset.center.dy).abs(), lessThan(4));
+    expect((wideClose.center.dy - wideLimit.center.dy).abs(), lessThan(4));
+    expect(find.byKey(const ValueKey('settings-save-all')), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
   });

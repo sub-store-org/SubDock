@@ -1794,32 +1794,46 @@ class _LogsPageState extends State<_LogsPage> {
         key: const ValueKey('logs-surface'),
         padding: EdgeInsets.zero,
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            SegmentedButton<_LogsMode>(
-              segments: [
-                ButtonSegment(
-                  value: _LogsMode.current,
-                  label: Text(l10n.current),
+            Padding(
+              padding: EdgeInsets.fromLTRB(
+                typography.spacingSm,
+                typography.spacingSm,
+                typography.spacingSm,
+                0,
+              ),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: SegmentedButton<_LogsMode>(
+                  segments: [
+                    ButtonSegment(
+                      value: _LogsMode.current,
+                      label: Text(l10n.current),
+                    ),
+                    ButtonSegment(
+                      value: _LogsMode.history,
+                      label: Text(l10n.history),
+                    ),
+                  ],
+                  selected: {_mode},
+                  onSelectionChanged: (value) {
+                    final next = value.first;
+                    if (next == _mode) return;
+                    setState(() {
+                      _mode = next;
+                      _historyGeneration++;
+                      _selectedRun = null;
+                      _historyLogs = const [];
+                      _historyDetailLoading = false;
+                      _historyDetailError = null;
+                    });
+                    if (next == _LogsMode.history) {
+                      unawaited(_loadHistoryRuns());
+                    }
+                  },
                 ),
-                ButtonSegment(
-                  value: _LogsMode.history,
-                  label: Text(l10n.history),
-                ),
-              ],
-              selected: {_mode},
-              onSelectionChanged: (value) {
-                final next = value.first;
-                if (next == _mode) return;
-                setState(() {
-                  _mode = next;
-                  _historyGeneration++;
-                  _selectedRun = null;
-                  _historyLogs = const [];
-                  _historyDetailLoading = false;
-                  _historyDetailError = null;
-                });
-                if (next == _LogsMode.history) unawaited(_loadHistoryRuns());
-              },
+              ),
             ),
             if (_mode == _LogsMode.history && _selectedRun == null)
               Expanded(child: _buildHistoryList(l10n))
@@ -1842,6 +1856,7 @@ class _LogsPageState extends State<_LogsPage> {
               Padding(
                 padding: EdgeInsets.all(typography.spacingSm),
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     TextField(
                       controller: _query,
@@ -1856,23 +1871,29 @@ class _LogsPageState extends State<_LogsPage> {
                         prefixIcon: const Icon(Icons.search),
                       ),
                     ),
-                    Wrap(
-                      spacing: 4,
-                      children: [
-                        for (final source in ['Backend', 'HTTP-META'])
-                          FilterChip(
-                            label: Text(source),
-                            selected: _sources.contains(source),
-                            onSelected: (_) => _toggleSource(source),
-                          ),
-                        for (final level in _LogLevel.values)
-                          FilterChip(
-                            label: Text(_levelLabel(l10n, level)),
-                            selected: _levels.contains(level),
-                            onSelected: (_) => _toggleLevel(level),
-                          ),
-                      ],
+                    SizedBox(height: typography.spacingS),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Wrap(
+                        spacing: typography.spacingS,
+                        runSpacing: typography.spacingS,
+                        children: [
+                          for (final source in ['Backend', 'HTTP-META'])
+                            FilterChip(
+                              label: Text(source),
+                              selected: _sources.contains(source),
+                              onSelected: (_) => _toggleSource(source),
+                            ),
+                          for (final level in _LogLevel.values)
+                            FilterChip(
+                              label: Text(_levelLabel(l10n, level)),
+                              selected: _levels.contains(level),
+                              onSelected: (_) => _toggleLevel(level),
+                            ),
+                        ],
+                      ),
                     ),
+                    SizedBox(height: typography.spacingS),
                     Row(
                       children: [
                         SegmentedButton<LogSort>(
@@ -1930,7 +1951,10 @@ class _LogsPageState extends State<_LogsPage> {
                         itemBuilder: (context, index) {
                           final item = visible[index];
                           return Padding(
-                            padding: EdgeInsets.all(typography.spacingSm),
+                            padding: EdgeInsets.symmetric(
+                              horizontal: typography.spacingSm,
+                              vertical: typography.spacingS,
+                            ),
                             child: Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
@@ -1945,6 +1969,11 @@ class _LogsPageState extends State<_LogsPage> {
                                 IconButton(
                                   tooltip: l10n.copyLog,
                                   icon: const Icon(Icons.copy, size: 18),
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints.tightFor(
+                                    width: 48,
+                                    height: 48,
+                                  ),
                                   onPressed: () =>
                                       unawaited(_copy(l10n, [item])),
                                 ),
@@ -2632,6 +2661,7 @@ class _SettingsPageState extends State<_SettingsPage> {
                           runSpacing: typography.spacingSm,
                           children: [
                             SegmentedButton<ThemeMode>(
+                              key: const ValueKey('settings-theme-mode'),
                               segments: [
                                 ButtonSegment(
                                   value: ThemeMode.system,
@@ -2663,6 +2693,7 @@ class _SettingsPageState extends State<_SettingsPage> {
                             SizedBox(
                               width: 220,
                               child: DropdownButton<String>(
+                                key: const ValueKey('settings-language'),
                                 isExpanded: true,
                                 value: _generalLocale ?? 'system',
                                 items: [
@@ -2697,71 +2728,117 @@ class _SettingsPageState extends State<_SettingsPage> {
                           ],
                         ),
                         SizedBox(height: typography.spacingMd),
-                        DropdownButton<CloseBehavior>(
-                          key: const ValueKey('settings-close-behavior'),
-                          value: _generalCloseBehavior,
-                          items: [
-                            DropdownMenuItem(
-                              value: CloseBehavior.exitApp,
-                              child: Text(l10n.exitApp),
-                            ),
-                            DropdownMenuItem(
-                              value: CloseBehavior.closeToTray,
-                              child: Text(l10n.closeToTray),
-                            ),
-                          ],
-                          onChanged: (value) {
-                            if (value != null) {
-                              setState(() {
-                                _generalCloseBehavior = value;
-                                _generalRevision++;
-                              });
-                            }
+                        LayoutBuilder(
+                          builder: (context, constraints) {
+                            const fieldWidthWide = 220.0;
+                            const presetWidthWide = 180.0;
+                            const limitWidthWide = 260.0;
+                            final threeColumnWidth =
+                                fieldWidthWide +
+                                presetWidthWide +
+                                limitWidthWide +
+                                typography.spacingMd * 2;
+                            final stacked =
+                                constraints.maxWidth < threeColumnWidth;
+                            final fieldWidth = stacked
+                                ? constraints.maxWidth
+                                : fieldWidthWide;
+                            final presetWidth = stacked
+                                ? constraints.maxWidth
+                                : presetWidthWide;
+                            final limitWidth = stacked
+                                ? constraints.maxWidth
+                                : limitWidthWide;
+                            return Wrap(
+                              spacing: typography.spacingMd,
+                              runSpacing: typography.spacingMd,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              children: [
+                                SizedBox(
+                                  width: fieldWidth,
+                                  child: DropdownButton<CloseBehavior>(
+                                    key: const ValueKey(
+                                      'settings-close-behavior',
+                                    ),
+                                    isExpanded: true,
+                                    value: _generalCloseBehavior,
+                                    items: [
+                                      DropdownMenuItem(
+                                        value: CloseBehavior.exitApp,
+                                        child: Text(l10n.exitApp),
+                                      ),
+                                      DropdownMenuItem(
+                                        value: CloseBehavior.closeToTray,
+                                        child: Text(l10n.closeToTray),
+                                      ),
+                                    ],
+                                    onChanged: (value) {
+                                      if (value != null) {
+                                        setState(() {
+                                          _generalCloseBehavior = value;
+                                          _generalRevision++;
+                                        });
+                                      }
+                                    },
+                                  ),
+                                ),
+                                SizedBox(
+                                  width: presetWidth,
+                                  child: DropdownButton<int>(
+                                    key: const ValueKey(
+                                      'settings-recent-log-presets',
+                                    ),
+                                    isExpanded: true,
+                                    value:
+                                        const [
+                                          100,
+                                          200,
+                                          500,
+                                          1000,
+                                          2000,
+                                        ].contains(_parsedRecentLogLimit)
+                                        ? _parsedRecentLogLimit
+                                        : null,
+                                    hint: Text(l10n.recentLogPresets),
+                                    items: [
+                                      for (final value in const [
+                                        100,
+                                        200,
+                                        500,
+                                        1000,
+                                        2000,
+                                      ])
+                                        DropdownMenuItem(
+                                          value: value,
+                                          child: Text('$value'),
+                                        ),
+                                    ],
+                                    onChanged: (value) {
+                                      if (value != null) {
+                                        _recentLogLimit.text = '$value';
+                                        setState(() => _generalRevision++);
+                                      }
+                                    },
+                                  ),
+                                ),
+                                SizedBox(
+                                  width: limitWidth,
+                                  child: TextField(
+                                    key: const ValueKey(
+                                      'settings-recent-log-limit',
+                                    ),
+                                    controller: _recentLogLimit,
+                                    keyboardType: TextInputType.number,
+                                    decoration: InputDecoration(
+                                      labelText: l10n.recentLogs,
+                                    ),
+                                    onChanged: (_) =>
+                                        setState(() => _generalRevision++),
+                                  ),
+                                ),
+                              ],
+                            );
                           },
-                        ),
-                        SizedBox(height: typography.spacingMd),
-                        DropdownButton<int>(
-                          key: const ValueKey('settings-recent-log-presets'),
-                          value:
-                              const [
-                                100,
-                                200,
-                                500,
-                                1000,
-                                2000,
-                              ].contains(_parsedRecentLogLimit)
-                              ? _parsedRecentLogLimit
-                              : null,
-                          hint: Text(l10n.recentLogPresets),
-                          items: [
-                            for (final value in const [
-                              100,
-                              200,
-                              500,
-                              1000,
-                              2000,
-                            ])
-                              DropdownMenuItem(
-                                value: value,
-                                child: Text('$value'),
-                              ),
-                          ],
-                          onChanged: (value) {
-                            if (value != null) {
-                              _recentLogLimit.text = '$value';
-                              setState(() => _generalRevision++);
-                            }
-                          },
-                        ),
-                        SizedBox(height: typography.spacingMd),
-                        TextField(
-                          key: const ValueKey('settings-recent-log-limit'),
-                          controller: _recentLogLimit,
-                          keyboardType: TextInputType.number,
-                          decoration: InputDecoration(
-                            labelText: l10n.recentLogs,
-                          ),
-                          onChanged: (_) => setState(() => _generalRevision++),
                         ),
                       ],
                     ),
@@ -2812,6 +2889,9 @@ class _SettingsPageState extends State<_SettingsPage> {
                           SizedBox(
                             width: width,
                             child: _SettingsSectionTile(
+                              key: const ValueKey(
+                                'settings-card-frontend-update',
+                              ),
                               icon: Icons.web_asset_outlined,
                               title: l10n.frontendUpdate,
                               subtitle: l10n.frontendUpdateSubtitle,
@@ -2823,6 +2903,9 @@ class _SettingsPageState extends State<_SettingsPage> {
                           SizedBox(
                             width: width,
                             child: _SettingsSectionTile(
+                              key: const ValueKey(
+                                'settings-card-backend-update',
+                              ),
                               icon: Icons.system_update_alt,
                               title: l10n.backendUpdate,
                               subtitle: l10n.backendUpdateSubtitle,
