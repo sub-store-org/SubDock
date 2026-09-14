@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:subdock/runtime/backend_runtime.dart';
 import 'package:subdock/runtime/runtime_directories.dart';
 import 'package:subdock/update/component_metadata_store.dart';
+import 'package:subdock/update/component_recovery.dart';
 import 'package:subdock/update/component_resource_resolver.dart';
 import 'package:subdock/update/component_update_checker.dart';
 import 'package:subdock/update/component_update_service.dart';
@@ -240,10 +241,110 @@ void main() {
       );
     },
   );
+
+  test('recovers Backend rollback after metadata save failures', () async {
+    final fixture = await _fixture(failOn: {2});
+    addTearDown(fixture.dispose);
+    await _write(fixture.directories.data, 'settings.json', 'old');
+    final targetBackup = await fixture.backups.create(fixture.directories.data);
+    await _write(fixture.directories.data, 'settings.json', 'current');
+    const prior = ComponentMetadata(
+      baseline: '2.38.4',
+      active: '2.39.0',
+      previous: '2.38.4',
+    );
+    await fixture.metadata.save(ComponentKind.backend, prior);
+    final store = fixture.metadata as _FailOnSaveMetadataStore;
+    store.reset();
+
+    await expectLater(
+      fixture.service.rollback(ComponentKind.backend),
+      throwsStateError,
+    );
+    expect(
+      await fixture.metadata.load(ComponentKind.backend, baseline: 'ignored'),
+      prior,
+    );
+    expect(await fixture.backups.list(), contains(targetBackup));
+    expect(fixture.runtime.stops, 0);
+    expect(fixture.runtime.restarts, 0);
+
+    store.failOn = {2, 3};
+    store.reset();
+    await expectLater(
+      fixture.service.rollback(ComponentKind.backend),
+      throwsStateError,
+    );
+    final pending = await ComponentMetadataStore(fixture.directories.components)
+        .load(ComponentKind.backend, baseline: 'ignored');
+    expect(pending.pending?.operation, ComponentPendingOperation.rollback);
+    expect(await fixture.backups.list(), contains(targetBackup));
+    expect(
+      await File('${fixture.directories.data.path}/settings.json')
+          .readAsString(),
+      'current',
+    );
+
+    await ComponentRecovery(
+      bundleDirectory: Directory.fromUri(fixture.root.uri.resolve('bundle/')),
+      dataDirectory: fixture.directories.data,
+      metadataStore: ComponentMetadataStore(fixture.directories.components),
+      dataBackups: fixture.backups,
+    ).recoverPending();
+    final recovered = await ComponentMetadataStore(
+      fixture.directories.components,
+    ).load(ComponentKind.backend, baseline: 'ignored');
+    expect(recovered.pending, isNull);
+    expect(recovered, prior);
+    expect(await fixture.backups.list(), contains(targetBackup));
+  });
+
+  test('recovers Frontend rollback after metadata save failures', () async {
+    final fixture = await _fixture(failOn: {2});
+    addTearDown(fixture.dispose);
+    const prior = ComponentMetadata(
+      baseline: '2.31.3',
+      active: '2.32.0',
+      previous: '2.31.3',
+    );
+    await fixture.metadata.save(ComponentKind.frontend, prior);
+    final store = fixture.metadata as _FailOnSaveMetadataStore;
+    store.reset();
+
+    await expectLater(
+      fixture.service.rollback(ComponentKind.frontend),
+      throwsStateError,
+    );
+    expect(
+      await fixture.metadata.load(ComponentKind.frontend, baseline: 'ignored'),
+      prior,
+    );
+    store.failOn = {2, 3};
+    store.reset();
+    await expectLater(
+      fixture.service.rollback(ComponentKind.frontend),
+      throwsStateError,
+    );
+    final pending = await ComponentMetadataStore(fixture.directories.components)
+        .load(ComponentKind.frontend, baseline: 'ignored');
+    expect(pending.pending?.operation, ComponentPendingOperation.rollback);
+    await ComponentRecovery(
+      bundleDirectory: Directory.fromUri(fixture.root.uri.resolve('bundle/')),
+      dataDirectory: fixture.directories.data,
+      metadataStore: ComponentMetadataStore(fixture.directories.components),
+      dataBackups: fixture.backups,
+    ).recoverPending();
+    expect(
+      await ComponentMetadataStore(fixture.directories.components)
+          .load(ComponentKind.frontend, baseline: 'ignored'),
+      prior,
+    );
+  });
 }
 
 Future<_Fixture> _fixture({
   RuntimeStatus status = RuntimeStatus.stopped,
+  Set<int>? failOn,
 }) async {
   final root = await Directory.systemTemp.createTemp('subdock_update_service_');
   final bundle = Directory.fromUri(root.uri.resolve('bundle/'));
@@ -259,7 +360,9 @@ Future<_Fixture> _fixture({
   final directories = await RuntimeDirectories.fromBaseDirectory(
     Directory.fromUri(root.uri.resolve('application-support/')),
   );
-  final metadata = ComponentMetadataStore(directories.components);
+  final metadata = failOn == null
+      ? ComponentMetadataStore(directories.components)
+      : _FailOnSaveMetadataStore(directories.components, failOn: failOn);
   final backups = DataBackupStore(
     backupsDirectory: directories.backups,
     stagingDirectory: directories.staging,
@@ -339,6 +442,24 @@ class _Fixture {
   final ComponentUpdateService service;
 
   Future<void> dispose() => root.delete(recursive: true);
+}
+
+class _FailOnSaveMetadataStore extends ComponentMetadataStore {
+  _FailOnSaveMetadataStore(super.directory, {required Set<int> failOn})
+    : failOn = {...failOn};
+
+  Set<int> failOn;
+  var _saveCount = 0;
+
+  void reset() => _saveCount = 0;
+
+  @override
+  Future<void> save(ComponentKind kind, ComponentMetadata metadata) {
+    if (failOn.contains(++_saveCount)) {
+      throw StateError('injected metadata save failure');
+    }
+    return super.save(kind, metadata);
+  }
 }
 
 Future<void> _write(Directory root, String path, String value) async {
