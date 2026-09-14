@@ -188,6 +188,18 @@ abstract class AppLocalizations {
   /// **'更新或回滚组件前，请先停止 Backend。'**
   String get backendMustBeStopped;
 
+  /// No description provided for @confirmComponentRollback.
+  ///
+  /// In zh, this message translates to:
+  /// **'确认从 {current} 回滚到 {previous}？'**
+  String confirmComponentRollback(Object current, Object previous);
+
+  /// No description provided for @backendRestartRequired.
+  ///
+  /// In zh, this message translates to:
+  /// **'需要重启 Backend'**
+  String get backendRestartRequired;
+
   /// No description provided for @backendTransitioning.
   ///
   /// In zh, this message translates to:

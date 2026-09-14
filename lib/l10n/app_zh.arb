@@ -15,6 +15,14 @@
   "availableVersion": "可用版本",
   "componentStatusUnavailable": "无法读取已安装版本",
   "backendMustBeStopped": "更新或回滚组件前，请先停止 Backend。",
+  "confirmComponentRollback": "确认从 {current} 回滚到 {previous}？",
+  "@confirmComponentRollback": {
+    "placeholders": {
+      "current": {},
+      "previous": {}
+    }
+  },
+  "backendRestartRequired": "需要重启 Backend",
   "backendTransitioning": "正在等待 Backend 进入稳定状态。",
   "backendStoppedForUpdates": "Backend 已停止，可以更改组件。",
   "stopBackend": "停止 Backend",

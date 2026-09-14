@@ -58,6 +58,14 @@ class AppLocalizationsEn extends AppLocalizations {
       'Stop Backend before updating or rolling back components.';
 
   @override
+  String confirmComponentRollback(Object current, Object previous) {
+    return 'Roll back from $current to $previous?';
+  }
+
+  @override
+  String get backendRestartRequired => 'Backend restart required';
+
+  @override
   String get backendTransitioning =>
       'Waiting for Backend to reach a stable state.';
 

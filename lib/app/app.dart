@@ -3065,7 +3065,11 @@ class _ComponentUpdatePageState extends State<_ComponentUpdatePage> {
   ComponentUpdate? _update;
   Object? _statusError;
   Object? _checkError;
+  Object? _mutationError;
   var _checking = false;
+  var _mutating = false;
+  var _restarting = false;
+  var _restartRequired = false;
   late RuntimeState _runtimeState;
   StreamSubscription<RuntimeState>? _runtimeSubscription;
 
@@ -3128,6 +3132,103 @@ class _ComponentUpdatePageState extends State<_ComponentUpdatePage> {
     }
   }
 
+  Future<void> _applyUpdate() async {
+    final update = _update;
+    if (update == null ||
+        !update.isAvailable ||
+        !_stopped ||
+        _mutating ||
+        _restarting) {
+      return;
+    }
+    setState(() {
+      _mutating = true;
+      _mutationError = null;
+    });
+    try {
+      await widget.coordinator.updateComponent(update);
+      await _loadStatus();
+      if (mounted) {
+        setState(() {
+          _update = null;
+          _restartRequired = true;
+        });
+      }
+    } catch (error) {
+      if (mounted) setState(() => _mutationError = error);
+    } finally {
+      if (mounted) setState(() => _mutating = false);
+    }
+  }
+
+  Future<void> _rollback() async {
+    final status = _status;
+    final previous = status?.previous;
+    if (status == null ||
+        previous == null ||
+        !_stopped ||
+        _mutating ||
+        _restarting) {
+      return;
+    }
+    final confirmed =
+        await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            content: Text(
+              AppLocalizations.of(context)!
+                  .confirmComponentRollback(status.current, previous),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: Text(AppLocalizations.of(context)!.cancel),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: Text(AppLocalizations.of(context)!.rollback),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed || !mounted) return;
+    setState(() {
+      _mutating = true;
+      _mutationError = null;
+    });
+    try {
+      await widget.coordinator.rollbackComponent(widget.kind);
+      await _loadStatus();
+      if (mounted) {
+        setState(() {
+          _update = null;
+          _restartRequired = true;
+        });
+      }
+    } catch (error) {
+      if (mounted) setState(() => _mutationError = error);
+    } finally {
+      if (mounted) setState(() => _mutating = false);
+    }
+  }
+
+  Future<void> _restartBackend() async {
+    if (!_restartRequired || _restarting || _mutating) return;
+    setState(() {
+      _restarting = true;
+      _mutationError = null;
+    });
+    try {
+      await widget.coordinator.restart();
+      if (mounted) setState(() => _restartRequired = false);
+    } catch (error) {
+      if (mounted) setState(() => _mutationError = error);
+    } finally {
+      if (mounted) setState(() => _restarting = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -3140,6 +3241,7 @@ class _ComponentUpdatePageState extends State<_ComponentUpdatePage> {
         : _transitioning
         ? l10n.backendTransitioning
         : l10n.backendMustBeStopped;
+    final busy = _checking || _mutating || _restarting;
     return _SurfacePanel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -3168,6 +3270,17 @@ class _ComponentUpdatePageState extends State<_ComponentUpdatePage> {
                       _status?.previous ?? '-',
                     ),
             ),
+          if (_mutationError != null)
+            Text(_localizedError(l10n, _mutationError!)),
+          if (_restartRequired) ...[
+            const SizedBox(height: 8),
+            Text(l10n.backendRestartRequired),
+            FilledButton(
+              key: ValueKey('component-restart-now-$kind'),
+              onPressed: busy ? null : _restartBackend,
+              child: Text(l10n.restartNow),
+            ),
+          ],
           const SizedBox(height: 12),
           Text(gate),
           const SizedBox(height: 12),
@@ -3176,23 +3289,27 @@ class _ComponentUpdatePageState extends State<_ComponentUpdatePage> {
             children: [
               OutlinedButton(
                 key: ValueKey('component-update-recheck-$kind'),
-                onPressed: _checking ? null : _check,
+                onPressed: busy ? null : _check,
                 child: Text(l10n.recheck),
               ),
               if (!_stopped)
                 OutlinedButton(
                   key: ValueKey('component-update-stop-$kind'),
-                  onPressed: _transitioning ? null : _stop,
+                  onPressed: _transitioning || busy ? null : _stop,
                   child: Text(l10n.stopBackend),
                 ),
               FilledButton(
                 key: ValueKey('component-update-action-$kind'),
-                onPressed: null,
+                onPressed: _stopped && !busy && _update?.isAvailable == true
+                    ? _applyUpdate
+                    : null,
                 child: Text(l10n.update),
               ),
               TextButton(
                 key: ValueKey('component-rollback-action-$kind'),
-                onPressed: null,
+                onPressed: _stopped && !busy && _status?.previous != null
+                    ? _rollback
+                    : null,
                 child: Text(l10n.rollback),
               ),
             ],

@@ -15,6 +15,14 @@
   "availableVersion": "Available version",
   "componentStatusUnavailable": "Installed version unavailable",
   "backendMustBeStopped": "Stop Backend before updating or rolling back components.",
+  "confirmComponentRollback": "Roll back from {current} to {previous}?",
+  "@confirmComponentRollback": {
+    "placeholders": {
+      "current": {},
+      "previous": {}
+    }
+  },
+  "backendRestartRequired": "Backend restart required",
   "backendTransitioning": "Waiting for Backend to reach a stable state.",
   "backendStoppedForUpdates": "Backend is stopped. Component changes are available.",
   "stopBackend": "Stop Backend",

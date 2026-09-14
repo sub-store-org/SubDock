@@ -55,6 +55,14 @@ class AppLocalizationsZh extends AppLocalizations {
   String get backendMustBeStopped => '更新或回滚组件前，请先停止 Backend。';
 
   @override
+  String confirmComponentRollback(Object current, Object previous) {
+    return '确认从 $current 回滚到 $previous？';
+  }
+
+  @override
+  String get backendRestartRequired => '需要重启 Backend';
+
+  @override
   String get backendTransitioning => '正在等待 Backend 进入稳定状态。';
 
   @override
