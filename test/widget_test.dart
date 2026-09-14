@@ -623,6 +623,86 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
+  testWidgets('Logs history delete and undo expose semantics', (tester) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    final store = RuntimeLogStore(directories!);
+    late String runId;
+    await tester.runAsync(() async {
+      await store.initialize();
+      runId = await store.beginRun();
+      await store.append(
+        RuntimeLog(
+          timestamp: DateTime.now(),
+          source: RuntimeLogSource.stdout,
+          message: 'semantic history entry',
+        ),
+      );
+      await store.finalize();
+    });
+    final coordinator = AppCoordinator(
+      runtime: _FakeBackendRuntime(),
+      environmentStore: BackendEnvStore(directories),
+      logStore: store,
+    );
+    await tester.pumpWidget(
+      SubDockApp(
+        coordinator: coordinator,
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('zh'),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-logs')));
+    await tester.pump();
+    await tester.tap(find.text('历史'));
+    await _pumpRealIo(tester);
+
+    final runTile = find.byKey(ValueKey('history-run-$runId'));
+    expect(runTile, findsOneWidget);
+    final semantics = tester.ensureSemantics();
+    expect(
+      tester.getSemantics(runTile),
+      matchesSemantics(
+        hasTapAction: true,
+        hasFocusAction: true,
+        isButton: true,
+        hasEnabledState: true,
+        isEnabled: true,
+        isFocusable: true,
+        hasSelectedState: true,
+      ),
+    );
+    final delete = find.byTooltip('删除运行记录');
+    expect(delete, findsOneWidget);
+    expect(
+      tester.getSemantics(delete),
+      matchesSemantics(
+        tooltip: '删除运行记录',
+        hasTapAction: true,
+        hasFocusAction: true,
+        isButton: true,
+        hasEnabledState: true,
+        isEnabled: true,
+        isFocusable: true,
+      ),
+    );
+    semantics.dispose();
+
+    await tester.tap(delete);
+    await _pumpRealIo(tester);
+    expect(find.byKey(const ValueKey('recently-deleted')), findsOneWidget);
+    expect(find.text('撤销'), findsWidgets);
+    await tester.tap(find.text('撤销').last);
+    await _pumpRealIo(tester);
+    expect(find.byKey(ValueKey('history-run-$runId')), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('overview uses local component status without remote checks', (
     WidgetTester tester,
   ) async {
