@@ -131,6 +131,33 @@ void main() {
     },
   );
 
+  test(
+    'recovers an interrupted Frontend rollback to the packaged baseline',
+    () async {
+      await metadata.save(
+        ComponentKind.frontend,
+        const ComponentMetadata(
+          baseline: '2.31.3',
+          previous: '2.32.0',
+          pending: ComponentPending(
+            version: '2.31.3',
+            operation: ComponentPendingOperation.rollback,
+          ),
+        ),
+      );
+
+      expect(await recovery.recoverPending(), isTrue);
+      expect(
+        await metadata.load(ComponentKind.frontend, baseline: 'ignored'),
+        const ComponentMetadata(
+          baseline: '2.31.3',
+          active: '2.32.0',
+          previous: '2.31.3',
+        ),
+      );
+    },
+  );
+
   test('conservatively recovers legacy Backend pending metadata', () async {
     await _write(data, 'settings.json', 'before');
     final backup = await backups.create(data);

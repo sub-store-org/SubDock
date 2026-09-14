@@ -6,6 +6,7 @@ import 'package:subdock/runtime/backend_runtime.dart';
 import 'package:subdock/runtime/runtime_directories.dart';
 import 'package:subdock/update/component_metadata_store.dart';
 import 'package:subdock/update/component_resource_resolver.dart';
+import 'package:subdock/update/component_update_checker.dart';
 import 'package:subdock/update/component_update_service.dart';
 import 'package:subdock/update/data_backup_store.dart';
 import 'package:subdock/update/github_release_client.dart';
@@ -100,24 +101,52 @@ void main() {
       ]) {
         final fixture = await _fixture(status: status);
         addTearDown(fixture.dispose);
-        const metadata = ComponentMetadata(
+        const frontendMetadata = ComponentMetadata(
           baseline: '2.31.3',
           active: '2.32.0',
           previous: '2.31.3',
         );
-        await fixture.metadata.save(ComponentKind.frontend, metadata);
-
-        await expectLater(
-          fixture.service.rollback(ComponentKind.frontend),
-          throwsStateError,
+        const backendMetadata = ComponentMetadata(
+          baseline: '2.38.4',
+          active: '2.39.0',
+          previous: '2.38.4',
         );
+        await fixture.metadata.save(ComponentKind.frontend, frontendMetadata);
+        await fixture.metadata.save(ComponentKind.backend, backendMetadata);
+        final update = ComponentUpdate(
+          kind: ComponentKind.frontend,
+          currentVersion: '2.31.3',
+          availableVersion: '2.32.0',
+          release: GithubRelease(
+            version: '2.32.0',
+            releaseUri: Uri.parse('https://example.invalid/release'),
+            assets: [],
+          ),
+        );
+
+        for (final action in <Future<void> Function()>[
+          () => fixture.service.update(update),
+          () => fixture.service.rollback(ComponentKind.frontend),
+          () => fixture.service.rollback(ComponentKind.backend),
+        ]) {
+          await expectLater(action(), throwsStateError);
+        }
         expect(
           await fixture.metadata.load(
             ComponentKind.frontend,
             baseline: 'ignored',
           ),
-          metadata,
+          frontendMetadata,
         );
+        expect(
+          await fixture.metadata.load(
+            ComponentKind.backend,
+            baseline: 'ignored',
+          ),
+          backendMetadata,
+        );
+        expect(fixture.runtime.stops, 0);
+        expect(fixture.runtime.restarts, 0);
       }
     },
   );

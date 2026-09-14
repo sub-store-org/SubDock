@@ -128,6 +128,53 @@ void main() {
     );
   });
 
+  test('rejects a release without a release-page URL', () async {
+    unawaited(
+      _serve(server, (request) async {
+        request.response
+          ..headers.contentType = ContentType.json
+          ..write(
+            jsonEncode({
+              'tag_name': '2.39.0',
+              'draft': false,
+              'prerelease': false,
+              'assets': <Object>[],
+            }),
+          );
+        await request.response.close();
+      }),
+    );
+
+    await expectLater(
+      client.latest('sub-store-org/Sub-Store'),
+      throwsFormatException,
+    );
+  });
+
+  test('rejects a non-HTTP(S) release-page URL', () async {
+    unawaited(
+      _serve(server, (request) async {
+        request.response
+          ..headers.contentType = ContentType.json
+          ..write(
+            jsonEncode({
+              'tag_name': '2.39.0',
+              'html_url': 'ftp://example.invalid/release',
+              'draft': false,
+              'prerelease': false,
+              'assets': <Object>[],
+            }),
+          );
+        await request.response.close();
+      }),
+    );
+
+    await expectLater(
+      client.latest('sub-store-org/Sub-Store'),
+      throwsFormatException,
+    );
+  });
+
   test(
     'removes an unverified download when its checksum does not match',
     () async {

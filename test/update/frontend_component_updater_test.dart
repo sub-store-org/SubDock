@@ -88,12 +88,27 @@ void main() {
       );
     },
   );
+
+  test('rejects every non-stopped update before any download', () async {
+    for (final status in RuntimeStatus.values.where(
+      (status) => status != RuntimeStatus.stopped,
+    )) {
+      final fixture = await _fixture(status: status);
+      addTearDown(fixture.dispose);
+      await expectLater(
+        fixture.updater.update(_release('2.32.0')),
+        throwsStateError,
+      );
+      expect(fixture.downloads.calls, 0);
+    }
+  });
 }
 
 Future<_Fixture> _fixture({
   bool malicious = false,
   bool distRoot = false,
   bool healthy = true,
+  RuntimeStatus status = RuntimeStatus.stopped,
 }) async {
   final root = await Directory.systemTemp.createTemp(
     'subdock_frontend_update_',
@@ -117,7 +132,8 @@ Future<_Fixture> _fixture({
     'frontend/2.30.0/index.html',
     'stale frontend',
   );
-  final runtime = _FakeRuntime(healthy: healthy);
+  final downloads = _ZipDownloads(malicious: malicious, distRoot: distRoot);
+  final runtime = _FakeRuntime(healthy: healthy, status: status);
   final updater = FrontendComponentUpdater(
     runtime: runtime,
     directories: directories,
@@ -127,9 +143,9 @@ Future<_Fixture> _fixture({
       componentsDirectory: directories.components,
       metadataStore: metadata,
     ),
-    downloads: _ZipDownloads(malicious: malicious, distRoot: distRoot),
+    downloads: downloads,
   );
-  return _Fixture(root, directories, metadata, runtime, updater);
+  return _Fixture(root, directories, metadata, runtime, updater, downloads);
 }
 
 GithubRelease _release(String version) => GithubRelease(
@@ -145,9 +161,11 @@ class _ZipDownloads implements GithubReleaseDownloader {
 
   final bool malicious;
   final bool distRoot;
+  var calls = 0;
 
   @override
   Future<void> downloadVerified(GithubReleaseAsset asset, File target) async {
+    calls++;
     final archive = Archive();
     if (distRoot) archive.add(ArchiveFile.directory('dist/'));
     archive.add(
@@ -169,14 +187,15 @@ class _ZipDownloads implements GithubReleaseDownloader {
 }
 
 class _FakeRuntime extends BackendRuntime {
-  _FakeRuntime({required this.healthy});
+  _FakeRuntime({required this.healthy, this.status = RuntimeStatus.stopped});
 
   final bool healthy;
+  final RuntimeStatus status;
   var restarts = 0;
 
   @override
   RuntimeState get currentState =>
-      RuntimeState(status: RuntimeStatus.stopped, changedAt: DateTime.now());
+      RuntimeState(status: status, changedAt: DateTime.now());
   @override
   Uri get endpoint => Uri.parse('http://127.0.0.1:3001');
   @override
@@ -206,6 +225,7 @@ class _Fixture {
     this.metadata,
     this.runtime,
     this.updater,
+    this.downloads,
   );
 
   final Directory root;
@@ -213,6 +233,7 @@ class _Fixture {
   final ComponentMetadataStore metadata;
   final _FakeRuntime runtime;
   final FrontendComponentUpdater updater;
+  final _ZipDownloads downloads;
 
   Future<void> dispose() => root.delete(recursive: true);
 }

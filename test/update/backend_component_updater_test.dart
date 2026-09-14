@@ -131,6 +131,55 @@ void main() {
       ),
     );
   });
+
+  test('rejects every non-stopped update before any download', () async {
+    for (final status in RuntimeStatus.values.where(
+      (status) => status != RuntimeStatus.stopped,
+    )) {
+      final fixture = await _backendFixture(status: status);
+      addTearDown(() => fixture.root.delete(recursive: true));
+      await expectLater(
+        fixture.updater.update(_release('2.39.0')),
+        throwsStateError,
+      );
+      expect(fixture.downloads.calls, 0);
+    }
+  });
+}
+
+Future<_BackendFixture> _backendFixture({required RuntimeStatus status}) async {
+  final root = await Directory.systemTemp.createTemp('subdock_backend_guard_');
+  final bundle = Directory.fromUri(root.uri.resolve('bundle/'));
+  await _write(bundle, 'data/backend/version', '2.38.4\n');
+  await _write(bundle, 'data/backend/sub-store.bundle.js', 'baseline');
+  await _write(
+    bundle,
+    'data/backend/runtime-manifest.json',
+    '{"testedNode":"24.15.0","externalBinary":[]}',
+  );
+  await _write(bundle, 'data/frontend/version', '2.31.3\n');
+  await _write(bundle, 'data/frontend/index.html', 'frontend');
+  final directories = await RuntimeDirectories.fromBaseDirectory(
+    Directory.fromUri(root.uri.resolve('application-support/')),
+  );
+  final metadata = ComponentMetadataStore(directories.components);
+  final downloads = _CountingDownloads();
+  final updater = BackendComponentUpdater(
+    runtime: _FakeRuntime(status: status),
+    directories: directories,
+    metadataStore: metadata,
+    resources: ComponentResourceResolver(
+      bundleDirectory: bundle,
+      componentsDirectory: directories.components,
+      metadataStore: metadata,
+    ),
+    downloads: downloads,
+    backups: DataBackupStore(
+      backupsDirectory: directories.backups,
+      stagingDirectory: directories.staging,
+    ),
+  );
+  return _BackendFixture(root, updater, downloads);
 }
 
 GithubRelease _release(String version) => GithubRelease(
@@ -165,15 +214,25 @@ class _FakeDownloads implements GithubReleaseDownloader {
   Future<GithubRelease> latest(String repository) => throw UnimplementedError();
 }
 
+class _CountingDownloads extends _FakeDownloads {
+  var calls = 0;
+
+  @override
+  Future<void> downloadVerified(GithubReleaseAsset asset, File target) async {
+    calls++;
+  }
+}
+
 class _FakeRuntime extends BackendRuntime {
-  _FakeRuntime({this.healthy = true});
+  _FakeRuntime({this.healthy = true, this.status = RuntimeStatus.stopped});
 
   final bool healthy;
+  final RuntimeStatus status;
   var restarts = 0;
   var stops = 0;
   @override
   RuntimeState get currentState =>
-      RuntimeState(status: RuntimeStatus.stopped, changedAt: DateTime.now());
+      RuntimeState(status: status, changedAt: DateTime.now());
   @override
   Uri get endpoint => Uri.parse('http://127.0.0.1:3001');
   @override
@@ -194,6 +253,13 @@ class _FakeRuntime extends BackendRuntime {
   Future<void> start() async {}
   @override
   Future<void> stop() async => stops++;
+}
+
+class _BackendFixture {
+  const _BackendFixture(this.root, this.updater, this.downloads);
+  final Directory root;
+  final BackendComponentUpdater updater;
+  final _CountingDownloads downloads;
 }
 
 Future<void> _write(Directory root, String path, String value) async {

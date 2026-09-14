@@ -143,25 +143,39 @@ void main() {
     expect(runtime.operations, ['update', 'stop']);
   });
 
-  test('rejects component mutation while the runtime is running', () async {
-    final temp = await Directory.systemTemp.createTemp('subdock_coordinator_');
-    addTearDown(() => temp.delete(recursive: true));
-    final runtime = _FakeRuntime(status: RuntimeStatus.running);
-    final updates = _FakeUpdates(runtime.operations);
-    final coordinator = AppCoordinator(
-      runtime: runtime,
-      environmentStore: BackendEnvStore(
-        await RuntimeDirectories.fromBaseDirectory(temp),
-      ),
-      componentUpdates: updates,
-    );
+  test(
+    'rejects every component mutation while runtime is not stopped',
+    () async {
+      for (final status in RuntimeStatus.values.where(
+        (status) => status != RuntimeStatus.stopped,
+      )) {
+        final temp = await Directory.systemTemp.createTemp(
+          'subdock_coordinator_',
+        );
+        addTearDown(() => temp.delete(recursive: true));
+        final runtime = _FakeRuntime(status: status);
+        final updates = _FakeUpdates(runtime.operations);
+        final coordinator = AppCoordinator(
+          runtime: runtime,
+          environmentStore: BackendEnvStore(
+            await RuntimeDirectories.fromBaseDirectory(temp),
+          ),
+          componentUpdates: updates,
+        );
 
-    await expectLater(
-      coordinator.updateComponent(updates.availableUpdate),
-      throwsStateError,
-    );
-    expect(updates.operations, isEmpty);
-  });
+        for (final action in <Future<void> Function()>[
+          () => coordinator.updateComponent(updates.frontendUpdate),
+          () => coordinator.updateComponent(updates.backendUpdate),
+          () => coordinator.rollbackComponent(ComponentKind.frontend),
+          () => coordinator.rollbackComponent(ComponentKind.backend),
+        ]) {
+          await expectLater(action(), throwsStateError);
+        }
+        expect(updates.operations, isEmpty);
+        expect(runtime.operations, isEmpty);
+      }
+    },
+  );
 
   test('exposes the injected log store instance', () async {
     final temp = await Directory.systemTemp.createTemp('subdock_coordinator_');
@@ -182,7 +196,7 @@ class _FakeUpdates implements ComponentUpdateOperations {
   _FakeUpdates(this.operations);
 
   final List<String> operations;
-  final availableUpdate = ComponentUpdate(
+  final frontendUpdate = ComponentUpdate(
     kind: ComponentKind.frontend,
     currentVersion: '2.31.3',
     availableVersion: '2.32.0',
@@ -192,6 +206,17 @@ class _FakeUpdates implements ComponentUpdateOperations {
       assets: [],
     ),
   );
+  final backendUpdate = ComponentUpdate(
+    kind: ComponentKind.backend,
+    currentVersion: '2.38.4',
+    availableVersion: '2.39.0',
+    release: GithubRelease(
+      version: '2.39.0',
+      releaseUri: Uri.parse('https://example.invalid/release'),
+      assets: [],
+    ),
+  );
+  ComponentUpdate get availableUpdate => frontendUpdate;
 
   @override
   Future<ComponentVersionStatus> status(ComponentKind kind) async =>
