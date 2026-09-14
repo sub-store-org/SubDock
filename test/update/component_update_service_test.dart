@@ -123,9 +123,16 @@ void main() {
             assets: [],
           ),
         );
+        final backendUpdate = ComponentUpdate(
+          kind: ComponentKind.backend,
+          currentVersion: '2.38.4',
+          availableVersion: '2.39.0',
+          release: update.release,
+        );
 
         for (final action in <Future<void> Function()>[
           () => fixture.service.update(update),
+          () => fixture.service.update(backendUpdate),
           () => fixture.service.rollback(ComponentKind.frontend),
           () => fixture.service.rollback(ComponentKind.backend),
         ]) {

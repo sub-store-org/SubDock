@@ -6,7 +6,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:subdock/runtime/backend_runtime.dart';
 import 'package:subdock/runtime/runtime_directories.dart';
 import 'package:subdock/update/component_metadata_store.dart';
+import 'package:subdock/update/component_recovery.dart';
 import 'package:subdock/update/component_resource_resolver.dart';
+import 'package:subdock/update/data_backup_store.dart';
 import 'package:subdock/update/frontend_component_updater.dart';
 import 'package:subdock/update/github_release_client.dart';
 
@@ -135,6 +137,70 @@ void main() {
       '2.32.0',
     );
   });
+
+  test(
+    'leaves pending recoverable when final and recovery saves fail',
+    () async {
+      final fixture = await _fixture(failOn: {2, 3});
+      addTearDown(fixture.dispose);
+
+      await expectLater(
+        fixture.updater.update(_release('2.32.0')),
+        throwsStateError,
+      );
+      final pending = await ComponentMetadataStore(
+        fixture.directories.components,
+      ).load(ComponentKind.frontend, baseline: 'ignored');
+      expect(pending.pending?.operation, ComponentPendingOperation.update);
+      expect(
+        await Directory(
+          '${fixture.directories.components.path}/frontend/2.32.0',
+        ).exists(),
+        isTrue,
+      );
+
+      await ComponentRecovery(
+        bundleDirectory: fixture.bundle,
+        dataDirectory: fixture.directories.data,
+        metadataStore: ComponentMetadataStore(fixture.directories.components),
+        dataBackups: DataBackupStore(
+          backupsDirectory: fixture.directories.backups,
+          stagingDirectory: fixture.directories.staging,
+        ),
+      ).recoverPending();
+      final recovered = await ComponentMetadataStore(
+        fixture.directories.components,
+      ).load(ComponentKind.frontend, baseline: 'ignored');
+      expect(recovered.pending, isNull);
+      expect(recovered.active, isNull);
+    },
+  );
+
+  test('recovers after final metadata save failure and can retry', () async {
+    final fixture = await _fixture(failOn: {2});
+    addTearDown(fixture.dispose);
+    final store = fixture.metadata as _FailOnSaveMetadataStore;
+
+    await expectLater(
+      fixture.updater.update(_release('2.32.0')),
+      throwsStateError,
+    );
+    expect(
+      await Directory('${fixture.directories.components.path}/frontend/2.32.0')
+          .exists(),
+      isFalse,
+    );
+    store.failOn.clear();
+    store.reset();
+    await fixture.updater.update(_release('2.32.0'));
+    expect(
+      (await fixture.metadata.load(
+        ComponentKind.frontend,
+        baseline: 'ignored',
+      )).active,
+      '2.32.0',
+    );
+  });
 }
 
 Future<_Fixture> _fixture({
@@ -142,6 +208,7 @@ Future<_Fixture> _fixture({
   bool distRoot = false,
   bool healthy = true,
   RuntimeStatus status = RuntimeStatus.stopped,
+  Set<int>? failOn,
 }) async {
   final root = await Directory.systemTemp.createTemp(
     'subdock_frontend_update_',
@@ -159,7 +226,9 @@ Future<_Fixture> _fixture({
   final directories = await RuntimeDirectories.fromBaseDirectory(
     Directory.fromUri(root.uri.resolve('application-support/')),
   );
-  final metadata = ComponentMetadataStore(directories.components);
+  final metadata = failOn == null
+      ? ComponentMetadataStore(directories.components)
+      : _FailOnSaveMetadataStore(directories.components, failOn: failOn);
   await _write(
     directories.components,
     'frontend/2.30.0/index.html',
@@ -178,7 +247,15 @@ Future<_Fixture> _fixture({
     ),
     downloads: downloads,
   );
-  return _Fixture(root, directories, metadata, runtime, updater, downloads);
+  return _Fixture(
+    root,
+    bundle,
+    directories,
+    metadata,
+    runtime,
+    updater,
+    downloads,
+  );
 }
 
 GithubRelease _release(String version) => GithubRelease(
@@ -254,6 +331,7 @@ class _FakeRuntime extends BackendRuntime {
 class _Fixture {
   const _Fixture(
     this.root,
+    this.bundle,
     this.directories,
     this.metadata,
     this.runtime,
@@ -262,6 +340,7 @@ class _Fixture {
   );
 
   final Directory root;
+  final Directory bundle;
   final RuntimeDirectories directories;
   final ComponentMetadataStore metadata;
   final _FakeRuntime runtime;
@@ -269,6 +348,24 @@ class _Fixture {
   final _ZipDownloads downloads;
 
   Future<void> dispose() => root.delete(recursive: true);
+}
+
+class _FailOnSaveMetadataStore extends ComponentMetadataStore {
+  _FailOnSaveMetadataStore(super.directory, {required Set<int> failOn})
+    : failOn = {...failOn};
+
+  final Set<int> failOn;
+  var _saveCount = 0;
+
+  void reset() => _saveCount = 0;
+
+  @override
+  Future<void> save(ComponentKind kind, ComponentMetadata metadata) {
+    if (failOn.contains(++_saveCount)) {
+      throw StateError('injected metadata save failure');
+    }
+    return super.save(kind, metadata);
+  }
 }
 
 Future<void> _write(Directory root, String path, String value) async {
