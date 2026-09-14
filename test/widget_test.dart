@@ -2451,6 +2451,63 @@ void main() {
     },
   );
 
+  testWidgets('600x480 SubDock configuration keeps child save reachable', (
+    tester,
+  ) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    final configurationStore = SubDockConfigStore(directories!);
+
+    await tester.binding.setSurfaceSize(const Size(600, 480));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      SubDockApp(
+        coordinator: AppCoordinator(
+          runtime: _FakeBackendRuntime(),
+          environmentStore: BackendEnvStore(directories),
+          configurationStore: configurationStore,
+        ),
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('zh'),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
+    await tester.pumpAndSettle();
+
+    final settingsScrollable = find.descendant(
+      of: find.byKey(const ValueKey('settings-list')),
+      matching: find.byWidgetPredicate(
+        (widget) =>
+            widget is Scrollable && widget.axisDirection == AxisDirection.down,
+      ),
+    );
+    expect(settingsScrollable, findsOneWidget);
+    await tester.drag(settingsScrollable, const Offset(0, -260));
+    await tester.pumpAndSettle();
+
+    final card = find.byKey(const ValueKey('settings-card-subdock-config'));
+    expect(card, findsOneWidget);
+    await tester.tap(card);
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const ValueKey('settings-back')), findsOneWidget);
+    expect(find.byKey(const ValueKey('settings-child-save')), findsOneWidget);
+
+    final back = find.byKey(const ValueKey('settings-back'));
+    await tester.ensureVisible(back);
+    await tester.tap(back);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('settings-appearance')), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('changing the theme previews without saving to the store', (
     WidgetTester tester,
   ) async {
