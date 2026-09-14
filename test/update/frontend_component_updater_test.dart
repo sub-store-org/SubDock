@@ -17,7 +17,7 @@ void main() {
 
     await fixture.updater.update(_release('2.32.0'));
 
-    expect(fixture.runtime.restarts, 1);
+    expect(fixture.runtime.restarts, 0);
     expect(
       await File(
         '${fixture.directories.components.path}/frontend/2.32.0/index.html',
@@ -70,20 +70,21 @@ void main() {
   });
 
   test(
-    'restores the prior Frontend pointer when health verification fails',
+    'keeps the stopped transaction successful without health verification',
     () async {
       final fixture = await _fixture(healthy: false);
       addTearDown(fixture.dispose);
 
-      await expectLater(
-        fixture.updater.update(_release('2.32.0')),
-        throwsStateError,
-      );
+      await fixture.updater.update(_release('2.32.0'));
 
-      expect(fixture.runtime.restarts, 2);
+      expect(fixture.runtime.restarts, 0);
       expect(
         await fixture.metadata.load(ComponentKind.frontend, baseline: '2.31.3'),
-        const ComponentMetadata(baseline: '2.31.3'),
+        const ComponentMetadata(
+          baseline: '2.31.3',
+          active: '2.32.0',
+          previous: '2.31.3',
+        ),
       );
     },
   );
@@ -133,6 +134,7 @@ Future<_Fixture> _fixture({
 
 GithubRelease _release(String version) => GithubRelease(
   version: version,
+  releaseUri: Uri.parse('https://example.invalid/release'),
   assets: [
     GithubReleaseAsset(name: 'dist.zip', downloadUri: Uri(), sha256: '0' * 64),
   ],

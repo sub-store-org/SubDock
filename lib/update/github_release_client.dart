@@ -19,9 +19,14 @@ class GithubReleaseAsset {
 }
 
 class GithubRelease {
-  const GithubRelease({required this.version, required this.assets});
+  const GithubRelease({
+    required this.version,
+    required this.releaseUri,
+    required this.assets,
+  });
 
   final String version;
+  final Uri releaseUri;
   final List<GithubReleaseAsset> assets;
 
   GithubReleaseAsset assetNamed(String name) => assets.firstWhere(
@@ -79,10 +84,24 @@ class GithubReleaseClient implements GithubReleaseDownloader {
     }
     return GithubRelease(
       version: version,
+      releaseUri: _releaseUri(decoded['html_url']),
       assets: (decoded['assets'] as List)
           .map(_assetFromJson)
           .toList(growable: false),
     );
+  }
+
+  Uri _releaseUri(Object? value) {
+    if (value is! String) {
+      throw const FormatException('GitHub Release URL is invalid');
+    }
+    final uri = Uri.tryParse(value);
+    if (uri == null ||
+        !uri.isAbsolute ||
+        (uri.scheme != 'http' && uri.scheme != 'https')) {
+      throw const FormatException('GitHub Release URL is invalid');
+    }
+    return uri;
   }
 
   @override

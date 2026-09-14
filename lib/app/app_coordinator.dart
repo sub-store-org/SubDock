@@ -153,11 +153,13 @@ class AppCoordinator {
 
   Future<void> updateComponent(ComponentUpdate update) => _serialize(() async {
     _ensureStartupAllowed();
+    _ensureRuntimeStoppedForComponentMutation();
     await _requireUpdates().update(update);
   });
 
   Future<void> rollbackComponent(ComponentKind kind) => _serialize(() async {
     _ensureStartupAllowed();
+    _ensureRuntimeStoppedForComponentMutation();
     await _requireUpdates().rollback(kind);
   });
 
@@ -183,6 +185,12 @@ class AppCoordinator {
 
   void _ensureStartupAllowed() {
     if (startupBlocker != null) throw startupBlocker!;
+  }
+
+  void _ensureRuntimeStoppedForComponentMutation() {
+    if (runtime.currentState.status != RuntimeStatus.stopped) {
+      throw StateError('Component mutation requires a stopped Backend');
+    }
   }
 
   static AppConfigError _environmentError(BackendEnvIssue issue) =>

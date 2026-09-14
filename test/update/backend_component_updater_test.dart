@@ -57,8 +57,8 @@ void main() {
 
       await updater.update(_release('2.39.0'));
 
-      expect(runtime.stops, 1);
-      expect(runtime.restarts, 1);
+      expect(runtime.stops, 0);
+      expect(runtime.restarts, 0);
       expect(
         await metadata.load(ComponentKind.backend, baseline: 'ignored'),
         const ComponentMetadata(
@@ -81,63 +81,61 @@ void main() {
     },
   );
 
-  test(
-    'restores data and the prior component if health verification fails',
-    () async {
-      final temp = await Directory.systemTemp.createTemp(
-        'subdock_backend_update_',
-      );
-      addTearDown(() => temp.delete(recursive: true));
-      final bundle = Directory.fromUri(temp.uri.resolve('bundle/'));
-      await _write(bundle, 'data/backend/version', '2.38.4\n');
-      await _write(bundle, 'data/backend/sub-store.bundle.js', 'baseline');
-      await _write(
-        bundle,
-        'data/backend/runtime-manifest.json',
-        '{"testedNode":"24.15.0","externalBinary":[]}',
-      );
-      await _write(bundle, 'data/frontend/version', '2.31.3\n');
-      await _write(bundle, 'data/frontend/index.html', 'frontend');
-      final directories = await RuntimeDirectories.fromBaseDirectory(
-        Directory.fromUri(temp.uri.resolve('application-support/')),
-      );
-      await _write(directories.data, 'settings.json', 'before');
-      final metadata = ComponentMetadataStore(directories.components);
-      final runtime = _FakeRuntime(healthy: false);
-      final updater = BackendComponentUpdater(
-        runtime: runtime,
-        directories: directories,
+  test('does not restart or health-check a stopped update', () async {
+    final temp = await Directory.systemTemp.createTemp(
+      'subdock_backend_update_',
+    );
+    addTearDown(() => temp.delete(recursive: true));
+    final bundle = Directory.fromUri(temp.uri.resolve('bundle/'));
+    await _write(bundle, 'data/backend/version', '2.38.4\n');
+    await _write(bundle, 'data/backend/sub-store.bundle.js', 'baseline');
+    await _write(
+      bundle,
+      'data/backend/runtime-manifest.json',
+      '{"testedNode":"24.15.0","externalBinary":[]}',
+    );
+    await _write(bundle, 'data/frontend/version', '2.31.3\n');
+    await _write(bundle, 'data/frontend/index.html', 'frontend');
+    final directories = await RuntimeDirectories.fromBaseDirectory(
+      Directory.fromUri(temp.uri.resolve('application-support/')),
+    );
+    await _write(directories.data, 'settings.json', 'before');
+    final metadata = ComponentMetadataStore(directories.components);
+    final runtime = _FakeRuntime(healthy: false);
+    final updater = BackendComponentUpdater(
+      runtime: runtime,
+      directories: directories,
+      metadataStore: metadata,
+      resources: ComponentResourceResolver(
+        bundleDirectory: bundle,
+        componentsDirectory: directories.components,
         metadataStore: metadata,
-        resources: ComponentResourceResolver(
-          bundleDirectory: bundle,
-          componentsDirectory: directories.components,
-          metadataStore: metadata,
-        ),
-        downloads: _FakeDownloads(),
-        backups: DataBackupStore(
-          backupsDirectory: directories.backups,
-          stagingDirectory: directories.staging,
-        ),
-      );
+      ),
+      downloads: _FakeDownloads(),
+      backups: DataBackupStore(
+        backupsDirectory: directories.backups,
+        stagingDirectory: directories.staging,
+      ),
+    );
 
-      await expectLater(updater.update(_release('2.39.0')), throwsStateError);
+    await updater.update(_release('2.39.0'));
 
-      expect(runtime.stops, 1);
-      expect(runtime.restarts, 2);
-      expect(
-        await File('${directories.data.path}/settings.json').readAsString(),
-        'before',
-      );
-      expect(
-        await metadata.load(ComponentKind.backend, baseline: '2.38.4'),
-        const ComponentMetadata(baseline: '2.38.4'),
-      );
-    },
-  );
+    expect(runtime.stops, 0);
+    expect(runtime.restarts, 0);
+    expect(
+      await metadata.load(ComponentKind.backend, baseline: '2.38.4'),
+      const ComponentMetadata(
+        baseline: '2.38.4',
+        active: '2.39.0',
+        previous: '2.38.4',
+      ),
+    );
+  });
 }
 
 GithubRelease _release(String version) => GithubRelease(
   version: version,
+  releaseUri: Uri.parse('https://example.invalid/release'),
   assets: [
     GithubReleaseAsset(
       name: 'sub-store.bundle.js',

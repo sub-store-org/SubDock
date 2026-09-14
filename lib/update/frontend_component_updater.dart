@@ -32,6 +32,7 @@ class FrontendComponentUpdater {
   final GithubReleaseDownloader downloads;
 
   Future<void> update(GithubRelease release) async {
+    _requireStopped();
     final version = _safeVersion(release.version);
     final current = await resources.resolve();
     final prior = await metadataStore.load(
@@ -58,9 +59,8 @@ class FrontendComponentUpdater {
       await restrictDirectoryToCurrentUser(staged);
       await downloads.downloadVerified(release.assetNamed('dist.zip'), archive);
       await _extract(archive, extracted);
-      final content = await File.fromUri(
-        extracted.uri.resolve('index.html'),
-      ).exists()
+      final content =
+          await File.fromUri(extracted.uri.resolve('index.html')).exists()
           ? extracted
           : Directory.fromUri(extracted.uri.resolve('dist/'));
       if (!await File.fromUri(content.uri.resolve('index.html')).exists()) {
@@ -82,10 +82,6 @@ class FrontendComponentUpdater {
         ),
       );
       pendingSaved = true;
-      await runtime.restart();
-      if (!await runtime.isHealthy()) {
-        throw StateError('Updated Frontend did not become healthy');
-      }
       await metadataStore.save(
         ComponentKind.frontend,
         ComponentMetadata(
@@ -106,7 +102,14 @@ class FrontendComponentUpdater {
 
   Future<void> _rollback(ComponentMetadata prior) async {
     await metadataStore.save(ComponentKind.frontend, prior);
-    await runtime.restart();
+  }
+
+  void _requireStopped() {
+    if (runtime.currentState.status != RuntimeStatus.stopped) {
+      throw StateError(
+        'Frontend component mutation requires a stopped Backend',
+      );
+    }
   }
 
   Future<void> _extract(File zip, Directory destination) async {

@@ -60,6 +60,7 @@ class _FakeReleases implements GithubReleaseSource {
   @override
   Future<GithubRelease> latest(String repository) async => GithubRelease(
     version: '2.39.0',
+    releaseUri: Uri.parse('https://example.invalid/release'),
     assets: [
       GithubReleaseAsset(
         name: 'sub-store.bundle.js',

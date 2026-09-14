@@ -35,6 +35,7 @@ void main() {
               ..write(
                 jsonEncode({
                   'tag_name': '2.39.0',
+                  'html_url': 'https://github.com/example/release',
                   'draft': false,
                   'prerelease': false,
                   'assets': [
@@ -77,6 +78,7 @@ void main() {
           ..write(
             jsonEncode({
               'tag_name': '2.39.0',
+              'html_url': 'https://github.com/example/release',
               'draft': false,
               'prerelease': false,
               'assets': [
@@ -98,6 +100,30 @@ void main() {
 
     await expectLater(
       client.latest('sub-store-org/Sub-Store-Front-End'),
+      throwsFormatException,
+    );
+  });
+
+  test('rejects a release without an absolute HTTP release page', () async {
+    unawaited(
+      _serve(server, (request) async {
+        request.response
+          ..headers.contentType = ContentType.json
+          ..write(
+            jsonEncode({
+              'tag_name': '2.39.0',
+              'html_url': '/relative-release',
+              'draft': false,
+              'prerelease': false,
+              'assets': <Object>[],
+            }),
+          );
+        await request.response.close();
+      }),
+    );
+
+    await expectLater(
+      client.latest('sub-store-org/Sub-Store'),
       throwsFormatException,
     );
   });

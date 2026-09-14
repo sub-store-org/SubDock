@@ -25,7 +25,7 @@ void main() {
 
     await fixture.service.rollback(ComponentKind.frontend);
 
-    expect(fixture.runtime.restarts, 1);
+    expect(fixture.runtime.restarts, 0);
     expect(
       await fixture.metadata.load(ComponentKind.frontend, baseline: 'ignored'),
       const ComponentMetadata(baseline: '2.31.3', previous: '2.32.0'),
@@ -49,8 +49,8 @@ void main() {
 
     await fixture.service.rollback(ComponentKind.backend);
 
-    expect(fixture.runtime.stops, 1);
-    expect(fixture.runtime.restarts, 1);
+    expect(fixture.runtime.stops, 0);
+    expect(fixture.runtime.restarts, 0);
     expect(
       await File('${fixture.directories.data.path}/settings.json')
           .readAsString(),

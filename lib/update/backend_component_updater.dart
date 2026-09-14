@@ -31,6 +31,7 @@ class BackendComponentUpdater {
   final DataBackupStore backups;
 
   Future<void> update(GithubRelease release) async {
+    _requireStopped();
     final version = _safeVersion(release.version);
     final current = await resources.resolve();
     final prior = await metadataStore.load(
@@ -51,7 +52,6 @@ class BackendComponentUpdater {
 
     String? backupId;
     var pendingSaved = false;
-    var runtimeStopped = false;
     try {
       await staged.create(recursive: true);
       await restrictDirectoryToCurrentUser(staged);
@@ -68,8 +68,6 @@ class BackendComponentUpdater {
         File.fromUri(staged.uri.resolve('runtime-manifest.json')),
       );
 
-      await runtime.stop();
-      runtimeStopped = true;
       backupId = await backups.create(directories.data);
       await candidate.parent.create(recursive: true);
       await restrictDirectoryToCurrentUser(candidate.parent);
@@ -87,11 +85,6 @@ class BackendComponentUpdater {
         ),
       );
       pendingSaved = true;
-      await runtime.restart();
-      runtimeStopped = false;
-      if (!await runtime.isHealthy()) {
-        throw StateError('Updated Backend did not become healthy');
-      }
       await metadataStore.save(
         ComponentKind.backend,
         ComponentMetadata(
@@ -104,9 +97,9 @@ class BackendComponentUpdater {
           .retain(ComponentKind.backend, [version, previous]);
     } catch (_) {
       if (pendingSaved) {
-        await _rollback(prior, backupId!);
-      } else if (runtimeStopped) {
-        await runtime.start();
+        await _rollback(prior, backupId!, version);
+      } else if (await candidate.exists()) {
+        await candidate.delete(recursive: true);
       }
       rethrow;
     } finally {
@@ -114,14 +107,29 @@ class BackendComponentUpdater {
     }
   }
 
-  Future<void> _rollback(ComponentMetadata prior, String backupId) async {
+  Future<void> _rollback(
+    ComponentMetadata prior,
+    String backupId,
+    String version,
+  ) async {
     try {
       await backups.restore(backupId, directories.data);
       await metadataStore.save(ComponentKind.backend, prior);
-      await runtime.restart();
+      final candidate = Directory.fromUri(
+        directories.components.uri.resolve('backend/$version/'),
+      );
+      if (await candidate.exists()) {
+        await candidate.delete(recursive: true);
+      }
     } catch (_) {
       // Preserve pending metadata so startup recovery can retry safely.
       rethrow;
+    }
+  }
+
+  void _requireStopped() {
+    if (runtime.currentState.status != RuntimeStatus.stopped) {
+      throw StateError('Backend component mutation requires a stopped Backend');
     }
   }
 

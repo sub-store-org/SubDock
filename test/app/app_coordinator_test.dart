@@ -143,6 +143,26 @@ void main() {
     expect(runtime.operations, ['update', 'stop']);
   });
 
+  test('rejects component mutation while the runtime is running', () async {
+    final temp = await Directory.systemTemp.createTemp('subdock_coordinator_');
+    addTearDown(() => temp.delete(recursive: true));
+    final runtime = _FakeRuntime(status: RuntimeStatus.running);
+    final updates = _FakeUpdates(runtime.operations);
+    final coordinator = AppCoordinator(
+      runtime: runtime,
+      environmentStore: BackendEnvStore(
+        await RuntimeDirectories.fromBaseDirectory(temp),
+      ),
+      componentUpdates: updates,
+    );
+
+    await expectLater(
+      coordinator.updateComponent(updates.availableUpdate),
+      throwsStateError,
+    );
+    expect(updates.operations, isEmpty);
+  });
+
   test('exposes the injected log store instance', () async {
     final temp = await Directory.systemTemp.createTemp('subdock_coordinator_');
     addTearDown(() => temp.delete(recursive: true));
@@ -166,7 +186,11 @@ class _FakeUpdates implements ComponentUpdateOperations {
     kind: ComponentKind.frontend,
     currentVersion: '2.31.3',
     availableVersion: '2.32.0',
-    release: const GithubRelease(version: '2.32.0', assets: []),
+    release: GithubRelease(
+      version: '2.32.0',
+      releaseUri: Uri.parse('https://example.invalid/release'),
+      assets: [],
+    ),
   );
 
   @override
@@ -184,13 +208,16 @@ class _FakeUpdates implements ComponentUpdateOperations {
 }
 
 class _FakeRuntime extends BackendRuntime {
+  _FakeRuntime({this.status = RuntimeStatus.stopped});
+
+  final RuntimeStatus status;
   final operations = <String>[];
   final _states = StreamController<RuntimeState>.broadcast();
   var port = 3001;
 
   @override
   RuntimeState get currentState =>
-      RuntimeState(status: RuntimeStatus.stopped, changedAt: DateTime.now());
+      RuntimeState(status: status, changedAt: DateTime.now());
 
   @override
   Uri get endpoint => Uri.parse('http://127.0.0.1:$port');

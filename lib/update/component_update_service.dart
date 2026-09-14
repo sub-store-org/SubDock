@@ -101,6 +101,7 @@ class ComponentUpdateService implements ComponentUpdateOperations {
 
   @override
   Future<void> rollback(ComponentKind kind) async {
+    _requireStopped();
     final packaged = await _resources.packagedVersions();
     final metadata = await _metadataStore.load(
       kind,
@@ -131,7 +132,6 @@ class ComponentUpdateService implements ComponentUpdateOperations {
       throw StateError('No Backend data backup is available for rollback');
     }
     final targetBackup = available.last;
-    await _runtime.stop();
     // This snapshot lets pending recovery return to the current component if
     // the rollback itself is interrupted.
     final safetyBackup = await _backups.create(_directories.data);
@@ -146,10 +146,6 @@ class ComponentUpdateService implements ComponentUpdateOperations {
     );
     try {
       await _backups.restore(targetBackup, _directories.data);
-      await _runtime.restart();
-      if (!await _runtime.isHealthy()) {
-        throw StateError('Rolled-back Backend did not become healthy');
-      }
       await _metadataStore.save(
         ComponentKind.backend,
         ComponentMetadata(
@@ -164,7 +160,6 @@ class ComponentUpdateService implements ComponentUpdateOperations {
       // metadata intact so startup recovery can safely retry it.
       await _backups.restore(safetyBackup, _directories.data);
       await _metadataStore.save(ComponentKind.backend, metadata);
-      await _runtime.restart();
       rethrow;
     }
   }
@@ -184,10 +179,6 @@ class ComponentUpdateService implements ComponentUpdateOperations {
       ),
     );
     try {
-      await _runtime.restart();
-      if (!await _runtime.isHealthy()) {
-        throw StateError('Rolled-back Frontend did not become healthy');
-      }
       await _metadataStore.save(
         ComponentKind.frontend,
         ComponentMetadata(
@@ -199,8 +190,13 @@ class ComponentUpdateService implements ComponentUpdateOperations {
       await _storage.retain(ComponentKind.frontend, [target, active]);
     } catch (_) {
       await _metadataStore.save(ComponentKind.frontend, metadata);
-      await _runtime.restart();
       rethrow;
+    }
+  }
+
+  void _requireStopped() {
+    if (_runtime.currentState.status != RuntimeStatus.stopped) {
+      throw StateError('Component mutation requires a stopped Backend');
     }
   }
 }
