@@ -40,7 +40,7 @@ class ComponentRecovery {
       }
       await dataBackups.restore(backupId, dataDirectory);
       await metadataStore.save(ComponentKind.backend, _rollBack(backend));
-      if (pending.operation == ComponentPendingOperation.rollback) {
+      if (pending.operation != ComponentPendingOperation.update) {
         await dataBackups.discard(backupId);
       }
     }

@@ -130,10 +130,51 @@ void main() {
       expect(await backups.list(), isNot(contains(safety)));
     },
   );
+
+  test('conservatively recovers legacy Backend pending metadata', () async {
+    await _write(data, 'settings.json', 'before');
+    final backup = await backups.create(data);
+    await _write(data, 'settings.json', 'after');
+    await _writeMetadata(
+      temp,
+      '{"baseline":"2.38.4","active":"2.39.0",'
+      '"previous":"2.38.4","pending":{"version":"2.39.0",'
+      '"backupId":"$backup"}}',
+    );
+
+    await recovery.recoverPending();
+
+    expect(await backups.list(), isEmpty);
+    expect(await File('${data.path}/settings.json').readAsString(), 'before');
+  });
+
+  test('does not retain a legacy rollback safety snapshot', () async {
+    await _write(data, 'settings.json', 'baseline');
+    final target = await backups.create(data);
+    await _write(data, 'settings.json', 'downloaded');
+    final safety = await backups.create(data);
+    await _write(data, 'settings.json', 'partially-restored');
+    await _writeMetadata(
+      temp,
+      '{"baseline":"2.38.4","active":null,"previous":"2.39.0",'
+      '"pending":{"version":"2.38.4","backupId":"$safety"}}',
+    );
+
+    await recovery.recoverPending();
+
+    expect(await backups.list(), contains(target));
+    expect(await backups.list(), isNot(contains(safety)));
+  });
 }
 
 Future<void> _write(Directory root, String path, String value) async {
   final file = File.fromUri(root.uri.resolve(path));
+  await file.parent.create(recursive: true);
+  await file.writeAsString(value);
+}
+
+Future<void> _writeMetadata(Directory root, String value) async {
+  final file = File('${root.path}/application-support/components/backend.json');
   await file.parent.create(recursive: true);
   await file.writeAsString(value);
 }

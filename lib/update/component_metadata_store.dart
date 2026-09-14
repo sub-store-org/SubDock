@@ -6,7 +6,7 @@ import '../settings/config_error.dart';
 
 enum ComponentKind { backend, frontend }
 
-enum ComponentPendingOperation { update, rollback }
+enum ComponentPendingOperation { update, rollback, legacy }
 
 class ComponentPending {
   const ComponentPending({
@@ -42,7 +42,7 @@ class ComponentPending {
       backupId: value['backupId'] as String?,
       operation: ComponentPendingOperation.values.firstWhere(
         (item) => item.name == operation,
-        orElse: () => ComponentPendingOperation.update,
+        orElse: () => ComponentPendingOperation.legacy,
       ),
     );
   }

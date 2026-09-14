@@ -192,7 +192,10 @@ class ComponentUpdateService implements ComponentUpdateOperations {
         baseline: metadata.baseline,
         active: target == metadata.baseline ? null : target,
         previous: active,
-        pending: ComponentPending(version: target),
+        pending: ComponentPending(
+          version: target,
+          operation: ComponentPendingOperation.rollback,
+        ),
       ),
     );
     try {
