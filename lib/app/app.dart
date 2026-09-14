@@ -2658,129 +2658,155 @@ class _SettingsPageState extends State<_SettingsPage> {
                             style: TextStyle(color: colors.error),
                           ),
                         SizedBox(height: typography.spacingSm),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            SegmentedButton<ThemeMode>(
-                              key: const ValueKey('settings-theme-mode'),
-                              segments: [
-                                ButtonSegment(
-                                  value: ThemeMode.system,
-                                  icon: const Icon(Icons.brightness_auto),
-                                  label: Text(l10n.themeFollowSystem),
+                        LayoutBuilder(
+                          builder: (context, constraints) {
+                            final twoColumns = constraints.maxWidth >= 720;
+                            final itemWidth = twoColumns
+                                ? (constraints.maxWidth -
+                                          typography.spacingMd) /
+                                      2
+                                : constraints.maxWidth;
+
+                            Widget settingItem({
+                              required String title,
+                              required String subtitle,
+                              required Widget control,
+                            }) => SizedBox(
+                              width: itemWidth,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(title, style: typography.titleMedium),
+                                  SizedBox(height: typography.spacingXs),
+                                  Text(subtitle, style: typography.bodySmall),
+                                  SizedBox(height: typography.spacingSm),
+                                  control,
+                                ],
+                              ),
+                            );
+
+                            return Wrap(
+                              spacing: typography.spacingMd,
+                              runSpacing: typography.spacingMd,
+                              children: [
+                                settingItem(
+                                  title: l10n.themeHeading,
+                                  subtitle: l10n.themeSubtitle,
+                                  control: SegmentedButton<ThemeMode>(
+                                    key: const ValueKey('settings-theme-mode'),
+                                    segments: [
+                                      ButtonSegment(
+                                        value: ThemeMode.system,
+                                        icon: const Icon(Icons.brightness_auto),
+                                        label: Text(l10n.themeFollowSystem),
+                                      ),
+                                      ButtonSegment(
+                                        value: ThemeMode.light,
+                                        icon: const Icon(Icons.light_mode),
+                                        label: Text(l10n.themeLight),
+                                      ),
+                                      ButtonSegment(
+                                        value: ThemeMode.dark,
+                                        icon: const Icon(Icons.dark_mode),
+                                        label: Text(l10n.themeDark),
+                                      ),
+                                    ],
+                                    selected: {_generalThemeMode},
+                                    onSelectionChanged: (selection) {
+                                      setState(() {
+                                        _generalThemeMode = selection.first;
+                                        _generalRevision++;
+                                      });
+                                      unawaited(
+                                        widget.onPreviewTheme(selection.first),
+                                      );
+                                    },
+                                  ),
                                 ),
-                                ButtonSegment(
-                                  value: ThemeMode.light,
-                                  icon: const Icon(Icons.light_mode),
-                                  label: Text(l10n.themeLight),
+                                settingItem(
+                                  title: l10n.languageHeading,
+                                  subtitle: l10n.languageSubtitle,
+                                  control: DropdownButton<String>(
+                                    key: const ValueKey('settings-language'),
+                                    isExpanded: true,
+                                    value: _generalLocale ?? 'system',
+                                    items: [
+                                      DropdownMenuItem(
+                                        value: 'system',
+                                        child: Text(l10n.languageFollowSystem),
+                                      ),
+                                      for (final language
+                                          in LocalePreferenceStore.supported)
+                                        DropdownMenuItem(
+                                          value: language,
+                                          child: Text(_languageLabel(language)),
+                                        ),
+                                    ],
+                                    onChanged: (value) {
+                                      final locale =
+                                          value == null || value == 'system'
+                                          ? null
+                                          : value;
+                                      setState(() {
+                                        _generalLocale = locale;
+                                        _generalRevision++;
+                                      });
+                                      unawaited(
+                                        widget.onPreviewLocale(
+                                          locale == null
+                                              ? null
+                                              : Locale(locale),
+                                        ),
+                                      );
+                                    },
+                                  ),
                                 ),
-                                ButtonSegment(
-                                  value: ThemeMode.dark,
-                                  icon: const Icon(Icons.dark_mode),
-                                  label: Text(l10n.themeDark),
+                                settingItem(
+                                  title: l10n.closeBehaviorHeading,
+                                  subtitle: l10n.closeBehaviorSubtitle,
+                                  control: DropdownButton<CloseBehavior>(
+                                    key: const ValueKey(
+                                      'settings-close-behavior',
+                                    ),
+                                    isExpanded: true,
+                                    value: _generalCloseBehavior,
+                                    items: [
+                                      DropdownMenuItem(
+                                        value: CloseBehavior.exitApp,
+                                        child: Text(l10n.exitApp),
+                                      ),
+                                      DropdownMenuItem(
+                                        value: CloseBehavior.closeToTray,
+                                        child: Text(l10n.closeToTray),
+                                      ),
+                                    ],
+                                    onChanged: (value) {
+                                      if (value != null) {
+                                        setState(() {
+                                          _generalCloseBehavior = value;
+                                          _generalRevision++;
+                                        });
+                                      }
+                                    },
+                                  ),
+                                ),
+                                settingItem(
+                                  title: l10n.recentLogs,
+                                  subtitle: l10n.recentLogsSubtitle,
+                                  control: TextField(
+                                    key: const ValueKey(
+                                      'settings-recent-log-limit',
+                                    ),
+                                    controller: _recentLogLimit,
+                                    keyboardType: TextInputType.number,
+                                    decoration: const InputDecoration(),
+                                    onChanged: (_) =>
+                                        setState(() => _generalRevision++),
+                                  ),
                                 ),
                               ],
-                              selected: {_generalThemeMode},
-                              onSelectionChanged: (selection) {
-                                setState(() {
-                                  _generalThemeMode = selection.first;
-                                  _generalRevision++;
-                                });
-                                unawaited(
-                                  widget.onPreviewTheme(selection.first),
-                                );
-                              },
-                            ),
-                            SizedBox(height: typography.spacingMd),
-                            SizedBox(
-                              width: 260,
-                              child: DropdownButton<String>(
-                                key: const ValueKey('settings-language'),
-                                isExpanded: true,
-                                value: _generalLocale ?? 'system',
-                                items: [
-                                  DropdownMenuItem(
-                                    value: 'system',
-                                    child: Text(l10n.languageFollowSystem),
-                                  ),
-                                  for (final language
-                                      in LocalePreferenceStore.supported)
-                                    DropdownMenuItem(
-                                      value: language,
-                                      child: Text(_languageLabel(language)),
-                                    ),
-                                ],
-                                onChanged: (value) {
-                                  final locale =
-                                      value == null || value == 'system'
-                                      ? null
-                                      : value;
-                                  setState(() {
-                                    _generalLocale = locale;
-                                    _generalRevision++;
-                                  });
-                                  unawaited(
-                                    widget.onPreviewLocale(
-                                      locale == null ? null : Locale(locale),
-                                    ),
-                                  );
-                                },
-                              ),
-                            ),
-                          ],
-                        ),
-                        SizedBox(height: typography.spacingMd),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            SizedBox(
-                              width: 300,
-                              child: DropdownButton<CloseBehavior>(
-                                key: const ValueKey('settings-close-behavior'),
-                                isExpanded: true,
-                                value: _generalCloseBehavior,
-                                items: [
-                                  DropdownMenuItem(
-                                    value: CloseBehavior.exitApp,
-                                    child: Text(l10n.exitApp),
-                                  ),
-                                  DropdownMenuItem(
-                                    value: CloseBehavior.closeToTray,
-                                    child: Text(l10n.closeToTray),
-                                  ),
-                                ],
-                                onChanged: (value) {
-                                  if (value != null) {
-                                    setState(() {
-                                      _generalCloseBehavior = value;
-                                      _generalRevision++;
-                                    });
-                                  }
-                                },
-                              ),
-                            ),
-                            SizedBox(height: typography.spacingLg),
-                            Text(
-                              l10n.recentLogs,
-                              style: typography.titleMedium,
-                            ),
-                            SizedBox(height: typography.spacingSm),
-                            SizedBox(
-                              width: 300,
-                              child: TextField(
-                                key: const ValueKey(
-                                  'settings-recent-log-limit',
-                                ),
-                                controller: _recentLogLimit,
-                                keyboardType: TextInputType.number,
-                                decoration: InputDecoration(
-                                  labelText: l10n.recentLogs,
-                                ),
-                                onChanged: (_) =>
-                                    setState(() => _generalRevision++),
-                              ),
-                            ),
-                          ],
+                            );
+                          },
                         ),
                       ],
                     ),

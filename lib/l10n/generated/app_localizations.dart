@@ -864,6 +864,48 @@ abstract class AppLocalizations {
   /// **'外观'**
   String get appearanceHeading;
 
+  /// No description provided for @themeHeading.
+  ///
+  /// In zh, this message translates to:
+  /// **'主题'**
+  String get themeHeading;
+
+  /// No description provided for @languageHeading.
+  ///
+  /// In zh, this message translates to:
+  /// **'语言'**
+  String get languageHeading;
+
+  /// No description provided for @themeSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'即时预览主题变化，使用保存按钮保留当前设置。'**
+  String get themeSubtitle;
+
+  /// No description provided for @languageSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'即时预览界面语言变化，使用保存按钮保留当前设置。'**
+  String get languageSubtitle;
+
+  /// No description provided for @closeBehaviorHeading.
+  ///
+  /// In zh, this message translates to:
+  /// **'关闭行为'**
+  String get closeBehaviorHeading;
+
+  /// No description provided for @closeBehaviorSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'控制点击窗口关闭按钮后的处理方式。'**
+  String get closeBehaviorSubtitle;
+
+  /// No description provided for @recentLogsSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'设置保留的最近日志数量，超出后自动清理旧日志。'**
+  String get recentLogsSubtitle;
+
   /// No description provided for @saveAll.
   ///
   /// In zh, this message translates to:

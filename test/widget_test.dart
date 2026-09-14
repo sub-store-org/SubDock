@@ -33,6 +33,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:subdock/app/app.dart';
 import 'package:subdock/app/about_info.dart';
 import 'package:subdock/app/app_coordinator.dart';
+import 'package:subdock/l10n/generated/app_localizations.dart';
 import 'package:subdock/runtime/backend_runtime.dart';
 import 'package:subdock/runtime/runtime_directories.dart';
 import 'package:subdock/runtime/runtime_log_store.dart';
@@ -785,6 +786,10 @@ void main() {
       const Offset(0, -500),
     );
     await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('settings-card-frontend-update')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(
       find.byKey(const ValueKey('settings-card-frontend-update')),
     );
@@ -976,6 +981,10 @@ void main() {
     await tester.drag(
       find.byKey(const ValueKey('settings-list')),
       const Offset(0, -500),
+    );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('settings-card-frontend-update')),
     );
     await tester.pumpAndSettle();
     await tester.tap(
@@ -1249,6 +1258,10 @@ void main() {
       const Offset(0, -500),
     );
     await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('settings-card-frontend-update')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(
       find.byKey(const ValueKey('settings-card-frontend-update')),
     );
@@ -1316,6 +1329,10 @@ void main() {
       const Offset(0, -500),
     );
     await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('settings-card-frontend-update')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(
       find.byKey(const ValueKey('settings-card-frontend-update')),
     );
@@ -1376,6 +1393,10 @@ void main() {
     await tester.drag(
       find.byKey(const ValueKey('settings-list')),
       const Offset(0, -500),
+    );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('settings-card-backend-update')),
     );
     await tester.pumpAndSettle();
     await tester.tap(
@@ -2371,31 +2392,50 @@ void main() {
     expect(find.byKey(const ValueKey('settings-subdock-config')), findsNothing);
     expect(find.byKey(const ValueKey('settings-backend-config')), findsNothing);
     expect(find.byKey(const ValueKey('settings-raw-env')), findsNothing);
+    final l10n = AppLocalizations.of(
+      tester.element(find.byKey(const ValueKey('settings-appearance'))),
+    )!;
+    expect(find.text(l10n.themeHeading), findsOneWidget);
+    expect(find.text(l10n.languageHeading), findsOneWidget);
+    expect(find.text(l10n.themeSubtitle), findsOneWidget);
+    expect(find.text(l10n.languageSubtitle), findsOneWidget);
+    expect(find.text(l10n.closeBehaviorSubtitle), findsOneWidget);
+    expect(find.text(l10n.recentLogsSubtitle), findsOneWidget);
     expect(tester.takeException(), isNull);
 
     await tester.binding.setSurfaceSize(const Size(800, 600));
     await tester.pumpAndSettle();
-    final close = tester.getRect(
+    // The 800px surface leaves less than 720px for settings content.
+    final narrowClose = tester.getRect(
       find.byKey(const ValueKey('settings-close-behavior')),
     );
-    final limit = tester.getRect(
+    final narrowLimit = tester.getRect(
       find.byKey(const ValueKey('settings-recent-log-limit')),
     );
     expect(
       find.byKey(const ValueKey('settings-recent-log-presets')),
       findsNothing,
     );
-    expect((close.left - limit.left).abs(), lessThan(1));
+    expect((narrowClose.left - narrowLimit.left).abs(), lessThan(1));
 
-    await tester.binding.setSurfaceSize(const Size(1000, 700));
+    await tester.binding.setSurfaceSize(const Size(1400, 700));
     await tester.pumpAndSettle();
+    final wideTheme = tester.getRect(
+      find.byKey(const ValueKey('settings-theme-mode')),
+    );
+    final wideLanguage = tester.getRect(
+      find.byKey(const ValueKey('settings-language')),
+    );
     final wideClose = tester.getRect(
       find.byKey(const ValueKey('settings-close-behavior')),
     );
     final wideLimit = tester.getRect(
       find.byKey(const ValueKey('settings-recent-log-limit')),
     );
-    expect(wideLimit.top, greaterThan(wideClose.bottom));
+    expect(wideLanguage.left, greaterThan(wideTheme.left));
+    expect((wideLanguage.top - wideTheme.top).abs(), lessThan(1));
+    expect(wideLimit.left, greaterThan(wideClose.left));
+    expect((wideLimit.top - wideClose.top).abs(), lessThan(1));
     expect(find.byKey(const ValueKey('settings-save-all')), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
@@ -2494,6 +2534,8 @@ void main() {
 
     final card = find.byKey(const ValueKey('settings-card-subdock-config'));
     expect(card, findsOneWidget);
+    await tester.ensureVisible(card);
+    await tester.pumpAndSettle();
     await tester.tap(card);
     await tester.pumpAndSettle();
 

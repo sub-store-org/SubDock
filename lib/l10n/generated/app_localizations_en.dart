@@ -438,6 +438,31 @@ class AppLocalizationsEn extends AppLocalizations {
   String get appearanceHeading => 'Appearance';
 
   @override
+  String get themeHeading => 'Theme';
+
+  @override
+  String get languageHeading => 'Language';
+
+  @override
+  String get themeSubtitle =>
+      'Preview theme changes immediately and use Save to keep this setting.';
+
+  @override
+  String get languageSubtitle =>
+      'Preview interface language changes immediately and use Save to keep this setting.';
+
+  @override
+  String get closeBehaviorHeading => 'Close behavior';
+
+  @override
+  String get closeBehaviorSubtitle =>
+      'Controls what happens when the window close button is pressed.';
+
+  @override
+  String get recentLogsSubtitle =>
+      'Controls how many recent logs are retained before older entries are removed.';
+
+  @override
   String get saveAll => 'Save All';
 
   @override

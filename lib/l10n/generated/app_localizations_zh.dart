@@ -424,6 +424,27 @@ class AppLocalizationsZh extends AppLocalizations {
   String get appearanceHeading => '外观';
 
   @override
+  String get themeHeading => '主题';
+
+  @override
+  String get languageHeading => '语言';
+
+  @override
+  String get themeSubtitle => '即时预览主题变化，使用保存按钮保留当前设置。';
+
+  @override
+  String get languageSubtitle => '即时预览界面语言变化，使用保存按钮保留当前设置。';
+
+  @override
+  String get closeBehaviorHeading => '关闭行为';
+
+  @override
+  String get closeBehaviorSubtitle => '控制点击窗口关闭按钮后的处理方式。';
+
+  @override
+  String get recentLogsSubtitle => '设置保留的最近日志数量，超出后自动清理旧日志。';
+
+  @override
   String get saveAll => '全部保存';
 
   @override
