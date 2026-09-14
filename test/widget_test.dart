@@ -2258,6 +2258,57 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
+  testWidgets(
+    '600x480 Settings backend subpage keeps back and save reachable',
+    (tester) async {
+      late Directory temp;
+      addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+      final directories = await tester.runAsync(() async {
+        temp = await Directory.systemTemp.createTemp('subdock_widget_');
+        return RuntimeDirectories.fromBaseDirectory(temp);
+      });
+
+      await tester.binding.setSurfaceSize(const Size(600, 480));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        SubDockApp(
+          coordinator: AppCoordinator(
+            runtime: _FakeBackendRuntime(),
+            environmentStore: BackendEnvStore(directories!),
+          ),
+          autoStart: false,
+          enableWebView: false,
+          locale: const Locale('en'),
+        ),
+      );
+
+      await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
+      await tester.pumpAndSettle();
+      final backendConfig = find.byKey(
+        const ValueKey('settings-card-backend-config'),
+      );
+      expect(backendConfig, findsOneWidget);
+      await tester.ensureVisible(backendConfig);
+      await tester.pumpAndSettle();
+      await tester.tap(backendConfig);
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(const ValueKey('settings-back')), findsOneWidget);
+      expect(find.byKey(const ValueKey('settings-child-save')), findsOneWidget);
+
+      final settingsBack = find.byKey(const ValueKey('settings-back'));
+      expect(settingsBack, findsOneWidget);
+      await tester.ensureVisible(settingsBack);
+      await tester.pumpAndSettle();
+      await tester.tap(settingsBack);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('settings-appearance')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
   testWidgets('changing the theme previews without saving to the store', (
     WidgetTester tester,
   ) async {
