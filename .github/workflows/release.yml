@@ -1,0 +1,116 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions: {}
+
+jobs:
+  prepare-release:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      stable_version: ${{ steps.release.outputs.stable_version }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Validate release tag
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          stable_version="$(sed -n 's/^version: *\([^+[:space:]]*\).*/\1/p' pubspec.yaml | head -n 1)"
+
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          tag_version="${tag#v}"
+          test -n "$stable_version"
+          test "$tag_version" = "$stable_version"
+          echo "stable_version=$stable_version" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: prepare-release
+    uses: ./.github/workflows/desktop-build.yml
+    with:
+      run_tests: false
+    permissions:
+      contents: read
+
+  release:
+    needs: [prepare-release, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: linux-packages
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v8
+        with:
+          name: arch-package
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v8
+        with:
+          name: windows-exe
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v8
+        with:
+          name: macos-arm64
+          path: dist/macos-arm64
+          merge-multiple: true
+      - uses: actions/download-artifact@v8
+        with:
+          name: macos-x64
+          path: dist/macos-x64
+          merge-multiple: true
+      - name: Disambiguate macOS assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          for arch in arm64 x64; do
+            files=(dist/macos-$arch/*.dmg)
+            test "${#files[@]}" -eq 1
+            test -f "${files[0]}"
+            mv "${files[0]}" "dist/$(basename "${files[0]%.dmg}")-$arch.dmg"
+          done
+      - name: Verify release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          assets=()
+          while IFS= read -r -d '' file; do
+            assets+=("$file")
+          done < <(find dist -type f \( \
+            -name '*.deb' -o \
+            -name '*.rpm' -o \
+            -name '*.pkg.tar.zst' -o \
+            -name '*.exe' -o \
+            -name '*.dmg' \
+          \) -print0)
+          for pattern in '*.deb' '*.rpm' '*.pkg.tar.zst' '*.exe' '*.dmg'; do
+            test -n "$(find dist -type f -name "$pattern" -print -quit)"
+          done
+          test "${#assets[@]}" -gt 0
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          assets=()
+          while IFS= read -r -d '' file; do
+            assets+=("$file")
+          done < <(find dist -type f \( \
+            -name '*.deb' -o \
+            -name '*.rpm' -o \
+            -name '*.pkg.tar.zst' -o \
+            -name '*.exe' -o \
+            -name '*.dmg' \
+          \) -print0)
+          gh release create "$GITHUB_REF_NAME" "${assets[@]}" --generate-notes --verify-tag

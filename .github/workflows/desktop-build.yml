@@ -1,36 +1,26 @@
-name: Desktop artifacts
+name: Desktop build
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'linux/**'
-      - 'windows/**'
-      - 'macos/**'
-      - 'lib/**'
-      - 'tool/**'
-      - 'assets/**'
-      - 'test/**'
-      - 'pubspec.yaml'
-      - 'pubspec.lock'
-      - '.github/workflows/desktop.yml'
-  workflow_dispatch:
+  workflow_call:
+    inputs:
+      run_tests:
+        description: Run the repository analysis and test suite.
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
   linux:
-    runs-on: ubuntu-24.04
-
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
-
       - name: Install Linux packaging dependencies
         run: |
           sudo apt-get update
@@ -40,102 +30,83 @@ jobs:
             libgtk-3-dev \
             libwebkit2gtk-4.1-dev \
             libayatana-appindicator3-dev
-
+      - name: Get Flutter packages
+        run: flutter pub get
       - name: Analyze and test
+        if: inputs.run_tests
         run: |
-          flutter pub get
           flutter analyze
           flutter test
-
       - name: Prepare latest stable runtime resources
         run: |
           tool/prepare_backend.sh
           tool/prepare_frontend.sh
           tool/prepare_runtime.sh linux-x64
           tool/prepare_http_meta.sh linux-x64
-
       - name: Build and verify bundle
         run: |
           flutter build linux --release
           tool/verify_bundle.sh build/linux/x64/release/bundle
-
       - name: Package DEB and RPM
         run: |
           dart pub global activate fastforge 0.6.12
           fastforge package --platform linux --targets deb,rpm
-
       - uses: actions/upload-artifact@v7
         with:
           name: linux-packages
           path: dist/**
           if-no-files-found: error
-
       - name: Archive Linux bundle
         run: |
           tar --create --file build/linux/x64/release/linux-bundle.tar \
             --directory build/linux/x64/release bundle
-
       - uses: actions/upload-artifact@v7
         with:
           name: linux-bundle
           path: build/linux/x64/release/linux-bundle.tar
           if-no-files-found: error
 
-
   arch:
     needs: linux
-
-    runs-on: ubuntu-24.04
-    container: archlinux:latest
-
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
     steps:
       - uses: actions/checkout@v7
-
       - name: Install Arch packaging tools
         run: |
           pacman -Syu --noconfirm \
-            base-devel \
             gtk3 \
             webkit2gtk-4.1 \
             libayatana-appindicator
-
       - uses: actions/download-artifact@v8
         with:
           name: linux-bundle
           path: build/linux/x64/release
-
       - name: Extract Linux bundle
         run: |
           tar --extract \
             --file build/linux/x64/release/linux-bundle.tar \
             --directory build/linux/x64/release
-
       - name: Create unprivileged package builder
         run: |
           useradd --create-home builder
           chown -R builder:builder "$GITHUB_WORKSPACE"
-
       - name: Build standard Arch package
         run: su --login builder --shell /bin/sh --command "$GITHUB_WORKSPACE/tool/package_arch.sh"
-
       - uses: actions/upload-artifact@v7
         with:
           name: arch-package
           path: dist/*.pkg.tar.zst
           if-no-files-found: error
 
-
   windows:
-    runs-on: windows-2025
-
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
-
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
-
       - name: Prepare latest stable runtime resources
         shell: bash
         run: |
@@ -143,29 +114,23 @@ jobs:
           tool/prepare_frontend.sh
           tool/prepare_runtime.sh windows-x64
           tool/prepare_http_meta.sh windows-x64
-
       - name: Build and verify bundle
         shell: bash
         run: |
           flutter pub get
           flutter build windows --release
-          tool/verify_bundle.sh \
-            build/windows/x64/runner/Release \
-            windows
-
+          tool/verify_bundle.sh build/windows/x64/runner/Release windows
       - name: Package EXE
         shell: bash
         run: |
           choco install innosetup --no-progress --yes
           dart pub global activate fastforge 0.6.12
           dart pub global run fastforge:main package --platform windows --targets exe
-
       - uses: actions/upload-artifact@v7
         with:
           name: windows-exe
           path: dist/**
           if-no-files-found: error
-
 
   macos:
     strategy:
@@ -175,45 +140,34 @@ jobs:
           - runner: macos-15
             arch: arm64
             runtime: darwin-arm64
-
           - runner: macos-15-intel
             arch: x64
             runtime: darwin-x64
-
     runs-on: ${{ matrix.runner }}
-
     steps:
       - uses: actions/checkout@v7
-
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
-
       - uses: actions/setup-go@v7
         with:
           go-version: stable
           check-latest: true
-          # Shoutrrr's go.mod is cloned later, outside this checkout.
           cache: false
-
       - name: Prepare latest stable runtime resources
         run: |
           tool/prepare_backend.sh
           tool/prepare_frontend.sh
           tool/prepare_runtime.sh "${{ matrix.runtime }}"
           tool/prepare_http_meta.sh "${{ matrix.runtime }}"
-
       - name: Build and verify app
         env:
           FLUTTER_XCODE_CODE_SIGNING_ALLOWED: 'NO'
         run: |
           flutter pub get
           flutter build macos --release
-
-          app=build/macos/Build/Products/Release/SubDock.app
-          tool/verify_bundle.sh "$app/Contents/MacOS"
-
+          tool/verify_bundle.sh build/macos/Build/Products/Release/SubDock.app/Contents/MacOS
       - name: Package DMG
         env:
           FLUTTER_XCODE_CODE_SIGNING_ALLOWED: 'NO'
@@ -221,7 +175,6 @@ jobs:
           npm install --global appdmg
           dart pub global activate fastforge 0.6.12
           fastforge package --platform macos --targets dmg
-
       - uses: actions/upload-artifact@v7
         with:
           name: macos-${{ matrix.arch }}
