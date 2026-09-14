@@ -9,6 +9,10 @@ import 'package:subdock/app/app_coordinator.dart';
 import 'package:subdock/runtime/backend_runtime.dart';
 import 'package:subdock/runtime/runtime_directories.dart';
 import 'package:subdock/settings/backend_env_store.dart';
+import 'package:subdock/update/component_metadata_store.dart';
+import 'package:subdock/update/component_update_checker.dart';
+import 'package:subdock/update/component_update_service.dart';
+import 'package:subdock/update/github_release_client.dart';
 
 void main() {
   testWidgets(
@@ -145,6 +149,83 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     },
   );
+
+  testWidgets('keyboard focus reaches component update actions', (
+    tester,
+  ) async {
+    late Directory temp;
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_focus_update_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+
+    final runtime = _FocusRuntime();
+    addTearDown(runtime.dispose);
+
+    await tester.binding.setSurfaceSize(const Size(1000, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      SubDockApp(
+        coordinator: AppCoordinator(
+          runtime: runtime,
+          environmentStore: BackendEnvStore(directories!),
+          componentUpdates: _FocusComponentUpdates(),
+        ),
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('en'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
+    await tester.pumpAndSettle();
+
+    final frontendUpdateCard = find.byKey(
+      const ValueKey('settings-card-frontend-update'),
+    );
+    await tester.ensureVisible(frontendUpdateCard);
+    await tester.pumpAndSettle();
+    await tester.tap(frontendUpdateCard);
+    await tester.pumpAndSettle();
+
+    final releaseNotes = find.byKey(
+      const ValueKey('component-release-notes-frontend'),
+    );
+    final recheck = find.byKey(
+      const ValueKey('component-update-recheck-frontend'),
+    );
+    final update = find.byKey(
+      const ValueKey('component-update-action-frontend'),
+    );
+    final rollback = find.byKey(
+      const ValueKey('component-rollback-action-frontend'),
+    );
+
+    expect(releaseNotes, findsOneWidget);
+    expect(recheck, findsOneWidget);
+    expect(update, findsOneWidget);
+    expect(rollback, findsOneWidget);
+
+    expect(tester.widget<TextButton>(releaseNotes).onPressed, isNotNull);
+    expect(tester.widget<OutlinedButton>(recheck).onPressed, isNotNull);
+    expect(tester.widget<FilledButton>(update).onPressed, isNotNull);
+    expect(tester.widget<TextButton>(rollback).onPressed, isNotNull);
+
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pump();
+
+    await _tabUntilFocused(tester, releaseNotes);
+    await _tabUntilFocused(tester, recheck);
+    await _tabUntilFocused(tester, update);
+    await _tabUntilFocused(tester, rollback);
+
+    expect(tester.takeException(), isNull);
+
+    await tester.pumpWidget(const SizedBox());
+  });
 }
 
 Future<void> _tabUntilFocused(
@@ -226,4 +307,28 @@ class _FocusRuntime extends BackendRuntime {
 
   @override
   Future<void> stop() async {}
+}
+
+class _FocusComponentUpdates implements ComponentUpdateOperations {
+  @override
+  Future<ComponentVersionStatus> status(ComponentKind kind) async =>
+      const ComponentVersionStatus(current: '1.0.0', previous: '0.9.0');
+
+  @override
+  Future<ComponentUpdate> check(ComponentKind kind) async => ComponentUpdate(
+    kind: kind,
+    currentVersion: '1.0.0',
+    availableVersion: '1.1.0',
+    release: GithubRelease(
+      version: '1.1.0',
+      releaseUri: Uri.parse('https://example.invalid/${kind.name}'),
+      assets: const [],
+    ),
+  );
+
+  @override
+  Future<void> update(ComponentUpdate update) async {}
+
+  @override
+  Future<void> rollback(ComponentKind kind) async {}
 }
