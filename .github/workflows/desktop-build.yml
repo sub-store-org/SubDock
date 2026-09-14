@@ -139,9 +139,11 @@ jobs:
         include:
           - runner: macos-latest
             arch: arm64
+            mach_arch: arm64
             runtime: darwin-arm64
           - runner: macos-26-intel
             arch: x64
+            mach_arch: x86_64
             runtime: darwin-x64
     runs-on: ${{ matrix.runner }}
     steps:
@@ -168,10 +170,35 @@ jobs:
           flutter pub get
           flutter build macos --release
           tool/verify_bundle.sh build/macos/Build/Products/Release/SubDock.app/Contents/MacOS
-      - name: Verify macOS architecture
+      - name: Thin macOS bundle
+        env:
+          TARGET_ARCH: ${{ matrix.mach_arch }}
         run: |
-          file build/macos/Build/Products/Release/SubDock.app/Contents/MacOS/SubDock
-          lipo -archs build/macos/Build/Products/Release/SubDock.app/Contents/MacOS/SubDock
+          APP="build/macos/Build/Products/Release/SubDock.app"
+          while IFS= read -r -d '' file; do
+            if ! file "$file" | grep -q 'Mach-O'; then
+              continue
+            fi
+            archs="$(lipo -archs "$file" 2>/dev/null || true)"
+            case " $archs " in
+              *" $TARGET_ARCH "*)
+                ;;
+              *)
+                echo "::error file=$file::Missing required architecture $TARGET_ARCH (has: $archs)"
+                exit 1
+                ;;
+            esac
+            if [ "$archs" != "$TARGET_ARCH" ]; then
+              echo "Thinning $file: $archs -> $TARGET_ARCH"
+              lipo "$file" -thin "$TARGET_ARCH" -output "$file.thin"
+              mv "$file.thin" "$file"
+              chmod +x "$file"
+            fi
+          done < <(find "$APP" -type f -print0)
+          echo
+          echo "Main executable:"
+          file "$APP/Contents/MacOS/SubDock"
+          lipo -archs "$APP/Contents/MacOS/SubDock"
       - name: Package DMG
         env:
           FLUTTER_XCODE_CODE_SIGNING_ALLOWED: 'NO'
