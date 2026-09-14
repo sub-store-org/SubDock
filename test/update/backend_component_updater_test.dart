@@ -251,6 +251,7 @@ void main() {
       throwsStateError,
     );
     final pending = await disk.load(ComponentKind.backend, baseline: 'ignored');
+    expect(pending.baseline, '2.38.4');
     expect(pending.active, '2.39.1');
     expect(pending.previous, '2.39.0');
     expect(pending.pending?.version, '2.39.1');
@@ -270,6 +271,14 @@ void main() {
       ).exists(),
       isTrue,
     );
+    expect(
+      await File('${fixture.updater.directories.data.path}/settings.json')
+          .readAsString(),
+      'before',
+    );
+    expect(fixture.runtime.starts, 0);
+    expect(fixture.runtime.stops, 0);
+    expect(fixture.runtime.restarts, 0);
     final recovery = ComponentRecovery(
       bundleDirectory: fixture.bundle,
       dataDirectory: fixture.updater.directories.data,
