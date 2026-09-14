@@ -1288,7 +1288,31 @@ void main() {
     );
     expect(find.text('Operating system: linux'), findsOneWidget);
     expect(find.text('Architecture: x64'), findsOneWidget);
+    for (final key in [
+      'about-version',
+      'about-build-number',
+      'about-license',
+      'about-homepage',
+      'about-os',
+      'about-architecture',
+    ]) {
+      expect(find.byKey(ValueKey(key)), findsOneWidget);
+    }
+    expect(
+      find.byKey(const ValueKey('component-update-local-status-backend')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('component-update-local-status-frontend')),
+      findsNothing,
+    );
+    expect(find.text('Current version'), findsNothing);
+    expect(find.text('Previous version'), findsNothing);
     expect(find.byKey(const ValueKey('settings-child-save')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('settings-back')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('settings-appearance')), findsOneWidget);
+    expect(find.byKey(const ValueKey('settings-about-page')), findsNothing);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -1330,6 +1354,52 @@ void main() {
     );
     expect(find.textContaining('metadata failed'), findsOneWidget);
     expect(find.byKey(const ValueKey('about-version')), findsNothing);
+    expect(find.byKey(const ValueKey('settings-about-page')), findsOneWidget);
+    expect(find.byKey(const ValueKey('settings-child-save')), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('settings about page localizes Chinese labels', (tester) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    final coordinator = AppCoordinator(
+      runtime: _FakeBackendRuntime(),
+      environmentStore: BackendEnvStore(directories!),
+    );
+    await tester.pumpWidget(
+      SubDockApp(
+        coordinator: coordinator,
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('zh'),
+        aboutInfoLoader: AboutInfoLoader(
+          loadPackageMetadata: () async => (version: '1.0.0', buildNumber: '1'),
+          operatingSystem: () => 'linux',
+          architecture: () => 'x64',
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
+    await tester.pumpAndSettle();
+    await tester.drag(
+      find.byKey(const ValueKey('settings-list')),
+      const Offset(0, -500),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('关于 SubDock'));
+    await _pumpRealIo(tester);
+    for (final label in ['SubDock 版本', '构建号', '许可证', '项目主页', '操作系统', '架构']) {
+      expect(find.textContaining(label), findsOneWidget);
+    }
+    expect(find.byKey(const ValueKey('settings-child-save')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('component-update-local-status-backend')),
+      findsNothing,
+    );
     await tester.pumpWidget(const SizedBox());
   });
 
