@@ -3150,7 +3150,7 @@ class _ComponentUpdatePageState extends State<_ComponentUpdatePage> {
             _status == null
                 ? (_statusError == null
                       ? l10n.componentReadingVersion
-                      : '${l10n.componentStatusUnavailable}: $_statusError')
+                      : '${l10n.componentStatusUnavailable}: ${_localizedError(l10n, _statusError)}')
                 : '${l10n.currentVersion}: ${_status!.current}\n${l10n.previousVersion}: ${_status!.previous ?? '-'}',
             key: ValueKey('component-update-local-status-$kind'),
           ),
@@ -3160,7 +3160,7 @@ class _ComponentUpdatePageState extends State<_ComponentUpdatePage> {
           else
             Text(
               _checkError != null
-                  ? '$_checkError'
+                  ? _localizedError(l10n, _checkError)
                   : _update?.isAvailable == true
                   ? '${l10n.availableVersion}: ${_update!.availableVersion}'
                   : l10n.componentUpToDate(
@@ -3179,10 +3179,10 @@ class _ComponentUpdatePageState extends State<_ComponentUpdatePage> {
                 onPressed: _checking ? null : _check,
                 child: Text(l10n.recheck),
               ),
-              if (!_stopped && !_transitioning)
+              if (!_stopped)
                 OutlinedButton(
                   key: ValueKey('component-update-stop-$kind'),
-                  onPressed: _stop,
+                  onPressed: _transitioning ? null : _stop,
                   child: Text(l10n.stopBackend),
                 ),
               FilledButton(

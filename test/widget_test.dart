@@ -17,6 +17,7 @@ import 'package:flutter/material.dart'
         SwitchListTile,
         Theme,
         ThemeMode,
+        TextButton,
         TextField,
         ValueNotifier;
 import 'package:flutter/scheduler.dart' show AppLifecycleState;
@@ -677,6 +678,78 @@ void main() {
     );
     await _pumpRealIo(tester);
     expect(updates.checkCalls[ComponentKind.frontend], 2);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('backend update page stops a running backend', (tester) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    final runtime = _FakeBackendRuntime();
+    await runtime.start();
+    final updates = _FakeComponentUpdateOperations();
+    final coordinator = AppCoordinator(
+      runtime: runtime,
+      environmentStore: BackendEnvStore(directories!),
+      componentUpdates: updates,
+    );
+    await tester.pumpWidget(
+      SubDockApp(
+        coordinator: coordinator,
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('en'),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
+    await tester.pumpAndSettle();
+    await tester.drag(
+      find.byKey(const ValueKey('settings-list')),
+      const Offset(0, -500),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Backend Update'));
+    await _pumpRealIo(tester);
+    expect(updates.checkCalls[ComponentKind.backend], 1);
+    expect(updates.checkCalls[ComponentKind.frontend], isNull);
+    expect(
+      tester
+          .widget<FilledButton>(
+            find.byKey(const ValueKey('component-update-action-backend')),
+          )
+          .onPressed,
+      isNull,
+    );
+    expect(
+      tester
+          .widget<TextButton>(
+            find.byKey(const ValueKey('component-rollback-action-backend')),
+          )
+          .onPressed,
+      isNull,
+    );
+    expect(
+      tester
+          .widget<OutlinedButton>(
+            find.byKey(const ValueKey('component-update-stop-backend')),
+          )
+          .onPressed,
+      isNotNull,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('component-update-stop-backend')),
+    );
+    await _pumpRealIo(tester);
+    expect(runtime.stops, 1);
+    expect(
+      find.text('Backend is stopped. Component changes are available.'),
+      findsOneWidget,
+    );
+    expect(updates.updateCalls, isEmpty);
+    expect(updates.rollbackCalls, isEmpty);
     await tester.pumpWidget(const SizedBox());
   });
 
