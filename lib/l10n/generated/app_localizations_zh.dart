@@ -460,6 +460,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get rollback => '回滚';
 
   @override
+  String get viewReleaseNotes => '查看发行说明';
+
+  @override
   String get envIssueMissingPair => '缺少 KEY=VALUE';
 
   @override

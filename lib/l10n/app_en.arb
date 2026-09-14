@@ -145,6 +145,7 @@
   "checkForUpdates": "Check for updates",
   "update": "Update",
   "rollback": "Rollback",
+  "viewReleaseNotes": "View release notes",
   "envIssueMissingPair": "Missing KEY=VALUE",
   "envIssueInvalidKey": "Invalid environment variable name: {key}",
   "envIssueDuplicateKey": "Duplicate environment variable: {key}",

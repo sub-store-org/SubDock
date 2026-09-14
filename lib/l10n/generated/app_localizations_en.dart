@@ -475,6 +475,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get rollback => 'Rollback';
 
   @override
+  String get viewReleaseNotes => 'View release notes';
+
+  @override
   String get envIssueMissingPair => 'Missing KEY=VALUE';
 
   @override

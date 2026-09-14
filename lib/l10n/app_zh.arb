@@ -145,6 +145,7 @@
   "checkForUpdates": "检查更新",
   "update": "更新",
   "rollback": "回滚",
+  "viewReleaseNotes": "查看发行说明",
   "envIssueMissingPair": "缺少 KEY=VALUE",
   "envIssueInvalidKey": "环境变量名无效：{key}",
   "envIssueDuplicateKey": "环境变量重复：{key}",

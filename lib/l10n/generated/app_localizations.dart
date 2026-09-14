@@ -936,6 +936,12 @@ abstract class AppLocalizations {
   /// **'回滚'**
   String get rollback;
 
+  /// No description provided for @viewReleaseNotes.
+  ///
+  /// In zh, this message translates to:
+  /// **'查看发行说明'**
+  String get viewReleaseNotes;
+
   /// No description provided for @envIssueMissingPair.
   ///
   /// In zh, this message translates to:

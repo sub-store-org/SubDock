@@ -29,6 +29,9 @@ import 'close_request_guard.dart';
 const navigationBreakpoint = 600.0;
 final _notMaximized = ValueNotifier<bool>(false);
 
+Future<bool> _launchExternalUri(Uri uri) =>
+    launchUrl(uri, mode: LaunchMode.externalApplication);
+
 enum _AppPage { overview, manage, logs, settings }
 
 enum _SettingsSection {
@@ -72,6 +75,7 @@ class SubDockApp extends StatefulWidget {
     this.preferencesStore,
     this.onLocaleChanged,
     this.locale,
+    this.onOpenExternalUri,
   });
 
   final AppCoordinator coordinator;
@@ -95,6 +99,7 @@ class SubDockApp extends StatefulWidget {
 
   /// Initial locale override used when no saved preference selects a language.
   final Locale? locale;
+  final Future<bool> Function(Uri uri)? onOpenExternalUri;
 
   @override
   State<SubDockApp> createState() => _SubDockAppState();
@@ -481,6 +486,7 @@ class _SubDockAppState extends State<SubDockApp> {
         onPreviewLocale: _onLocaleSelected,
         onResetConfiguration: () => _run(widget.coordinator.resetConfiguration),
         onChildStateChanged: (child) => setState(() => _settingsChild = child),
+        onOpenExternalUri: widget.onOpenExternalUri ?? _launchExternalUri,
       ),
     ];
     final body = Stack(
@@ -2033,6 +2039,7 @@ class _SettingsPage extends StatefulWidget {
     required this.onPreviewLocale,
     required this.onResetConfiguration,
     required this.onChildStateChanged,
+    required this.onOpenExternalUri,
   });
 
   final BackendEnvDocument environment;
@@ -2050,6 +2057,7 @@ class _SettingsPage extends StatefulWidget {
   final Future<void> Function(Locale? locale) onPreviewLocale;
   final Future<void> Function() onResetConfiguration;
   final ValueChanged<bool> onChildStateChanged;
+  final Future<bool> Function(Uri uri) onOpenExternalUri;
 
   @override
   State<_SettingsPage> createState() => _SettingsPageState();
@@ -2962,12 +2970,14 @@ class _SettingsPageState extends State<_SettingsPage> {
                     key: const ValueKey('settings-frontend-update-page'),
                     kind: ComponentKind.frontend,
                     coordinator: widget.coordinator,
+                    onOpenExternalUri: widget.onOpenExternalUri,
                   ),
                 if (_section == _SettingsSection.backendUpdate)
                   _ComponentUpdatePage(
                     key: const ValueKey('settings-backend-update-page'),
                     kind: ComponentKind.backend,
                     coordinator: widget.coordinator,
+                    onOpenExternalUri: widget.onOpenExternalUri,
                   ),
                 if (_section == _SettingsSection.home)
                   _SettingsSectionTile(
@@ -3053,9 +3063,11 @@ class _ComponentUpdatePage extends StatefulWidget {
     super.key,
     required this.kind,
     required this.coordinator,
+    required this.onOpenExternalUri,
   });
   final ComponentKind kind;
   final AppCoordinator coordinator;
+  final Future<bool> Function(Uri uri) onOpenExternalUri;
   @override
   State<_ComponentUpdatePage> createState() => _ComponentUpdatePageState();
 }
@@ -3229,6 +3241,21 @@ class _ComponentUpdatePageState extends State<_ComponentUpdatePage> {
     }
   }
 
+  Future<void> _openReleaseNotes() async {
+    final update = _update;
+    if (update == null || !update.isAvailable) return;
+    final l10n = AppLocalizations.of(context)!;
+    try {
+      if (!await widget.onOpenExternalUri(update.release.releaseUri)) {
+        throw StateError(
+          l10n.openSystemBrowserFailed(update.release.releaseUri.toString()),
+        );
+      }
+    } catch (error) {
+      if (mounted) setState(() => _checkError = error);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -3269,6 +3296,12 @@ class _ComponentUpdatePageState extends State<_ComponentUpdatePage> {
                       _update?.currentVersion ?? _status?.current ?? '-',
                       _status?.previous ?? '-',
                     ),
+            ),
+          if (_update?.isAvailable == true)
+            TextButton(
+              key: ValueKey('component-release-notes-$kind'),
+              onPressed: busy ? null : _openReleaseNotes,
+              child: Text(l10n.viewReleaseNotes),
             ),
           if (_mutationError != null)
             Text(_localizedError(l10n, _mutationError!)),

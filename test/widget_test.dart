@@ -838,6 +838,8 @@ void main() {
   ) async {
     late Directory temp;
     addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    await tester.binding.setSurfaceSize(const Size(600, 480));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
     final directories = await tester.runAsync(() async {
       temp = await Directory.systemTemp.createTemp('subdock_widget_');
       return RuntimeDirectories.fromBaseDirectory(temp);
@@ -858,6 +860,8 @@ void main() {
         ),
       );
     final runtime = _FakeBackendRuntime();
+    final opened = <Uri>[];
+    var openResult = true;
     final coordinator = AppCoordinator(
       runtime: runtime,
       environmentStore: BackendEnvStore(directories!),
@@ -869,6 +873,10 @@ void main() {
         autoStart: false,
         enableWebView: false,
         locale: const Locale('en'),
+        onOpenExternalUri: (uri) async {
+          opened.add(uri);
+          return openResult;
+        },
       ),
     );
     await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
@@ -880,6 +888,14 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Frontend Update'));
     await _pumpRealIo(tester);
+    expect(
+      find.byKey(const ValueKey('component-release-notes-frontend')),
+      findsOneWidget,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('component-release-notes-frontend')),
+    );
+    expect(opened, [Uri.parse('https://example.invalid/frontend')]);
     await tester.tap(
       find.byKey(const ValueKey('component-update-action-frontend')),
     );
@@ -892,6 +908,10 @@ void main() {
       find.byKey(const ValueKey('component-restart-now-frontend')),
       findsOneWidget,
     );
+    expect(
+      find.byKey(const ValueKey('component-release-notes-frontend')),
+      findsNothing,
+    );
     await tester.tap(
       find.byKey(const ValueKey('component-restart-now-frontend')),
     );
@@ -903,6 +923,19 @@ void main() {
     );
     expect(updates.updateCalls, hasLength(1));
     expect(updates.rollbackCalls, isEmpty);
+    openResult = false;
+    await tester.tap(
+      find.byKey(const ValueKey('component-update-recheck-frontend')),
+    );
+    await _pumpRealIo(tester);
+    await tester.tap(
+      find.byKey(const ValueKey('component-release-notes-frontend')),
+    );
+    await _pumpRealIo(tester);
+    expect(
+      find.textContaining('system browser could not open'),
+      findsOneWidget,
+    );
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -911,6 +944,8 @@ void main() {
   ) async {
     late Directory temp;
     addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    await tester.binding.setSurfaceSize(const Size(600, 480));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
     final directories = await tester.runAsync(() async {
       temp = await Directory.systemTemp.createTemp('subdock_widget_');
       return RuntimeDirectories.fromBaseDirectory(temp);
