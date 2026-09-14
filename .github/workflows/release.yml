@@ -48,37 +48,18 @@ jobs:
         with:
           name: linux-packages
           path: dist
-          merge-multiple: true
       - uses: actions/download-artifact@v8
         with:
           name: arch-package
           path: dist
-          merge-multiple: true
       - uses: actions/download-artifact@v8
         with:
           name: windows-exe
           path: dist
-          merge-multiple: true
       - uses: actions/download-artifact@v8
         with:
           name: macos-arm64
-          path: dist/macos-arm64
-          merge-multiple: true
-      - uses: actions/download-artifact@v8
-        with:
-          name: macos-x64
-          path: dist/macos-x64
-          merge-multiple: true
-      - name: Disambiguate macOS assets
-        shell: bash
-        run: |
-          set -euo pipefail
-          for arch in arm64 x64; do
-            files=(dist/macos-$arch/*.dmg)
-            test "${#files[@]}" -eq 1
-            test -f "${files[0]}"
-            mv "${files[0]}" "dist/$(basename "${files[0]%.dmg}")-$arch.dmg"
-          done
+          path: dist
       - name: Verify release assets
         shell: bash
         run: |
