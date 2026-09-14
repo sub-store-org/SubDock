@@ -18,6 +18,7 @@ import 'package:flutter/material.dart'
         Theme,
         ThemeMode,
         TextButton,
+        Text,
         TextField,
         ValueNotifier;
 import 'package:flutter/scheduler.dart' show AppLifecycleState;
@@ -763,6 +764,70 @@ void main() {
       find.text('Backend is stopped. Component changes are available.'),
       findsOneWidget,
     );
+    expect(updates.updateCalls, isEmpty);
+    expect(updates.rollbackCalls, isEmpty);
+    await tester.tap(find.byKey(const ValueKey('settings-back')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('settings-appearance')), findsOneWidget);
+    await tester.drag(
+      find.byKey(const ValueKey('settings-list')),
+      const Offset(0, -500),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Backend Update'));
+    await _pumpRealIo(tester);
+    expect(updates.checkCalls[ComponentKind.backend], 2);
+    expect(updates.checkCalls[ComponentKind.frontend], isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('component check failure keeps local status', (tester) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    final updates = _FakeComponentUpdateOperations()
+      ..checkErrors[ComponentKind.frontend] = StateError('network failed');
+    final coordinator = AppCoordinator(
+      runtime: _FakeBackendRuntime(),
+      environmentStore: BackendEnvStore(directories!),
+      componentUpdates: updates,
+    );
+    await tester.pumpWidget(
+      SubDockApp(
+        coordinator: coordinator,
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('en'),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
+    await tester.pumpAndSettle();
+    await tester.drag(
+      find.byKey(const ValueKey('settings-list')),
+      const Offset(0, -500),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Frontend Update'));
+    await _pumpRealIo(tester);
+    expect(updates.checkCalls[ComponentKind.frontend], 1);
+    expect(updates.checkCalls[ComponentKind.backend], isNull);
+    final local = tester.widget<Text>(
+      find.byKey(const ValueKey('component-update-local-status-frontend')),
+    );
+    expect(local.data, contains('frontend-current'));
+    expect(find.textContaining('network failed'), findsOneWidget);
+    expect(
+      tester
+          .widget<OutlinedButton>(
+            find.byKey(const ValueKey('component-update-recheck-frontend')),
+          )
+          .onPressed,
+      isNotNull,
+    );
+    expect(find.byKey(const ValueKey('settings-child-save')), findsNothing);
     expect(updates.updateCalls, isEmpty);
     expect(updates.rollbackCalls, isEmpty);
     await tester.pumpWidget(const SizedBox());
