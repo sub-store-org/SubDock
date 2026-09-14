@@ -94,6 +94,7 @@ class FrontendComponentUpdater {
           .retain(ComponentKind.frontend, [version, previous]);
     } catch (_) {
       if (pendingSaved) await _rollback(prior);
+      if (await candidate.exists()) await candidate.delete(recursive: true);
       rethrow;
     } finally {
       if (await staged.exists()) await staged.delete(recursive: true);

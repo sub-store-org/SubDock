@@ -30,6 +30,16 @@ void main() {
       await fixture.metadata.load(ComponentKind.frontend, baseline: 'ignored'),
       const ComponentMetadata(baseline: '2.31.3', previous: '2.32.0'),
     );
+
+    await fixture.service.rollback(ComponentKind.frontend);
+    expect(
+      await fixture.metadata.load(ComponentKind.frontend, baseline: 'ignored'),
+      const ComponentMetadata(
+        baseline: '2.31.3',
+        active: '2.32.0',
+        previous: '2.31.3',
+      ),
+    );
   });
 
   test('rolls Backend back with the latest pre-update data backup', () async {
@@ -59,6 +69,22 @@ void main() {
     expect(
       await fixture.metadata.load(ComponentKind.backend, baseline: 'ignored'),
       const ComponentMetadata(baseline: '2.38.4', previous: '2.39.0'),
+    );
+
+    await _write(fixture.directories.data, 'settings.json', 'new-again');
+    await fixture.metadata.save(
+      ComponentKind.backend,
+      const ComponentMetadata(
+        baseline: '2.38.4',
+        active: '2.39.0',
+        previous: '2.38.4',
+      ),
+    );
+    await fixture.service.rollback(ComponentKind.backend);
+    expect(
+      await File('${fixture.directories.data.path}/settings.json')
+          .readAsString(),
+      'old',
     );
   });
 }

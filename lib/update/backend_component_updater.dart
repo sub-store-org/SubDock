@@ -121,6 +121,7 @@ class BackendComponentUpdater {
       if (await candidate.exists()) {
         await candidate.delete(recursive: true);
       }
+      await backups.discard(backupId);
     } catch (_) {
       // Preserve pending metadata so startup recovery can retry safely.
       rethrow;

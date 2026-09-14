@@ -111,8 +111,8 @@ class ComponentUpdateService implements ComponentUpdateOperations {
       },
     );
     final target = metadata.previous;
-    final active = metadata.active;
-    if (target == null || active == null) {
+    final active = metadata.active ?? metadata.baseline;
+    if (target == null) {
       throw StateError('No previous ${kind.name} component is available');
     }
     if (kind == ComponentKind.backend) {
@@ -155,11 +155,18 @@ class ComponentUpdateService implements ComponentUpdateOperations {
         ),
       );
       await _storage.retain(ComponentKind.backend, [target, active]);
+      await _backups.discard(safetyBackup);
     } catch (_) {
       // Do the same recovery immediately. If this itself fails, leave pending
       // metadata intact so startup recovery can safely retry it.
-      await _backups.restore(safetyBackup, _directories.data);
-      await _metadataStore.save(ComponentKind.backend, metadata);
+      var recovered = false;
+      try {
+        await _backups.restore(safetyBackup, _directories.data);
+        await _metadataStore.save(ComponentKind.backend, metadata);
+        recovered = true;
+      } finally {
+        if (recovered) await _backups.discard(safetyBackup);
+      }
       rethrow;
     }
   }

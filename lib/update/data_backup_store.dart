@@ -101,6 +101,16 @@ class DataBackupStore {
     }
   }
 
+  Future<void> discard(String backupId) async {
+    if (!_idPattern.hasMatch(backupId)) {
+      throw ArgumentError.value(backupId, 'backupId');
+    }
+    final backup = Directory.fromUri(
+      backupsDirectory.uri.resolve('$backupId/'),
+    );
+    if (await backup.exists()) await backup.delete(recursive: true);
+  }
+
   Future<void> _copyDirectory(Directory source, Directory destination) async {
     await destination.create(recursive: true);
     await restrictDirectoryToCurrentUser(destination);
