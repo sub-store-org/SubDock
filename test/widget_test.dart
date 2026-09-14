@@ -965,12 +965,19 @@ void main() {
     final updateCount = updates.updateCalls.length;
     final rollbackCount = updates.rollbackCalls.length;
     final restartCount = runtime.restarts;
+    final openedCount = opened.length;
     await tester.tap(
       find.byKey(const ValueKey('component-release-notes-frontend')),
     );
     await _pumpRealIo(tester);
     expect(
       find.textContaining('system browser could not open'),
+      findsOneWidget,
+    );
+    expect(opened, hasLength(openedCount + 1));
+    expect(opened.last, Uri.parse('https://example.invalid/frontend'));
+    expect(
+      find.byKey(const ValueKey('component-update-local-status-frontend')),
       findsOneWidget,
     );
     expect(find.textContaining('Current version: 1.1.0'), findsOneWidget);
