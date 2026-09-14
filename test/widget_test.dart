@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart'
     show
+        AxisDirection,
         Brightness,
         DropdownButton,
         FilterChip,
@@ -230,7 +231,21 @@ void main() {
     );
     await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('SubDock 配置').first);
+    final subDockConfigCard = find.byKey(
+      const ValueKey('settings-card-subdock-config'),
+    );
+    final settingsScrollable = find.descendant(
+      of: find.byKey(const ValueKey('settings-list')),
+      matching: find.byWidgetPredicate(
+        (widget) =>
+            widget is Scrollable && widget.axisDirection == AxisDirection.down,
+      ),
+    );
+    expect(settingsScrollable, findsOneWidget);
+    await tester.drag(settingsScrollable, const Offset(0, -260));
+    await tester.pumpAndSettle();
+    expect(subDockConfigCard, findsOneWidget);
+    await tester.tap(subDockConfigCard);
     await tester.pumpAndSettle();
     final httpMetaSwitch = find.widgetWithText(SwitchListTile, '启用 HTTP-META');
     await tester.ensureVisible(httpMetaSwitch);
@@ -2220,15 +2235,13 @@ void main() {
     final close = tester.getRect(
       find.byKey(const ValueKey('settings-close-behavior')),
     );
-    final preset = tester.getRect(
-      find.byKey(const ValueKey('settings-recent-log-presets')),
-    );
     final limit = tester.getRect(
       find.byKey(const ValueKey('settings-recent-log-limit')),
     );
-    expect(preset.top, greaterThan(close.bottom));
-    expect(limit.top, greaterThan(preset.bottom));
-    expect((close.left - preset.left).abs(), lessThan(1));
+    expect(
+      find.byKey(const ValueKey('settings-recent-log-presets')),
+      findsNothing,
+    );
     expect((close.left - limit.left).abs(), lessThan(1));
 
     await tester.binding.setSurfaceSize(const Size(1000, 700));
@@ -2236,14 +2249,10 @@ void main() {
     final wideClose = tester.getRect(
       find.byKey(const ValueKey('settings-close-behavior')),
     );
-    final widePreset = tester.getRect(
-      find.byKey(const ValueKey('settings-recent-log-presets')),
-    );
     final wideLimit = tester.getRect(
       find.byKey(const ValueKey('settings-recent-log-limit')),
     );
-    expect((wideClose.center.dy - widePreset.center.dy).abs(), lessThan(4));
-    expect((wideClose.center.dy - wideLimit.center.dy).abs(), lessThan(4));
+    expect(wideLimit.top, greaterThan(wideClose.bottom));
     expect(find.byKey(const ValueKey('settings-save-all')), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());

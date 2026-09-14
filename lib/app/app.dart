@@ -2658,9 +2658,8 @@ class _SettingsPageState extends State<_SettingsPage> {
                             style: TextStyle(color: colors.error),
                           ),
                         SizedBox(height: typography.spacingSm),
-                        Wrap(
-                          spacing: typography.spacingLg,
-                          runSpacing: typography.spacingSm,
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             SegmentedButton<ThemeMode>(
                               key: const ValueKey('settings-theme-mode'),
@@ -2692,8 +2691,9 @@ class _SettingsPageState extends State<_SettingsPage> {
                                 );
                               },
                             ),
+                            SizedBox(height: typography.spacingMd),
                             SizedBox(
-                              width: 220,
+                              width: 260,
                               child: DropdownButton<String>(
                                 key: const ValueKey('settings-language'),
                                 isExpanded: true,
@@ -2730,117 +2730,57 @@ class _SettingsPageState extends State<_SettingsPage> {
                           ],
                         ),
                         SizedBox(height: typography.spacingMd),
-                        LayoutBuilder(
-                          builder: (context, constraints) {
-                            const fieldWidthWide = 220.0;
-                            const presetWidthWide = 180.0;
-                            const limitWidthWide = 260.0;
-                            final threeColumnWidth =
-                                fieldWidthWide +
-                                presetWidthWide +
-                                limitWidthWide +
-                                typography.spacingMd * 2;
-                            final stacked =
-                                constraints.maxWidth < threeColumnWidth;
-                            final fieldWidth = stacked
-                                ? constraints.maxWidth
-                                : fieldWidthWide;
-                            final presetWidth = stacked
-                                ? constraints.maxWidth
-                                : presetWidthWide;
-                            final limitWidth = stacked
-                                ? constraints.maxWidth
-                                : limitWidthWide;
-                            return Wrap(
-                              spacing: typography.spacingMd,
-                              runSpacing: typography.spacingMd,
-                              crossAxisAlignment: WrapCrossAlignment.center,
-                              children: [
-                                SizedBox(
-                                  width: fieldWidth,
-                                  child: DropdownButton<CloseBehavior>(
-                                    key: const ValueKey(
-                                      'settings-close-behavior',
-                                    ),
-                                    isExpanded: true,
-                                    value: _generalCloseBehavior,
-                                    items: [
-                                      DropdownMenuItem(
-                                        value: CloseBehavior.exitApp,
-                                        child: Text(l10n.exitApp),
-                                      ),
-                                      DropdownMenuItem(
-                                        value: CloseBehavior.closeToTray,
-                                        child: Text(l10n.closeToTray),
-                                      ),
-                                    ],
-                                    onChanged: (value) {
-                                      if (value != null) {
-                                        setState(() {
-                                          _generalCloseBehavior = value;
-                                          _generalRevision++;
-                                        });
-                                      }
-                                    },
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            SizedBox(
+                              width: 300,
+                              child: DropdownButton<CloseBehavior>(
+                                key: const ValueKey('settings-close-behavior'),
+                                isExpanded: true,
+                                value: _generalCloseBehavior,
+                                items: [
+                                  DropdownMenuItem(
+                                    value: CloseBehavior.exitApp,
+                                    child: Text(l10n.exitApp),
                                   ),
-                                ),
-                                SizedBox(
-                                  width: presetWidth,
-                                  child: DropdownButton<int>(
-                                    key: const ValueKey(
-                                      'settings-recent-log-presets',
-                                    ),
-                                    isExpanded: true,
-                                    value:
-                                        const [
-                                          100,
-                                          200,
-                                          500,
-                                          1000,
-                                          2000,
-                                        ].contains(_parsedRecentLogLimit)
-                                        ? _parsedRecentLogLimit
-                                        : null,
-                                    hint: Text(l10n.recentLogPresets),
-                                    items: [
-                                      for (final value in const [
-                                        100,
-                                        200,
-                                        500,
-                                        1000,
-                                        2000,
-                                      ])
-                                        DropdownMenuItem(
-                                          value: value,
-                                          child: Text('$value'),
-                                        ),
-                                    ],
-                                    onChanged: (value) {
-                                      if (value != null) {
-                                        _recentLogLimit.text = '$value';
-                                        setState(() => _generalRevision++);
-                                      }
-                                    },
+                                  DropdownMenuItem(
+                                    value: CloseBehavior.closeToTray,
+                                    child: Text(l10n.closeToTray),
                                   ),
+                                ],
+                                onChanged: (value) {
+                                  if (value != null) {
+                                    setState(() {
+                                      _generalCloseBehavior = value;
+                                      _generalRevision++;
+                                    });
+                                  }
+                                },
+                              ),
+                            ),
+                            SizedBox(height: typography.spacingLg),
+                            Text(
+                              l10n.recentLogs,
+                              style: typography.titleMedium,
+                            ),
+                            SizedBox(height: typography.spacingSm),
+                            SizedBox(
+                              width: 300,
+                              child: TextField(
+                                key: const ValueKey(
+                                  'settings-recent-log-limit',
                                 ),
-                                SizedBox(
-                                  width: limitWidth,
-                                  child: TextField(
-                                    key: const ValueKey(
-                                      'settings-recent-log-limit',
-                                    ),
-                                    controller: _recentLogLimit,
-                                    keyboardType: TextInputType.number,
-                                    decoration: InputDecoration(
-                                      labelText: l10n.recentLogs,
-                                    ),
-                                    onChanged: (_) =>
-                                        setState(() => _generalRevision++),
-                                  ),
+                                controller: _recentLogLimit,
+                                keyboardType: TextInputType.number,
+                                decoration: InputDecoration(
+                                  labelText: l10n.recentLogs,
                                 ),
-                              ],
-                            );
-                          },
+                                onChanged: (_) =>
+                                    setState(() => _generalRevision++),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
