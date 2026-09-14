@@ -12,7 +12,7 @@ import 'package:subdock/settings/backend_env_store.dart';
 
 void main() {
   testWidgets(
-    'keyboard focus reaches window chrome and Settings fixed actions',
+    'keyboard focus reaches window chrome, Logs controls, and Settings actions',
     (tester) async {
       late Directory temp;
       final directories = await tester.runAsync(() async {
@@ -58,6 +58,33 @@ void main() {
       await _tabUntilFocused(tester, minimize);
       await _tabUntilFocused(tester, maximize);
       await _tabUntilFocused(tester, close);
+
+      await tester.tap(find.byKey(const ValueKey('nav-item-logs')));
+      await tester.pumpAndSettle();
+
+      final currentMode = find.ancestor(
+        of: find.text('Current'),
+        matching: find.byType(TextButton),
+      );
+      final backendSource = find.byKey(const ValueKey('logs-source-Backend'));
+      final warningLevel = find.byKey(const ValueKey('logs-level-warning'));
+      final newestFirst = find.ancestor(
+        of: find.text('Newest first'),
+        matching: find.byType(TextButton),
+      );
+
+      expect(currentMode, findsOneWidget);
+      expect(backendSource, findsOneWidget);
+      expect(warningLevel, findsOneWidget);
+      expect(newestFirst, findsOneWidget);
+
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pump();
+
+      await _tabUntilFocused(tester, currentMode);
+      await _tabUntilFocused(tester, backendSource);
+      await _tabUntilFocused(tester, warningLevel);
+      await _tabUntilFocused(tester, newestFirst);
 
       await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
       await tester.pumpAndSettle();
