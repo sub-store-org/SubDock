@@ -131,17 +131,27 @@ class ComponentUpdateService implements ComponentUpdateOperations {
     if (available.isEmpty) {
       throw StateError('No Backend data backup is available for rollback');
     }
-    final targetBackup = available.last;
     // This snapshot lets pending recovery return to the current component if
     // the rollback itself is interrupted.
     final safetyBackup = await _backups.create(_directories.data);
+    final targetBackup = (await _backups.list())
+        .where((backup) => backup != safetyBackup)
+        .lastOrNull;
+    if (targetBackup == null) {
+      await _backups.discard(safetyBackup);
+      throw StateError('No Backend data backup is available for rollback');
+    }
     await _metadataStore.save(
       ComponentKind.backend,
       ComponentMetadata(
         baseline: metadata.baseline,
         active: target == metadata.baseline ? null : target,
         previous: active,
-        pending: ComponentPending(version: target, backupId: safetyBackup),
+        pending: ComponentPending(
+          version: target,
+          backupId: safetyBackup,
+          operation: ComponentPendingOperation.rollback,
+        ),
       ),
     );
     try {
@@ -155,7 +165,7 @@ class ComponentUpdateService implements ComponentUpdateOperations {
         ),
       );
       await _storage.retain(ComponentKind.backend, [target, active]);
-      await _backups.discard(safetyBackup);
+      await _backups.discard(targetBackup);
     } catch (_) {
       // Do the same recovery immediately. If this itself fails, leave pending
       // metadata intact so startup recovery can safely retry it.

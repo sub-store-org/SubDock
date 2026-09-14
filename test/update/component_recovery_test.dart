@@ -90,6 +90,46 @@ void main() {
       );
     },
   );
+
+  test(
+    'recovers an interrupted Backend rollback to the packaged baseline',
+    () async {
+      await _write(data, 'settings.json', 'baseline');
+      final target = await backups.create(data);
+      await _write(data, 'settings.json', 'downloaded');
+      final safety = await backups.create(data);
+      await _write(data, 'settings.json', 'partially-restored');
+      await metadata.save(
+        ComponentKind.backend,
+        ComponentMetadata(
+          baseline: '2.38.4',
+          previous: '2.39.0',
+          pending: ComponentPending(
+            version: '2.38.4',
+            backupId: safety,
+            operation: ComponentPendingOperation.rollback,
+          ),
+        ),
+      );
+
+      expect(await recovery.recoverPending(), isTrue);
+
+      expect(
+        await File('${data.path}/settings.json').readAsString(),
+        'downloaded',
+      );
+      expect(
+        await metadata.load(ComponentKind.backend, baseline: 'ignored'),
+        const ComponentMetadata(
+          baseline: '2.38.4',
+          active: '2.39.0',
+          previous: '2.38.4',
+        ),
+      );
+      expect(await backups.list(), contains(target));
+      expect(await backups.list(), isNot(contains(safety)));
+    },
+  );
 }
 
 Future<void> _write(Directory root, String path, String value) async {

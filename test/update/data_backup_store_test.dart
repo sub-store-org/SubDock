@@ -72,6 +72,16 @@ void main() {
     );
     expect(await Directory('${temp.path}/staging').list().isEmpty, isTrue);
   });
+
+  test('uses distinct ids for back-to-back backups', () async {
+    await _write(data, 'settings.json', 'first');
+    final first = await store.create(data);
+    await _write(data, 'settings.json', 'second');
+    final second = await store.create(data);
+
+    expect(second, isNot(first));
+    expect(await store.list(), containsAll(<String>[first, second]));
+  });
 }
 
 Future<void> _write(Directory root, String path, String value) async {

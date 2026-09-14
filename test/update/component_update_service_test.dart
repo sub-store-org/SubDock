@@ -84,7 +84,7 @@ void main() {
     expect(
       await File('${fixture.directories.data.path}/settings.json')
           .readAsString(),
-      'old',
+      'new',
     );
   });
 }

@@ -40,6 +40,9 @@ class ComponentRecovery {
       }
       await dataBackups.restore(backupId, dataDirectory);
       await metadataStore.save(ComponentKind.backend, _rollBack(backend));
+      if (pending.operation == ComponentPendingOperation.rollback) {
+        await dataBackups.discard(backupId);
+      }
     }
     if (frontend.pending != null) {
       await metadataStore.save(ComponentKind.frontend, _rollBack(frontend));
@@ -48,13 +51,13 @@ class ComponentRecovery {
   }
 
   ComponentMetadata _rollBack(ComponentMetadata metadata) {
-    if (metadata.active == null || metadata.previous == null) {
+    if (metadata.previous == null) {
       throw StateError('Pending component metadata has no rollback target');
     }
     return ComponentMetadata(
       baseline: metadata.baseline,
       active: metadata.previous == metadata.baseline ? null : metadata.previous,
-      previous: metadata.active,
+      previous: metadata.active ?? metadata.baseline,
     );
   }
 }

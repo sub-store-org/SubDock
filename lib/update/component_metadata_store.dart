@@ -6,23 +6,44 @@ import '../settings/config_error.dart';
 
 enum ComponentKind { backend, frontend }
 
+enum ComponentPendingOperation { update, rollback }
+
 class ComponentPending {
-  const ComponentPending({required this.version, this.backupId});
+  const ComponentPending({
+    required this.version,
+    this.backupId,
+    this.operation = ComponentPendingOperation.update,
+  });
 
   final String version;
   final String? backupId;
+  final ComponentPendingOperation operation;
 
-  Map<String, String> toJson() => {'version': version, 'backupId': ?backupId};
+  Map<String, String> toJson() => {
+    'version': version,
+    'backupId': ?backupId,
+    'operation': operation.name,
+  };
 
   factory ComponentPending.fromJson(Object? value) {
+    final operation = value is Map ? value['operation'] : null;
     if (value is! Map ||
         value['version'] is! String ||
-        (value['backupId'] != null && value['backupId'] is! String)) {
+        (value['backupId'] != null && value['backupId'] is! String) ||
+        (operation != null &&
+            (operation is! String ||
+                !ComponentPendingOperation.values.any(
+                  (item) => item.name == operation,
+                )))) {
       throw const AppConfigError(AppConfigErrorCode.pendingMetadataInvalid);
     }
     return ComponentPending(
       version: value['version'] as String,
       backupId: value['backupId'] as String?,
+      operation: ComponentPendingOperation.values.firstWhere(
+        (item) => item.name == operation,
+        orElse: () => ComponentPendingOperation.update,
+      ),
     );
   }
 
@@ -30,10 +51,11 @@ class ComponentPending {
   bool operator ==(Object other) =>
       other is ComponentPending &&
       other.version == version &&
-      other.backupId == backupId;
+      other.backupId == backupId &&
+      other.operation == operation;
 
   @override
-  int get hashCode => Object.hash(version, backupId);
+  int get hashCode => Object.hash(version, backupId, operation);
 }
 
 class ComponentMetadata {

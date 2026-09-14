@@ -29,9 +29,15 @@ class DataBackupStore {
       restrictDirectoryToCurrentUser(backupsDirectory),
       restrictDirectoryToCurrentUser(stagingDirectory),
     ]);
-    final id = '$_prefix${DateTime.now().microsecondsSinceEpoch}-$pid';
+    var timestamp = DateTime.now().microsecondsSinceEpoch;
+    String id;
+    Directory target;
+    do {
+      id = '$_prefix$timestamp-$pid';
+      target = Directory.fromUri(backupsDirectory.uri.resolve('$id/'));
+      timestamp++;
+    } while (await target.exists());
     final staging = Directory.fromUri(stagingDirectory.uri.resolve('$id/'));
-    final target = Directory.fromUri(backupsDirectory.uri.resolve('$id/'));
     try {
       await _copyDirectory(dataDirectory, staging);
       await staging.rename(target.path);
