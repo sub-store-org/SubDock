@@ -144,6 +144,28 @@ void main() {
         throwsStateError,
       );
       expect(fixture.downloads.calls, 0);
+      expect(
+        await fixture.updater.metadataStore.load(
+          ComponentKind.backend,
+          baseline: '2.38.4',
+        ),
+        const ComponentMetadata(baseline: '2.38.4'),
+      );
+      expect(
+        await File('${fixture.updater.directories.data.path}/settings.json')
+            .readAsString(),
+        'guard-data',
+      );
+      expect(await fixture.updater.backups.list(), isEmpty);
+      expect(
+        await Directory(
+          '${fixture.updater.directories.components.path}/backend/2.39.0',
+        ).exists(),
+        isFalse,
+      );
+      expect(fixture.runtime.starts, 0);
+      expect(fixture.runtime.stops, 0);
+      expect(fixture.runtime.restarts, 0);
     }
   });
 
@@ -190,39 +212,73 @@ void main() {
       fixture.updater.update(_release('2.39.0')),
       throwsStateError,
     );
+    final disk = ComponentMetadataStore(fixture.updater.directories.components);
     expect(
-      (await ComponentMetadataStore(
-        fixture.updater.directories.components,
-      ).load(ComponentKind.backend, baseline: 'ignored')).pending,
-      isNull,
+      await disk.load(ComponentKind.backend, baseline: 'ignored'),
+      const ComponentMetadata(baseline: '2.38.4'),
     );
+    expect(
+      await File('${fixture.updater.directories.data.path}/settings.json')
+          .readAsString(),
+      'before',
+    );
+    expect(
+      await Directory(
+        '${fixture.updater.directories.components.path}/backend/2.39.0',
+      ).exists(),
+      isFalse,
+    );
+    expect(await fixture.updater.backups.list(), isEmpty);
+    expect(fixture.runtime.starts, 0);
+    expect(fixture.runtime.stops, 0);
+    expect(fixture.runtime.restarts, 0);
     store.failOn = {};
     store.reset();
     await fixture.updater.update(_release('2.39.0'));
+    expect(
+      await disk.load(ComponentKind.backend, baseline: 'ignored'),
+      const ComponentMetadata(
+        baseline: '2.38.4',
+        active: '2.39.0',
+        previous: '2.38.4',
+      ),
+    );
+    final committedBackups = await fixture.updater.backups.list();
     store.failOn = {2, 3};
     store.reset();
     await expectLater(
       fixture.updater.update(_release('2.39.1')),
       throwsStateError,
     );
-    final pending = await ComponentMetadataStore(
-      fixture.updater.directories.components,
-    ).load(ComponentKind.backend, baseline: 'ignored');
+    final pending = await disk.load(ComponentKind.backend, baseline: 'ignored');
+    expect(pending.active, '2.39.1');
+    expect(pending.previous, '2.39.0');
+    expect(pending.pending?.version, '2.39.1');
     expect(pending.pending?.operation, ComponentPendingOperation.update);
+    final pendingBackup = pending.pending!.backupId!;
+    expect(
+      await fixture.updater.backups.list(),
+      containsAll([...committedBackups, pendingBackup]),
+    );
     final recovery = ComponentRecovery(
       bundleDirectory: fixture.bundle,
       dataDirectory: fixture.updater.directories.data,
-      metadataStore: ComponentMetadataStore(
-        fixture.updater.directories.components,
-      ),
+      metadataStore: disk,
       dataBackups: fixture.updater.backups,
     );
     await recovery.recoverPending();
-    final recovered = await ComponentMetadataStore(
-      fixture.updater.directories.components,
-    ).load(ComponentKind.backend, baseline: 'ignored');
-    expect(recovered.pending, isNull);
-    expect(recovered.active, '2.39.0');
+    final recovered = await disk.load(
+      ComponentKind.backend,
+      baseline: 'ignored',
+    );
+    expect(
+      recovered,
+      const ComponentMetadata(
+        baseline: '2.38.4',
+        active: '2.39.0',
+        previous: '2.39.1',
+      ),
+    );
     expect(
       await File('${fixture.updater.directories.data.path}/settings.json')
           .readAsString(),
@@ -234,6 +290,13 @@ void main() {
       ).exists(),
       isTrue,
     );
+    expect(
+      await fixture.updater.backups.list(),
+      containsAll([...committedBackups, pendingBackup]),
+    );
+    expect(fixture.runtime.starts, 0);
+    expect(fixture.runtime.stops, 0);
+    expect(fixture.runtime.restarts, 0);
   });
 }
 
@@ -255,12 +318,14 @@ Future<_BackendFixture> _backendFixture({
   final directories = await RuntimeDirectories.fromBaseDirectory(
     Directory.fromUri(root.uri.resolve('application-support/')),
   );
+  await _write(directories.data, 'settings.json', 'guard-data');
   final metadata = failOn == null
       ? ComponentMetadataStore(directories.components)
       : _FailOnSaveMetadataStore(directories.components, failOn: failOn);
   final downloads = _CountingDownloads();
+  final runtime = _FakeRuntime(status: status);
   final updater = BackendComponentUpdater(
-    runtime: _FakeRuntime(status: status),
+    runtime: runtime,
     directories: directories,
     metadataStore: metadata,
     resources: ComponentResourceResolver(
@@ -274,7 +339,7 @@ Future<_BackendFixture> _backendFixture({
       stagingDirectory: directories.staging,
     ),
   );
-  return _BackendFixture(root, bundle, updater, downloads);
+  return _BackendFixture(root, bundle, updater, downloads, runtime);
 }
 
 GithubRelease _release(String version) => GithubRelease(
@@ -331,6 +396,7 @@ class _FakeRuntime extends BackendRuntime {
   final RuntimeStatus status;
   var restarts = 0;
   var stops = 0;
+  var starts = 0;
   @override
   RuntimeState get currentState =>
       RuntimeState(status: status, changedAt: DateTime.now());
@@ -351,17 +417,24 @@ class _FakeRuntime extends BackendRuntime {
   @override
   Future<void> restart() async => restarts++;
   @override
-  Future<void> start() async {}
+  Future<void> start() async => starts++;
   @override
   Future<void> stop() async => stops++;
 }
 
 class _BackendFixture {
-  const _BackendFixture(this.root, this.bundle, this.updater, this.downloads);
+  const _BackendFixture(
+    this.root,
+    this.bundle,
+    this.updater,
+    this.downloads,
+    this.runtime,
+  );
   final Directory root;
   final Directory bundle;
   final BackendComponentUpdater updater;
   final _CountingDownloads downloads;
+  final _FakeRuntime runtime;
 }
 
 class _FailOnSaveMetadataStore extends ComponentMetadataStore {

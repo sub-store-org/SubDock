@@ -102,6 +102,25 @@ void main() {
         throwsStateError,
       );
       expect(fixture.downloads.calls, 0);
+      expect(
+        await fixture.metadata.load(ComponentKind.frontend, baseline: '2.31.3'),
+        const ComponentMetadata(baseline: '2.31.3'),
+      );
+      expect(
+        await File('${fixture.directories.data.path}/settings.json')
+            .readAsString(),
+        'guard-data',
+      );
+      expect(await fixture.directories.backups.list().toList(), isEmpty);
+      expect(
+        await Directory(
+          '${fixture.directories.components.path}/frontend/2.32.0',
+        ).exists(),
+        isFalse,
+      );
+      expect(fixture.runtime.starts, 0);
+      expect(fixture.runtime.stops, 0);
+      expect(fixture.runtime.restarts, 0);
     }
   });
 
@@ -151,6 +170,10 @@ void main() {
       final pending = await ComponentMetadataStore(
         fixture.directories.components,
       ).load(ComponentKind.frontend, baseline: 'ignored');
+      expect(pending.baseline, '2.31.3');
+      expect(pending.active, '2.32.0');
+      expect(pending.previous, '2.31.3');
+      expect(pending.pending?.version, '2.32.0');
       expect(pending.pending?.operation, ComponentPendingOperation.update);
       expect(
         await Directory(
@@ -158,6 +181,14 @@ void main() {
         ).exists(),
         isTrue,
       );
+      expect(
+        await File('${fixture.directories.data.path}/settings.json')
+            .readAsString(),
+        'guard-data',
+      );
+      expect(await fixture.directories.backups.list().toList(), isEmpty);
+      expect(fixture.runtime.starts, 0);
+      expect(fixture.runtime.stops, 0);
 
       await ComponentRecovery(
         bundleDirectory: fixture.bundle,
@@ -171,8 +202,10 @@ void main() {
       final recovered = await ComponentMetadataStore(
         fixture.directories.components,
       ).load(ComponentKind.frontend, baseline: 'ignored');
-      expect(recovered.pending, isNull);
-      expect(recovered.active, isNull);
+      expect(
+        recovered,
+        const ComponentMetadata(baseline: '2.31.3', previous: '2.32.0'),
+      );
     },
   );
 
@@ -185,20 +218,35 @@ void main() {
       fixture.updater.update(_release('2.32.0')),
       throwsStateError,
     );
+    final disk = ComponentMetadataStore(fixture.directories.components);
+    expect(
+      await disk.load(ComponentKind.frontend, baseline: 'ignored'),
+      const ComponentMetadata(baseline: '2.31.3'),
+    );
     expect(
       await Directory('${fixture.directories.components.path}/frontend/2.32.0')
           .exists(),
       isFalse,
     );
+    expect(
+      await File('${fixture.directories.data.path}/settings.json')
+          .readAsString(),
+      'guard-data',
+    );
+    expect(await fixture.directories.backups.list().toList(), isEmpty);
+    expect(fixture.runtime.starts, 0);
+    expect(fixture.runtime.stops, 0);
+    expect(fixture.runtime.restarts, 0);
     store.failOn.clear();
     store.reset();
     await fixture.updater.update(_release('2.32.0'));
     expect(
-      (await fixture.metadata.load(
-        ComponentKind.frontend,
-        baseline: 'ignored',
-      )).active,
-      '2.32.0',
+      await disk.load(ComponentKind.frontend, baseline: 'ignored'),
+      const ComponentMetadata(
+        baseline: '2.31.3',
+        active: '2.32.0',
+        previous: '2.31.3',
+      ),
     );
   });
 }
@@ -226,6 +274,7 @@ Future<_Fixture> _fixture({
   final directories = await RuntimeDirectories.fromBaseDirectory(
     Directory.fromUri(root.uri.resolve('application-support/')),
   );
+  await _write(directories.data, 'settings.json', 'guard-data');
   final metadata = failOn == null
       ? ComponentMetadataStore(directories.components)
       : _FailOnSaveMetadataStore(directories.components, failOn: failOn);
@@ -302,6 +351,8 @@ class _FakeRuntime extends BackendRuntime {
   final bool healthy;
   final RuntimeStatus status;
   var restarts = 0;
+  var starts = 0;
+  var stops = 0;
 
   @override
   RuntimeState get currentState =>
@@ -323,9 +374,9 @@ class _FakeRuntime extends BackendRuntime {
   @override
   Future<void> restart() async => restarts++;
   @override
-  Future<void> start() async {}
+  Future<void> start() async => starts++;
   @override
-  Future<void> stop() async {}
+  Future<void> stop() async => stops++;
 }
 
 class _Fixture {
