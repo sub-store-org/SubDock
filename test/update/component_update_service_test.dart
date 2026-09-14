@@ -87,9 +87,45 @@ void main() {
       'new',
     );
   });
+
+  test(
+    'rejects every non-stopped component mutation before reading state',
+    () async {
+      for (final status in const [
+        RuntimeStatus.starting,
+        RuntimeStatus.running,
+        RuntimeStatus.stopping,
+        RuntimeStatus.unhealthy,
+        RuntimeStatus.crashed,
+      ]) {
+        final fixture = await _fixture(status: status);
+        addTearDown(fixture.dispose);
+        const metadata = ComponentMetadata(
+          baseline: '2.31.3',
+          active: '2.32.0',
+          previous: '2.31.3',
+        );
+        await fixture.metadata.save(ComponentKind.frontend, metadata);
+
+        await expectLater(
+          fixture.service.rollback(ComponentKind.frontend),
+          throwsStateError,
+        );
+        expect(
+          await fixture.metadata.load(
+            ComponentKind.frontend,
+            baseline: 'ignored',
+          ),
+          metadata,
+        );
+      }
+    },
+  );
 }
 
-Future<_Fixture> _fixture() async {
+Future<_Fixture> _fixture({
+  RuntimeStatus status = RuntimeStatus.stopped,
+}) async {
   final root = await Directory.systemTemp.createTemp('subdock_update_service_');
   final bundle = Directory.fromUri(root.uri.resolve('bundle/'));
   await _write(bundle, 'data/backend/version', '2.38.4\n');
@@ -109,7 +145,7 @@ Future<_Fixture> _fixture() async {
     backupsDirectory: directories.backups,
     stagingDirectory: directories.staging,
   );
-  final runtime = _FakeRuntime();
+  final runtime = _FakeRuntime(status: status);
   final service = ComponentUpdateService(
     runtime: runtime,
     directories: directories,
@@ -135,12 +171,15 @@ class _FakeDownloads implements GithubReleaseDownloader {
 }
 
 class _FakeRuntime extends BackendRuntime {
+  _FakeRuntime({this.status = RuntimeStatus.stopped});
+
+  final RuntimeStatus status;
   var restarts = 0;
   var stops = 0;
 
   @override
   RuntimeState get currentState =>
-      RuntimeState(status: RuntimeStatus.stopped, changedAt: DateTime.now());
+      RuntimeState(status: status, changedAt: DateTime.now());
   @override
   Uri get endpoint => Uri.parse('http://127.0.0.1:3001');
   @override
