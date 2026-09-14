@@ -2011,22 +2011,39 @@ String _formatDuration(RuntimeLogRun run) {
 
 class _SettingsSectionTile extends StatelessWidget {
   const _SettingsSectionTile({
+    super.key,
+    required this.icon,
     required this.title,
     required this.subtitle,
     required this.onTap,
   });
 
+  final IconData icon;
   final String title;
   final String subtitle;
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => ListTile(
-    title: Text(title),
-    subtitle: Text(subtitle),
-    trailing: const Icon(Icons.chevron_right),
-    onTap: onTap,
-  );
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<AppColors>()!;
+    final typography = Theme.of(context).extension<AppTypography>()!;
+    return Material(
+      color: colors.surfaceLow,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(typography.radiusMd),
+        side: BorderSide(color: colors.divider),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: ListTile(
+        contentPadding: EdgeInsets.all(typography.spacingMd),
+        leading: Icon(icon, color: colors.accent),
+        title: Text(title, style: typography.titleMedium),
+        subtitle: Text(subtitle, style: typography.bodySmall),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: onTap,
+      ),
+    );
+  }
 }
 
 enum _LeaveDecision { save, discard, cancel }
@@ -2679,6 +2696,7 @@ class _SettingsPageState extends State<_SettingsPage> {
                             ),
                           ],
                         ),
+                        SizedBox(height: typography.spacingMd),
                         DropdownButton<CloseBehavior>(
                           key: const ValueKey('settings-close-behavior'),
                           value: _generalCloseBehavior,
@@ -2701,6 +2719,7 @@ class _SettingsPageState extends State<_SettingsPage> {
                             }
                           },
                         ),
+                        SizedBox(height: typography.spacingMd),
                         DropdownButton<int>(
                           key: const ValueKey('settings-recent-log-presets'),
                           value:
@@ -2734,6 +2753,7 @@ class _SettingsPageState extends State<_SettingsPage> {
                             }
                           },
                         ),
+                        SizedBox(height: typography.spacingMd),
                         TextField(
                           key: const ValueKey('settings-recent-log-limit'),
                           controller: _recentLogLimit,
@@ -2746,40 +2766,99 @@ class _SettingsPageState extends State<_SettingsPage> {
                       ],
                     ),
                   ),
-                  _SettingsSectionTile(
-                    title: l10n.subdockConfigHeading,
-                    subtitle: _configurationDirty
-                        ? '${l10n.enableHttpMetaSubtitle} (${l10n.unsaved})'
-                        : l10n.enableHttpMetaSubtitle,
-                    onTap: () =>
-                        unawaited(_openSection(_SettingsSection.subDockConfig)),
-                  ),
-                  _SettingsSectionTile(
-                    title: l10n.backendConfigHeading,
-                    subtitle: _backendDirty
-                        ? '${l10n.apiFieldsSummary} (${l10n.unsaved})'
-                        : l10n.apiFieldsSummary,
-                    onTap: () =>
-                        unawaited(_openSection(_SettingsSection.backendConfig)),
-                  ),
-                  _SettingsSectionTile(
-                    title: l10n.frontendUpdate,
-                    subtitle: l10n.frontendUpdateSubtitle,
-                    onTap: () => unawaited(
-                      _openSection(_SettingsSection.frontendUpdate),
-                    ),
-                  ),
-                  _SettingsSectionTile(
-                    title: l10n.backendUpdate,
-                    subtitle: l10n.backendUpdateSubtitle,
-                    onTap: () =>
-                        unawaited(_openSection(_SettingsSection.backendUpdate)),
-                  ),
-                  _SettingsSectionTile(
-                    title: l10n.aboutSubDock,
-                    subtitle: l10n.aboutSubDockSubtitle,
-                    onTap: () =>
-                        unawaited(_openSection(_SettingsSection.about)),
+                  SizedBox(height: typography.spacingLg),
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final width = constraints.maxWidth >= 720
+                          ? (constraints.maxWidth - typography.spacingMd) / 2
+                          : constraints.maxWidth;
+                      return Wrap(
+                        key: const ValueKey('settings-section-grid'),
+                        spacing: typography.spacingMd,
+                        runSpacing: typography.spacingMd,
+                        children: [
+                          SizedBox(
+                            width: width,
+                            child: _SettingsSectionTile(
+                              icon: Icons.tune,
+                              key: const ValueKey(
+                                'settings-card-subdock-config',
+                              ),
+                              title: l10n.subdockConfigHeading,
+                              subtitle: _configurationDirty
+                                  ? '${l10n.enableHttpMetaSubtitle} (${l10n.unsaved})'
+                                  : l10n.enableHttpMetaSubtitle,
+                              onTap: () => unawaited(
+                                _openSection(_SettingsSection.subDockConfig),
+                              ),
+                            ),
+                          ),
+                          SizedBox(
+                            width: width,
+                            child: _SettingsSectionTile(
+                              icon: Icons.dns_outlined,
+                              key: const ValueKey(
+                                'settings-card-backend-config',
+                              ),
+                              title: l10n.backendConfigHeading,
+                              subtitle: _backendDirty
+                                  ? '${l10n.apiFieldsSummary} (${l10n.unsaved})'
+                                  : l10n.apiFieldsSummary,
+                              onTap: () => unawaited(
+                                _openSection(_SettingsSection.backendConfig),
+                              ),
+                            ),
+                          ),
+                          SizedBox(
+                            width: width,
+                            child: _SettingsSectionTile(
+                              icon: Icons.web_asset_outlined,
+                              title: l10n.frontendUpdate,
+                              subtitle: l10n.frontendUpdateSubtitle,
+                              onTap: () => unawaited(
+                                _openSection(_SettingsSection.frontendUpdate),
+                              ),
+                            ),
+                          ),
+                          SizedBox(
+                            width: width,
+                            child: _SettingsSectionTile(
+                              icon: Icons.system_update_alt,
+                              title: l10n.backendUpdate,
+                              subtitle: l10n.backendUpdateSubtitle,
+                              onTap: () => unawaited(
+                                _openSection(_SettingsSection.backendUpdate),
+                              ),
+                            ),
+                          ),
+                          SizedBox(
+                            width: width,
+                            child: _SettingsSectionTile(
+                              icon: Icons.terminal,
+                              title: l10n.advancedRawEnv,
+                              subtitle: _dirty
+                                  ? '${l10n.advancedRawEnvSubtitle} (${l10n.unsaved})'
+                                  : l10n.advancedRawEnvSubtitle,
+                              onTap: () => unawaited(
+                                _openSection(_SettingsSection.advancedEnv),
+                              ),
+                            ),
+                          ),
+                          SizedBox(
+                            width: width,
+                            child: _SettingsSectionTile(
+                              icon: Icons.info_outline,
+                              key: const ValueKey('settings-card-about'),
+                              title: l10n.aboutSubDock,
+                              subtitle: l10n.aboutSubDockSubtitle,
+                              onTap: () => unawaited(
+                                _openSection(_SettingsSection.about),
+                              ),
+                            ),
+                          ),
+                        ],
+                      );
+                    },
                   ),
                 ],
                 SizedBox(height: typography.spacingLg),
@@ -2855,6 +2934,7 @@ class _SettingsPageState extends State<_SettingsPage> {
                             ),
                           ),
                         ),
+                        SizedBox(height: typography.spacingMd),
                         TextField(
                           controller: _port,
                           keyboardType: TextInputType.number,
@@ -2872,6 +2952,7 @@ class _SettingsPageState extends State<_SettingsPage> {
                             ),
                           ),
                         ),
+                        SizedBox(height: typography.spacingMd),
                         DropdownButtonFormField<_NullableBoolDraft>(
                           key: ValueKey('settings-merge-mode-$_mergeDraft'),
                           initialValue: _mergeDraft,
@@ -2902,6 +2983,7 @@ class _SettingsPageState extends State<_SettingsPage> {
                             });
                           },
                         ),
+                        SizedBox(height: typography.spacingMd),
                         TextField(
                           controller: _path,
                           decoration: InputDecoration(
@@ -2915,6 +2997,7 @@ class _SettingsPageState extends State<_SettingsPage> {
                             ),
                           ),
                         ),
+                        SizedBox(height: typography.spacingMd),
                         TextField(
                           controller: _cors,
                           decoration: InputDecoration(
@@ -2998,15 +3081,6 @@ class _SettingsPageState extends State<_SettingsPage> {
                   _AboutPage(
                     key: const ValueKey('settings-about-page'),
                     loader: widget.aboutInfoLoader,
-                  ),
-                if (_section == _SettingsSection.home)
-                  _SettingsSectionTile(
-                    title: l10n.advancedRawEnv,
-                    subtitle: _dirty
-                        ? '${l10n.advancedRawEnvSubtitle} (${l10n.unsaved})'
-                        : l10n.advancedRawEnvSubtitle,
-                    onTap: () =>
-                        unawaited(_openSection(_SettingsSection.advancedEnv)),
                   ),
               ],
             ),

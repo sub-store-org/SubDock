@@ -13,6 +13,7 @@ import 'package:flutter/material.dart'
         NavigationBar,
         OutlinedButton,
         SelectableText,
+        Scrollable,
         SegmentedButton,
         SwitchListTile,
         Theme,
@@ -1276,7 +1277,17 @@ void main() {
       const Offset(0, -500),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('About SubDock'));
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('settings-card-about')),
+      -200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.drag(
+      find.byKey(const ValueKey('settings-list')),
+      const Offset(0, -160),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('settings-card-about')));
     await _pumpRealIo(tester);
     expect(find.byKey(const ValueKey('settings-about-page')), findsOneWidget);
     expect(find.text('SubDock version: 1.2.3'), findsOneWidget);
@@ -1346,7 +1357,17 @@ void main() {
       const Offset(0, -500),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('About SubDock'));
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('settings-card-about')),
+      -200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.drag(
+      find.byKey(const ValueKey('settings-list')),
+      const Offset(0, -160),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('settings-card-about')));
     await _pumpRealIo(tester);
     expect(
       find.textContaining('Application information unavailable'),

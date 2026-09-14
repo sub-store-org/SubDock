@@ -242,12 +242,22 @@ class DesktopBackendRuntime implements BackendRuntime {
       }
       final metaProcess = _httpMetaProcess;
       if (metaProcess != null) {
+        var terminated = false;
         try {
           await _terminate(metaProcess);
-        } on Object {
-          // Preserve the backend startup failure.
+          terminated = true;
+        } on Object catch (cleanupError) {
+          _httpMetaStatus = HttpMetaStatus.degraded;
+          _httpMetaMessage = 'Unable to stop HTTP-META: $cleanupError';
         }
-        if (identical(_httpMetaProcess, metaProcess)) _httpMetaProcess = null;
+        if (terminated) {
+          if (identical(_httpMetaProcess, metaProcess)) {
+            _httpMetaProcess = null;
+          }
+          _closeHttpMetaClient();
+          _httpMetaStatus = HttpMetaStatus.stopped;
+          _httpMetaMessage = null;
+        }
       }
       _closeHttpClient();
       Object? finalizationError;
@@ -782,7 +792,18 @@ class DesktopBackendRuntime implements BackendRuntime {
   String? _environmentValue(String key) =>
       _userEnvironment[key] ?? Platform.environment[key];
 
-  Uri _apiUrl() => endpoint.replace(path: 'api/utils/env');
+  Uri _apiUrl() {
+    final backendPrefixEnabled =
+        _environmentValue('SUB_STORE_BACKEND_PREFIX')?.isNotEmpty ?? false;
+    final pathAppliesToBackend =
+        _environmentValue(BackendEnvPolicy.merge) != 'false' ||
+        backendPrefixEnabled;
+    final configuredPath = pathAppliesToBackend
+        ? _environmentValue(BackendEnvPolicy.frontendBackendPath) ?? '/'
+        : '/';
+    final prefix = configuredPath == '/' ? '' : configuredPath;
+    return endpoint.replace(path: '$prefix/api/utils/env');
+  }
 
   File get _runtimeNode => File.fromUri(
     _bundleDirectory.uri.resolve('data/runtime/${_profile.nodeFileName}'),

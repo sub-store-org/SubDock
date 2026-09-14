@@ -1,6 +1,14 @@
 const http = require('node:http');
 
 const mode = process.env.TEST_BACKEND_MODE || 'healthy';
+const mergeEnabled = process.env.SUB_STORE_BACKEND_MERGE !== 'false';
+const backendPrefixEnabled = Boolean(process.env.SUB_STORE_BACKEND_PREFIX);
+const configuredPath = process.env.SUB_STORE_FRONTEND_BACKEND_PATH === '/'
+  ? ''
+  : process.env.SUB_STORE_FRONTEND_BACKEND_PATH || '';
+const frontendBackendPath = mergeEnabled || backendPrefixEnabled
+  ? configuredPath
+  : '';
 
 console.log('fixture stdout');
 console.error('fixture stderr');
@@ -11,7 +19,7 @@ if (mode === 'crash') {
 } else {
   let keepAlive;
   const server = http.createServer((request, response) => {
-    if (request.url !== '/api/utils/env') {
+    if (request.url !== `${frontendBackendPath}/api/utils/env`) {
       response.statusCode = 404;
       response.end();
       return;

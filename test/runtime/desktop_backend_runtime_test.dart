@@ -7,6 +7,7 @@ import 'package:subdock/runtime/backend_runtime.dart';
 import 'package:subdock/runtime/desktop_backend_runtime.dart';
 import 'package:subdock/runtime/runtime_directories.dart';
 import 'package:subdock/runtime/runtime_log_store.dart';
+import 'package:subdock/settings/backend_env.dart';
 import 'package:subdock/update/component_metadata_store.dart';
 
 void main() {
@@ -232,6 +233,28 @@ void main() {
         logs.map((log) => log.message),
         contains('data path:${runtime.directories.data.path}'),
       );
+    });
+
+    test('health checks honor the configured frontend backend path', () async {
+      await runtime.activateUserEnvironment({
+        BackendEnvPolicy.frontendBackendPath: '/subdock',
+      });
+
+      await runtime.start();
+
+      expect(await runtime.isHealthy(), isTrue);
+      expect((await runtime.info()).backendVersion, 'fixture-backend');
+    });
+
+    test('health checks Backend root for a standalone Frontend', () async {
+      await runtime.activateUserEnvironment({
+        BackendEnvPolicy.merge: 'false',
+        BackendEnvPolicy.frontendBackendPath: '/subdock',
+      });
+
+      await runtime.start();
+
+      expect(await runtime.isHealthy(), isTrue);
     });
 
     test(
