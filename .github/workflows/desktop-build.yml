@@ -164,6 +164,6 @@ jobs:
             '
       - uses: actions/upload-artifact@v7
         with:
-          name: macos-${{ matrix.arch }}
+          name: macos-dmg
           path: dist/**
           if-no-files-found: error
