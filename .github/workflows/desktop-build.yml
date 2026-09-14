@@ -133,19 +133,7 @@ jobs:
           if-no-files-found: error
 
   macos:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: macos-latest
-            arch: arm64
-            mach_arch: arm64
-            runtime: darwin-arm64
-          - runner: macos-26-intel
-            arch: x64
-            mach_arch: x86_64
-            runtime: darwin-x64
-    runs-on: ${{ matrix.runner }}
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
@@ -161,51 +149,22 @@ jobs:
         run: |
           tool/prepare_backend.sh
           tool/prepare_frontend.sh
-          tool/prepare_runtime.sh "${{ matrix.runtime }}"
-          tool/prepare_http_meta.sh "${{ matrix.runtime }}"
-      - name: Build and verify app
-        env:
-          FLUTTER_XCODE_CODE_SIGNING_ALLOWED: 'NO'
-        run: |
-          flutter pub get
-          flutter build macos --release
-          tool/verify_bundle.sh build/macos/Build/Products/Release/SubDock.app/Contents/MacOS
-      - name: Thin macOS bundle
-        env:
-          TARGET_ARCH: ${{ matrix.mach_arch }}
-        run: |
-          APP="build/macos/Build/Products/Release/SubDock.app"
-          while IFS= read -r -d '' file; do
-            if ! file "$file" | grep -q 'Mach-O'; then
-              continue
-            fi
-            archs="$(lipo -archs "$file" 2>/dev/null || true)"
-            case " $archs " in
-              *" $TARGET_ARCH "*)
-                ;;
-              *)
-                echo "::error file=$file::Missing required architecture $TARGET_ARCH (has: $archs)"
-                exit 1
-                ;;
-            esac
-            if [ "$archs" != "$TARGET_ARCH" ]; then
-              echo "Thinning $file: $archs -> $TARGET_ARCH"
-              lipo "$file" -thin "$TARGET_ARCH" -output "$file.thin"
-              mv "$file.thin" "$file"
-              chmod +x "$file"
-            fi
-          done < <(find "$APP" -type f -print0)
-          echo
-          echo "Main executable:"
-          file "$APP/Contents/MacOS/SubDock"
-          lipo -archs "$APP/Contents/MacOS/SubDock"
+          tool/prepare_runtime.sh "darwin-arm64"
+          tool/prepare_http_meta.sh "darwin-arm64"
       - name: Package DMG
         env:
           FLUTTER_XCODE_CODE_SIGNING_ALLOWED: 'NO'
+          TARGET_ARCH: arm64
         run: |
           npm install --global appdmg
           dart pub global activate fastforge 0.6.12
-          fastforge package --platform macos --targets dmg
+          fastforge package \
+            --platform macos \
+            --targets dmg \
+            --hook-pre '
+              tool/verify_bundle.sh "$BUILD_OUTPUT_DIRECTORY/SubDock.app/Contents/MacOS" &&
+              tool/thin_macos_bundle.sh "$BUILD_OUTPUT_DIRECTORY/SubDock.app" "$TARGET_ARCH"
+            '
       - uses: actions/upload-artifact@v7
         with:
           name: macos-${{ matrix.arch }}
