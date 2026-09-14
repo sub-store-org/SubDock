@@ -2577,6 +2577,77 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
+  testWidgets('600x480 backend update page keeps back reachable', (
+    tester,
+  ) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+
+    final updates = _FakeComponentUpdateOperations()
+      ..statuses[ComponentKind.backend] = const ComponentVersionStatus(
+        current: '2.0.0',
+        previous: '1.0.0',
+      );
+
+    await tester.binding.setSurfaceSize(const Size(600, 480));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      SubDockApp(
+        coordinator: AppCoordinator(
+          runtime: _FakeBackendRuntime(),
+          environmentStore: BackendEnvStore(directories!),
+          componentUpdates: updates,
+        ),
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('en'),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
+    await tester.pumpAndSettle();
+
+    await tester.drag(
+      find.byKey(const ValueKey('settings-list')),
+      const Offset(0, -500),
+    );
+    await tester.pumpAndSettle();
+
+    final backendCard = find.byKey(
+      const ValueKey('settings-card-backend-update'),
+    );
+    expect(backendCard, findsOneWidget);
+    await tester.ensureVisible(backendCard);
+    await tester.pumpAndSettle();
+    final backendTile = find.descendant(
+      of: backendCard,
+      matching: find.byType(InkWell),
+    );
+    expect(backendTile, findsOneWidget);
+    await tester.tap(backendTile);
+    await _pumpRealIo(tester);
+
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const ValueKey('settings-back')), findsOneWidget);
+    expect(find.byKey(const ValueKey('settings-child-save')), findsNothing);
+
+    final back = find.byKey(const ValueKey('settings-back'));
+    final settingsList = find.byKey(const ValueKey('settings-list'));
+    expect(settingsList, findsOneWidget);
+    await tester.drag(settingsList, const Offset(0, 600));
+    await tester.pumpAndSettle();
+    expect(tester.getCenter(back).dy, greaterThan(0));
+    await tester.tap(back);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('settings-appearance')), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('changing the theme previews without saving to the store', (
     WidgetTester tester,
   ) async {
