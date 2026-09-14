@@ -25,6 +25,50 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settings => 'Settings';
 
   @override
+  String get frontendUpdate => 'Frontend Update';
+
+  @override
+  String get frontendUpdateSubtitle =>
+      'Check and manage the installed Frontend component';
+
+  @override
+  String get backendUpdate => 'Backend Update';
+
+  @override
+  String get backendUpdateSubtitle =>
+      'Check and manage the installed Backend component';
+
+  @override
+  String get recheck => 'Recheck';
+
+  @override
+  String get currentVersion => 'Current version';
+
+  @override
+  String get previousVersion => 'Previous version';
+
+  @override
+  String get availableVersion => 'Available version';
+
+  @override
+  String get componentStatusUnavailable => 'Installed version unavailable';
+
+  @override
+  String get backendMustBeStopped =>
+      'Stop Backend before updating or rolling back components.';
+
+  @override
+  String get backendTransitioning =>
+      'Waiting for Backend to reach a stable state.';
+
+  @override
+  String get backendStoppedForUpdates =>
+      'Backend is stopped. Component changes are available.';
+
+  @override
+  String get stopBackend => 'Stop Backend';
+
+  @override
   String get start => 'Start';
 
   @override

@@ -25,6 +25,45 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settings => '设置';
 
   @override
+  String get frontendUpdate => '前端更新';
+
+  @override
+  String get frontendUpdateSubtitle => '检查和管理已安装的前端组件';
+
+  @override
+  String get backendUpdate => '后端更新';
+
+  @override
+  String get backendUpdateSubtitle => '检查和管理已安装的后端组件';
+
+  @override
+  String get recheck => '重新检查';
+
+  @override
+  String get currentVersion => '当前版本';
+
+  @override
+  String get previousVersion => '上一版本';
+
+  @override
+  String get availableVersion => '可用版本';
+
+  @override
+  String get componentStatusUnavailable => '无法读取已安装版本';
+
+  @override
+  String get backendMustBeStopped => '更新或回滚组件前，请先停止 Backend。';
+
+  @override
+  String get backendTransitioning => '正在等待 Backend 进入稳定状态。';
+
+  @override
+  String get backendStoppedForUpdates => 'Backend 已停止，可以更改组件。';
+
+  @override
+  String get stopBackend => '停止 Backend';
+
+  @override
   String get start => '启动';
 
   @override

@@ -36,6 +36,7 @@ import 'package:subdock/settings/desktop_preferences_store.dart';
 import 'package:subdock/settings/subdock_config_store.dart';
 import 'package:subdock/update/component_metadata_store.dart';
 import 'package:subdock/update/component_update_checker.dart';
+import 'package:subdock/update/github_release_client.dart';
 import 'package:subdock/update/component_update_service.dart';
 
 void main() {
@@ -631,6 +632,51 @@ void main() {
       frontendStatusCalls + 1,
     );
     expect(updates.checkCalls, isEmpty);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('component update pages check independently', (tester) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    final updates = _FakeComponentUpdateOperations();
+    final coordinator = AppCoordinator(
+      runtime: _FakeBackendRuntime(),
+      environmentStore: BackendEnvStore(directories!),
+      componentUpdates: updates,
+    );
+    await tester.pumpWidget(
+      SubDockApp(
+        coordinator: coordinator,
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('en'),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
+    await tester.pumpAndSettle();
+    await tester.drag(
+      find.byKey(const ValueKey('settings-list')),
+      const Offset(0, -500),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Frontend Update'));
+    await _pumpRealIo(tester);
+    expect(updates.checkCalls[ComponentKind.frontend], 1);
+    expect(updates.checkCalls[ComponentKind.backend], isNull);
+    expect(
+      find.byKey(const ValueKey('component-update-local-status-frontend')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('settings-child-save')), findsNothing);
+    await tester.tap(
+      find.byKey(const ValueKey('component-update-recheck-frontend')),
+    );
+    await _pumpRealIo(tester);
+    expect(updates.checkCalls[ComponentKind.frontend], 2);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -1518,6 +1564,10 @@ class _FakeBackendRuntime extends BackendRuntime {
 class _FakeComponentUpdateOperations implements ComponentUpdateOperations {
   final statusCalls = <ComponentKind, int>{};
   final checkCalls = <ComponentKind, int>{};
+  final checkResults = <ComponentKind, ComponentUpdate>{};
+  final checkErrors = <ComponentKind, Object>{};
+  final updateCalls = <ComponentUpdate>[];
+  final rollbackCalls = <ComponentKind>[];
 
   @override
   Future<ComponentVersionStatus> status(ComponentKind kind) async {
@@ -1531,12 +1581,24 @@ class _FakeComponentUpdateOperations implements ComponentUpdateOperations {
   @override
   Future<ComponentUpdate> check(ComponentKind kind) async {
     checkCalls[kind] = (checkCalls[kind] ?? 0) + 1;
-    throw StateError('check should not be called');
+    final error = checkErrors[kind];
+    if (error != null) throw error;
+    return checkResults[kind] ??
+        ComponentUpdate(
+          kind: kind,
+          currentVersion: '1.0.0',
+          availableVersion: '1.0.0',
+          release: GithubRelease(
+            version: '1.0.0',
+            releaseUri: Uri.parse('https://example.invalid/${kind.name}'),
+            assets: const [],
+          ),
+        );
   }
 
   @override
-  Future<void> rollback(ComponentKind kind) async {}
+  Future<void> rollback(ComponentKind kind) async => rollbackCalls.add(kind);
 
   @override
-  Future<void> update(ComponentUpdate update) async {}
+  Future<void> update(ComponentUpdate update) async => updateCalls.add(update);
 }

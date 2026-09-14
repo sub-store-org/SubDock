@@ -31,7 +31,14 @@ final _notMaximized = ValueNotifier<bool>(false);
 
 enum _AppPage { overview, manage, logs, settings }
 
-enum _SettingsSection { home, subDockConfig, backendConfig, advancedEnv }
+enum _SettingsSection {
+  home,
+  subDockConfig,
+  backendConfig,
+  frontendUpdate,
+  backendUpdate,
+  advancedEnv,
+}
 
 enum _NullableBoolDraft { inherit, enabled, disabled }
 
@@ -2075,10 +2082,6 @@ class _SettingsPageState extends State<_SettingsPage> {
   SubDockBackendConfig? _pendingBackendSave;
   late _NullableBoolDraft _mergeDraft;
   var _httpMetaEnabled = true;
-  final _componentUpdates = <ComponentKind, ComponentUpdate>{};
-  final _componentStatuses = <ComponentKind, ComponentVersionStatus>{};
-  final _componentErrors = <ComponentKind, Object?>{};
-  final _componentBusy = <ComponentKind>{};
 
   @override
   void initState() {
@@ -2098,7 +2101,6 @@ class _SettingsPageState extends State<_SettingsPage> {
     _recentLogLimit.text = '$_generalRecentLogLimit';
     _syncControllers();
     _syncConfiguration();
-    unawaited(_loadComponentStatuses());
   }
 
   @override
@@ -2472,90 +2474,6 @@ class _SettingsPageState extends State<_SettingsPage> {
         false;
   }
 
-  Future<void> _checkComponent(ComponentKind kind) async {
-    setState(() {
-      _componentBusy.add(kind);
-      _componentErrors.remove(kind);
-    });
-    try {
-      final update = await widget.coordinator.checkComponent(kind);
-      if (mounted) setState(() => _componentUpdates[kind] = update);
-    } catch (error) {
-      if (mounted) setState(() => _componentErrors[kind] = error);
-    } finally {
-      if (mounted) setState(() => _componentBusy.remove(kind));
-    }
-  }
-
-  Future<void> _loadComponentStatuses() async {
-    for (final kind in ComponentKind.values) {
-      try {
-        final status = await widget.coordinator.componentStatus(kind);
-        if (mounted) setState(() => _componentStatuses[kind] = status);
-      } catch (_) {
-        // The check button surfaces platform or resource errors explicitly.
-      }
-    }
-  }
-
-  Future<void> _applyComponent(ComponentUpdate update) async {
-    final l10n = AppLocalizations.of(context)!;
-    final kind = update.kind;
-    setState(() {
-      _componentBusy.add(kind);
-      _componentErrors.remove(kind);
-    });
-    try {
-      await widget.coordinator.updateComponent(update);
-      if (mounted) {
-        setState(() {
-          _componentUpdates.remove(kind);
-          _componentStatuses[kind] = ComponentVersionStatus(
-            current: update.availableVersion,
-            previous: update.currentVersion,
-          );
-          _componentErrors[kind] = l10n.componentUpdatedTo(
-            update.availableVersion,
-          );
-        });
-      }
-    } catch (error) {
-      if (mounted) setState(() => _componentErrors[kind] = error);
-    } finally {
-      if (mounted) setState(() => _componentBusy.remove(kind));
-    }
-  }
-
-  Future<void> _rollbackComponent(ComponentKind kind) async {
-    final l10n = AppLocalizations.of(context)!;
-    setState(() {
-      _componentBusy.add(kind);
-      _componentErrors.remove(kind);
-    });
-    try {
-      await widget.coordinator.rollbackComponent(kind);
-      if (mounted) {
-        setState(() {
-          _componentUpdates.remove(kind);
-          final previous = _componentStatuses[kind]?.current;
-          if (previous != null) {
-            _componentStatuses[kind] = ComponentVersionStatus(
-              current:
-                  _componentStatuses[kind]?.previous ??
-                  l10n.componentPackageVersion,
-              previous: previous,
-            );
-          }
-          _componentErrors[kind] = l10n.componentRolledBack;
-        });
-      }
-    } catch (error) {
-      if (mounted) setState(() => _componentErrors[kind] = error);
-    } finally {
-      if (mounted) setState(() => _componentBusy.remove(kind));
-    }
-  }
-
   Future<bool> requestLeave() async {
     await _waitForPendingSaves();
     if (!mounted) return true;
@@ -2827,6 +2745,19 @@ class _SettingsPageState extends State<_SettingsPage> {
                     onTap: () =>
                         unawaited(_openSection(_SettingsSection.backendConfig)),
                   ),
+                  _SettingsSectionTile(
+                    title: l10n.frontendUpdate,
+                    subtitle: l10n.frontendUpdateSubtitle,
+                    onTap: () => unawaited(
+                      _openSection(_SettingsSection.frontendUpdate),
+                    ),
+                  ),
+                  _SettingsSectionTile(
+                    title: l10n.backendUpdate,
+                    subtitle: l10n.backendUpdateSubtitle,
+                    onTap: () =>
+                        unawaited(_openSection(_SettingsSection.backendUpdate)),
+                  ),
                 ],
                 SizedBox(height: typography.spacingLg),
                 if (_section == _SettingsSection.subDockConfig) ...[
@@ -3026,33 +2957,17 @@ class _SettingsPageState extends State<_SettingsPage> {
                     ),
                   ),
                 SizedBox(height: typography.spacingLg),
-                if (_section == _SettingsSection.home)
-                  _SurfacePanel(
-                    key: const ValueKey('settings-component-updates'),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          l10n.componentUpdatesHeading,
-                          style: typography.titleMedium,
-                        ),
-                        SizedBox(height: typography.spacingSm),
-                        for (final kind in ComponentKind.values)
-                          _ComponentCard(
-                            kind: kind,
-                            status: _componentStatuses[kind],
-                            update: _componentUpdates[kind],
-                            error: _componentErrors[kind],
-                            busy: _componentBusy.contains(kind),
-                            onCheck: () => _checkComponent(kind),
-                            onUpdate: _componentUpdates[kind] == null
-                                ? null
-                                : () =>
-                                      _applyComponent(_componentUpdates[kind]!),
-                            onRollback: () => _rollbackComponent(kind),
-                          ),
-                      ],
-                    ),
+                if (_section == _SettingsSection.frontendUpdate)
+                  _ComponentUpdatePage(
+                    key: const ValueKey('settings-frontend-update-page'),
+                    kind: ComponentKind.frontend,
+                    coordinator: widget.coordinator,
+                  ),
+                if (_section == _SettingsSection.backendUpdate)
+                  _ComponentUpdatePage(
+                    key: const ValueKey('settings-backend-update-page'),
+                    kind: ComponentKind.backend,
+                    coordinator: widget.coordinator,
                   ),
                 if (_section == _SettingsSection.home)
                   _SettingsSectionTile(
@@ -3095,7 +3010,9 @@ class _SettingsPageState extends State<_SettingsPage> {
               ),
             ),
           ),
-        if (_section != _SettingsSection.home)
+        if (_section == _SettingsSection.subDockConfig ||
+            _section == _SettingsSection.backendConfig ||
+            _section == _SettingsSection.advancedEnv)
           SafeArea(
             top: false,
             child: Padding(
@@ -3117,6 +3034,8 @@ class _SettingsPageState extends State<_SettingsPage> {
                       _dirty && BackendEnvPolicy.validate(_document).isEmpty
                           ? _save
                           : null,
+                    _SettingsSection.frontendUpdate => null,
+                    _SettingsSection.backendUpdate => null,
                     _SettingsSection.home => null,
                   },
                   child: Text(l10n.save),
@@ -3129,90 +3048,153 @@ class _SettingsPageState extends State<_SettingsPage> {
   }
 }
 
-class _ComponentCard extends StatelessWidget {
-  const _ComponentCard({
+class _ComponentUpdatePage extends StatefulWidget {
+  const _ComponentUpdatePage({
+    super.key,
     required this.kind,
-    required this.status,
-    required this.update,
-    required this.error,
-    required this.busy,
-    required this.onCheck,
-    required this.onUpdate,
-    required this.onRollback,
+    required this.coordinator,
   });
-
   final ComponentKind kind;
-  final ComponentVersionStatus? status;
-  final ComponentUpdate? update;
-  final Object? error;
-  final bool busy;
-  final VoidCallback onCheck;
-  final VoidCallback? onUpdate;
-  final VoidCallback onRollback;
+  final AppCoordinator coordinator;
+  @override
+  State<_ComponentUpdatePage> createState() => _ComponentUpdatePageState();
+}
+
+class _ComponentUpdatePageState extends State<_ComponentUpdatePage> {
+  ComponentVersionStatus? _status;
+  ComponentUpdate? _update;
+  Object? _statusError;
+  Object? _checkError;
+  var _checking = false;
+  late RuntimeState _runtimeState;
+  StreamSubscription<RuntimeState>? _runtimeSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _runtimeState = widget.coordinator.runtime.currentState;
+    _runtimeSubscription = widget.coordinator.runtime.state.listen((state) {
+      if (mounted) setState(() => _runtimeState = state);
+    });
+    unawaited(_loadStatus());
+    unawaited(_check());
+  }
+
+  @override
+  void dispose() {
+    _runtimeSubscription?.cancel();
+    super.dispose();
+  }
+
+  bool get _stopped => _runtimeState.status == RuntimeStatus.stopped;
+  bool get _transitioning =>
+      _runtimeState.status == RuntimeStatus.starting ||
+      _runtimeState.status == RuntimeStatus.stopping;
+  Future<void> _loadStatus() async {
+    try {
+      final status = await widget.coordinator.componentStatus(widget.kind);
+      if (mounted) {
+        setState(() {
+          _status = status;
+          _statusError = null;
+        });
+      }
+    } catch (error) {
+      if (mounted) setState(() => _statusError = error);
+    }
+  }
+
+  Future<void> _check() async {
+    if (_checking) return;
+    setState(() {
+      _checking = true;
+      _checkError = null;
+    });
+    try {
+      final update = await widget.coordinator.checkComponent(widget.kind);
+      if (mounted) setState(() => _update = update);
+    } catch (error) {
+      if (mounted) setState(() => _checkError = error);
+    } finally {
+      if (mounted) setState(() => _checking = false);
+    }
+  }
+
+  Future<void> _stop() async {
+    try {
+      await widget.coordinator.stop();
+    } catch (error) {
+      if (mounted) setState(() => _checkError = error);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).extension<AppColors>()!;
-    final typography = Theme.of(context).extension<AppTypography>()!;
     final l10n = AppLocalizations.of(context)!;
-    final name = kind == ComponentKind.backend ? 'Backend' : 'Frontend';
-    final text = update == null
-        ? status == null
-              ? l10n.componentReadingVersion
-              : l10n.componentCurrentWithPrevious(
-                  status!.current,
-                  status!.previous ?? '-',
-                )
-        : update!.isAvailable
-        ? l10n.componentUpdateAvailable(
-            update!.availableVersion,
-            update!.currentVersion,
-            status?.previous ?? '-',
-          )
-        : l10n.componentUpToDate(
-            update!.currentVersion,
-            status?.previous ?? '-',
-          );
-    return Padding(
-      padding: EdgeInsets.symmetric(vertical: typography.spacingSm),
+    final kind = widget.kind.name;
+    final title = widget.kind == ComponentKind.frontend
+        ? l10n.frontendUpdate
+        : l10n.backendUpdate;
+    final gate = _stopped
+        ? l10n.backendStoppedForUpdates
+        : _transitioning
+        ? l10n.backendTransitioning
+        : l10n.backendMustBeStopped;
+    return _SurfacePanel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(name, style: typography.titleMedium),
-          SizedBox(height: typography.spacingXs),
-          Text(text),
-          if (error != null) ...[
-            SizedBox(height: typography.spacingXs),
+          Text(title, style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 12),
+          Text(
+            _status == null
+                ? (_statusError == null
+                      ? l10n.componentReadingVersion
+                      : '${l10n.componentStatusUnavailable}: $_statusError')
+                : '${l10n.currentVersion}: ${_status!.current}\n${l10n.previousVersion}: ${_status!.previous ?? '-'}',
+            key: ValueKey('component-update-local-status-$kind'),
+          ),
+          const SizedBox(height: 12),
+          if (_checking)
+            const CircularProgressIndicator()
+          else
             Text(
-              _localizedError(l10n, error),
-              style: TextStyle(color: colors.error),
+              _checkError != null
+                  ? '$_checkError'
+                  : _update?.isAvailable == true
+                  ? '${l10n.availableVersion}: ${_update!.availableVersion}'
+                  : l10n.componentUpToDate(
+                      _update?.currentVersion ?? _status?.current ?? '-',
+                      _status?.previous ?? '-',
+                    ),
             ),
-          ],
-          SizedBox(height: typography.spacingSm),
+          const SizedBox(height: 12),
+          Text(gate),
+          const SizedBox(height: 12),
           Wrap(
-            spacing: typography.spacingS,
-            runSpacing: typography.spacingS,
+            spacing: 8,
             children: [
               OutlinedButton(
-                onPressed: busy ? null : onCheck,
-                child: Text(l10n.checkForUpdates),
+                key: ValueKey('component-update-recheck-$kind'),
+                onPressed: _checking ? null : _check,
+                child: Text(l10n.recheck),
               ),
+              if (!_stopped && !_transitioning)
+                OutlinedButton(
+                  key: ValueKey('component-update-stop-$kind'),
+                  onPressed: _stop,
+                  child: Text(l10n.stopBackend),
+                ),
               FilledButton(
-                onPressed: busy || update?.isAvailable != true
-                    ? null
-                    : onUpdate,
+                key: ValueKey('component-update-action-$kind'),
+                onPressed: null,
                 child: Text(l10n.update),
               ),
               TextButton(
-                onPressed: busy ? null : onRollback,
+                key: ValueKey('component-rollback-action-$kind'),
+                onPressed: null,
                 child: Text(l10n.rollback),
               ),
-              if (busy)
-                const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(),
-                ),
             ],
           ),
         ],

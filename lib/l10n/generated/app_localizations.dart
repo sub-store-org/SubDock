@@ -128,6 +128,84 @@ abstract class AppLocalizations {
   /// **'设置'**
   String get settings;
 
+  /// No description provided for @frontendUpdate.
+  ///
+  /// In zh, this message translates to:
+  /// **'前端更新'**
+  String get frontendUpdate;
+
+  /// No description provided for @frontendUpdateSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'检查和管理已安装的前端组件'**
+  String get frontendUpdateSubtitle;
+
+  /// No description provided for @backendUpdate.
+  ///
+  /// In zh, this message translates to:
+  /// **'后端更新'**
+  String get backendUpdate;
+
+  /// No description provided for @backendUpdateSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'检查和管理已安装的后端组件'**
+  String get backendUpdateSubtitle;
+
+  /// No description provided for @recheck.
+  ///
+  /// In zh, this message translates to:
+  /// **'重新检查'**
+  String get recheck;
+
+  /// No description provided for @currentVersion.
+  ///
+  /// In zh, this message translates to:
+  /// **'当前版本'**
+  String get currentVersion;
+
+  /// No description provided for @previousVersion.
+  ///
+  /// In zh, this message translates to:
+  /// **'上一版本'**
+  String get previousVersion;
+
+  /// No description provided for @availableVersion.
+  ///
+  /// In zh, this message translates to:
+  /// **'可用版本'**
+  String get availableVersion;
+
+  /// No description provided for @componentStatusUnavailable.
+  ///
+  /// In zh, this message translates to:
+  /// **'无法读取已安装版本'**
+  String get componentStatusUnavailable;
+
+  /// No description provided for @backendMustBeStopped.
+  ///
+  /// In zh, this message translates to:
+  /// **'更新或回滚组件前，请先停止 Backend。'**
+  String get backendMustBeStopped;
+
+  /// No description provided for @backendTransitioning.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在等待 Backend 进入稳定状态。'**
+  String get backendTransitioning;
+
+  /// No description provided for @backendStoppedForUpdates.
+  ///
+  /// In zh, this message translates to:
+  /// **'Backend 已停止，可以更改组件。'**
+  String get backendStoppedForUpdates;
+
+  /// No description provided for @stopBackend.
+  ///
+  /// In zh, this message translates to:
+  /// **'停止 Backend'**
+  String get stopBackend;
+
   /// No description provided for @start.
   ///
   /// In zh, this message translates to:
