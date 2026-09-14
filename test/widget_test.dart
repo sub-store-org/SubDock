@@ -892,6 +892,17 @@ void main() {
       find.byKey(const ValueKey('component-restart-now-frontend')),
       findsOneWidget,
     );
+    await tester.tap(
+      find.byKey(const ValueKey('component-restart-now-frontend')),
+    );
+    await _pumpRealIo(tester);
+    expect(runtime.restarts, 1);
+    expect(
+      find.byKey(const ValueKey('component-restart-now-frontend')),
+      findsNothing,
+    );
+    expect(updates.updateCalls, hasLength(1));
+    expect(updates.rollbackCalls, isEmpty);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -1014,6 +1025,132 @@ void main() {
       findsOneWidget,
     );
     expect(find.textContaining('restart failed'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('update failure preserves local status and unlocks update', (
+    tester,
+  ) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    final updates = _FakeComponentUpdateOperations()
+      ..statuses[ComponentKind.frontend] = const ComponentVersionStatus(
+        current: '1.0.0',
+        previous: '0.9.0',
+      )
+      ..checkResults[ComponentKind.frontend] = ComponentUpdate(
+        kind: ComponentKind.frontend,
+        currentVersion: '1.0.0',
+        availableVersion: '1.1.0',
+        release: GithubRelease(
+          version: '1.1.0',
+          releaseUri: Uri.parse('https://example.invalid/frontend'),
+          assets: const [],
+        ),
+      )
+      ..updateErrors[ComponentKind.frontend] = StateError('update failed');
+    final runtime = _FakeBackendRuntime();
+    final coordinator = AppCoordinator(
+      runtime: runtime,
+      environmentStore: BackendEnvStore(directories!),
+      componentUpdates: updates,
+    );
+    await tester.pumpWidget(
+      SubDockApp(
+        coordinator: coordinator,
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('en'),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
+    await tester.pumpAndSettle();
+    await tester.drag(
+      find.byKey(const ValueKey('settings-list')),
+      const Offset(0, -500),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Frontend Update'));
+    await _pumpRealIo(tester);
+    await tester.tap(
+      find.byKey(const ValueKey('component-update-action-frontend')),
+    );
+    await _pumpRealIo(tester);
+    expect(updates.updateCalls, hasLength(1));
+    expect(updates.rollbackCalls, isEmpty);
+    expect(find.textContaining('Current version: 1.0.0'), findsOneWidget);
+    expect(find.textContaining('update failed'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('component-restart-now-frontend')),
+      findsNothing,
+    );
+    expect(runtime.restarts, 0);
+    expect(
+      tester
+          .widget<FilledButton>(
+            find.byKey(const ValueKey('component-update-action-frontend')),
+          )
+          .onPressed,
+      isNotNull,
+    );
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('rollback failure preserves local status', (tester) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    final updates = _FakeComponentUpdateOperations()
+      ..statuses[ComponentKind.backend] = const ComponentVersionStatus(
+        current: '2.0.0',
+        previous: '1.0.0',
+      )
+      ..rollbackErrors[ComponentKind.backend] = StateError('rollback failed');
+    final runtime = _FakeBackendRuntime();
+    final coordinator = AppCoordinator(
+      runtime: runtime,
+      environmentStore: BackendEnvStore(directories!),
+      componentUpdates: updates,
+    );
+    await tester.pumpWidget(
+      SubDockApp(
+        coordinator: coordinator,
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('en'),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
+    await tester.pumpAndSettle();
+    await tester.drag(
+      find.byKey(const ValueKey('settings-list')),
+      const Offset(0, -500),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Backend Update'));
+    await _pumpRealIo(tester);
+    await tester.tap(
+      find.byKey(const ValueKey('component-rollback-action-backend')),
+    );
+    await tester.pump();
+    await tester.tap(find.text('Rollback').last);
+    await _pumpRealIo(tester);
+    expect(updates.rollbackCalls, [ComponentKind.backend]);
+    expect(find.textContaining('Current version: 2.0.0'), findsOneWidget);
+    expect(find.textContaining('Previous version: 1.0.0'), findsOneWidget);
+    expect(find.textContaining('rollback failed'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('component-restart-now-backend')),
+      findsNothing,
+    );
+    expect(runtime.restarts, 0);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -1906,6 +2043,8 @@ class _FakeComponentUpdateOperations implements ComponentUpdateOperations {
   final checkCalls = <ComponentKind, int>{};
   final checkResults = <ComponentKind, ComponentUpdate>{};
   final checkErrors = <ComponentKind, Object>{};
+  final updateErrors = <ComponentKind, Object>{};
+  final rollbackErrors = <ComponentKind, Object>{};
   final updateCalls = <ComponentUpdate>[];
   final rollbackCalls = <ComponentKind>[];
 
@@ -1941,6 +2080,8 @@ class _FakeComponentUpdateOperations implements ComponentUpdateOperations {
   @override
   Future<void> rollback(ComponentKind kind) async {
     rollbackCalls.add(kind);
+    final error = rollbackErrors[kind];
+    if (error != null) throw error;
     final status = statuses[kind];
     if (status != null && status.previous != null) {
       statuses[kind] = ComponentVersionStatus(
@@ -1953,6 +2094,8 @@ class _FakeComponentUpdateOperations implements ComponentUpdateOperations {
   @override
   Future<void> update(ComponentUpdate update) async {
     updateCalls.add(update);
+    final error = updateErrors[update.kind];
+    if (error != null) throw error;
     final status = statuses[update.kind];
     statuses[update.kind] = ComponentVersionStatus(
       current: update.availableVersion,
