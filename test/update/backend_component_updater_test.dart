@@ -260,6 +260,16 @@ void main() {
       await fixture.updater.backups.list(),
       containsAll([...committedBackups, pendingBackup]),
     );
+    expect(
+      await fixture.updater.backups.list(),
+      hasLength(committedBackups.length + 1),
+    );
+    expect(
+      await Directory(
+        '${fixture.updater.directories.components.path}/backend/2.39.1',
+      ).exists(),
+      isTrue,
+    );
     final recovery = ComponentRecovery(
       bundleDirectory: fixture.bundle,
       dataDirectory: fixture.updater.directories.data,
@@ -293,6 +303,10 @@ void main() {
     expect(
       await fixture.updater.backups.list(),
       containsAll([...committedBackups, pendingBackup]),
+    );
+    expect(
+      await fixture.updater.backups.list(),
+      hasLength(committedBackups.length + 1),
     );
     expect(fixture.runtime.starts, 0);
     expect(fixture.runtime.stops, 0);

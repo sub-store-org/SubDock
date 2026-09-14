@@ -349,7 +349,12 @@ void main() {
             .readAsString(),
         'old',
       );
-      expect(await fixture.backups.list(), hasLength(1));
+      final afterRetry = await fixture.backups.list();
+      expect(afterRetry, hasLength(1));
+      expect(afterRetry.single, isNot(targetBackup));
+      expect(fixture.runtime.starts, 0);
+      expect(fixture.runtime.stops, 0);
+      expect(fixture.runtime.restarts, 0);
     },
   );
 
@@ -407,6 +412,17 @@ void main() {
       await fixture.metadata.load(ComponentKind.backend, baseline: 'ignored'),
       const ComponentMetadata(baseline: '2.38.4', previous: '2.39.0'),
     );
+    expect(
+      await File('${fixture.directories.data.path}/settings.json')
+          .readAsString(),
+      'old',
+    );
+    final afterRetry = await fixture.backups.list();
+    expect(afterRetry, hasLength(1));
+    expect(afterRetry.single, isNot(targetBackup));
+    expect(fixture.runtime.starts, 0);
+    expect(fixture.runtime.stops, 0);
+    expect(fixture.runtime.restarts, 0);
   });
 
   test(
@@ -489,6 +505,9 @@ void main() {
       await fixture.metadata.load(ComponentKind.frontend, baseline: 'ignored'),
       const ComponentMetadata(baseline: '2.31.3', previous: '2.32.0'),
     );
+    expect(fixture.runtime.starts, 0);
+    expect(fixture.runtime.stops, 0);
+    expect(fixture.runtime.restarts, 0);
   });
 }
 

@@ -206,6 +206,15 @@ void main() {
         recovered,
         const ComponentMetadata(baseline: '2.31.3', previous: '2.32.0'),
       );
+      expect(
+        await Directory(
+          '${fixture.directories.components.path}/frontend/2.32.0',
+        ).exists(),
+        isTrue,
+      );
+      expect(fixture.runtime.starts, 0);
+      expect(fixture.runtime.stops, 0);
+      expect(fixture.runtime.restarts, 0);
     },
   );
 
