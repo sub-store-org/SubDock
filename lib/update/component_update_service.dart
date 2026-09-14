@@ -94,10 +94,13 @@ class ComponentUpdateService implements ComponentUpdateOperations {
   Future<ComponentUpdate> check(ComponentKind kind) => _checker.check(kind);
 
   @override
-  Future<void> update(ComponentUpdate update) => switch (update.kind) {
-    ComponentKind.backend => _backend.update(update.release),
-    ComponentKind.frontend => _frontend.update(update.release),
-  };
+  Future<void> update(ComponentUpdate update) async {
+    _requireStopped();
+    await switch (update.kind) {
+      ComponentKind.backend => _backend.update(update.release),
+      ComponentKind.frontend => _frontend.update(update.release),
+    };
+  }
 
   @override
   Future<void> rollback(ComponentKind kind) async {
@@ -156,6 +159,7 @@ class ComponentUpdateService implements ComponentUpdateOperations {
     );
     try {
       await _backups.restore(targetBackup, _directories.data);
+      await _storage.retain(ComponentKind.backend, [target, active]);
       await _metadataStore.save(
         ComponentKind.backend,
         ComponentMetadata(
@@ -164,8 +168,6 @@ class ComponentUpdateService implements ComponentUpdateOperations {
           previous: active,
         ),
       );
-      await _storage.retain(ComponentKind.backend, [target, active]);
-      await _backups.discard(targetBackup);
     } catch (_) {
       // Do the same recovery immediately. If this itself fails, leave pending
       // metadata intact so startup recovery can safely retry it.
@@ -179,6 +181,7 @@ class ComponentUpdateService implements ComponentUpdateOperations {
       }
       rethrow;
     }
+    await _backups.discard(targetBackup);
   }
 
   Future<void> _rollbackFrontend(
@@ -199,6 +202,7 @@ class ComponentUpdateService implements ComponentUpdateOperations {
       ),
     );
     try {
+      await _storage.retain(ComponentKind.frontend, [target, active]);
       await _metadataStore.save(
         ComponentKind.frontend,
         ComponentMetadata(
@@ -207,7 +211,6 @@ class ComponentUpdateService implements ComponentUpdateOperations {
           previous: active,
         ),
       );
-      await _storage.retain(ComponentKind.frontend, [target, active]);
     } catch (_) {
       await _metadataStore.save(ComponentKind.frontend, metadata);
       rethrow;

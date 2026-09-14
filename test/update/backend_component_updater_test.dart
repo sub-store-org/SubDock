@@ -145,6 +145,37 @@ void main() {
       expect(fixture.downloads.calls, 0);
     }
   });
+
+  test('restores and retries after post-pending retention failure', () async {
+    final fixture = await _backendFixture(status: RuntimeStatus.stopped);
+    addTearDown(() => fixture.root.delete(recursive: true));
+    final blocker = File(
+      '${fixture.updater.directories.components.path}/backend/9.9.9',
+    );
+    await blocker.parent.create(recursive: true);
+    await blocker.writeAsString('blocker');
+
+    await expectLater(
+      fixture.updater.update(_release('2.39.0')),
+      throwsStateError,
+    );
+    expect(
+      await fixture.updater.metadataStore.load(
+        ComponentKind.backend,
+        baseline: '2.38.4',
+      ),
+      const ComponentMetadata(baseline: '2.38.4'),
+    );
+    await blocker.delete();
+    await fixture.updater.update(_release('2.39.0'));
+    expect(
+      (await fixture.updater.metadataStore.load(
+        ComponentKind.backend,
+        baseline: 'ignored',
+      )).active,
+      '2.39.0',
+    );
+  });
 }
 
 Future<_BackendFixture> _backendFixture({required RuntimeStatus status}) async {
@@ -220,6 +251,12 @@ class _CountingDownloads extends _FakeDownloads {
   @override
   Future<void> downloadVerified(GithubReleaseAsset asset, File target) async {
     calls++;
+    await target.parent.create(recursive: true);
+    await target.writeAsString(
+      asset.name == 'runtime-manifest.json'
+          ? '{"testedNode":"24.15.0","externalBinary":[]}'
+          : 'candidate',
+    );
   }
 }
 

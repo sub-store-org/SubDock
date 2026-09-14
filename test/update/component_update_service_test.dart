@@ -150,6 +150,89 @@ void main() {
       }
     },
   );
+
+  test(
+    'restores and retries Frontend rollback after retention failure',
+    () async {
+      final fixture = await _fixture();
+      addTearDown(fixture.dispose);
+      const prior = ComponentMetadata(
+        baseline: '2.31.3',
+        active: '2.32.0',
+        previous: '2.31.3',
+      );
+      await fixture.metadata.save(ComponentKind.frontend, prior);
+      final blocker = File(
+        '${fixture.directories.components.path}/frontend/9.9.9',
+      );
+      await blocker.parent.create(recursive: true);
+      await blocker.writeAsString('blocker');
+
+      await expectLater(
+        fixture.service.rollback(ComponentKind.frontend),
+        throwsStateError,
+      );
+      expect(
+        await fixture.metadata.load(
+          ComponentKind.frontend,
+          baseline: 'ignored',
+        ),
+        prior,
+      );
+      await blocker.delete();
+      await fixture.service.rollback(ComponentKind.frontend);
+      expect(
+        await fixture.metadata.load(
+          ComponentKind.frontend,
+          baseline: 'ignored',
+        ),
+        const ComponentMetadata(baseline: '2.31.3', previous: '2.32.0'),
+      );
+    },
+  );
+
+  test(
+    'restores and retries Backend rollback after retention failure',
+    () async {
+      final fixture = await _fixture();
+      addTearDown(fixture.dispose);
+      await _write(fixture.directories.data, 'settings.json', 'old');
+      await fixture.backups.create(fixture.directories.data);
+      await _write(fixture.directories.data, 'settings.json', 'current');
+      const prior = ComponentMetadata(
+        baseline: '2.38.4',
+        active: '2.39.0',
+        previous: '2.38.4',
+      );
+      await fixture.metadata.save(ComponentKind.backend, prior);
+      final blocker = File(
+        '${fixture.directories.components.path}/backend/9.9.9',
+      );
+      await blocker.parent.create(recursive: true);
+      await blocker.writeAsString('blocker');
+
+      await expectLater(
+        fixture.service.rollback(ComponentKind.backend),
+        throwsStateError,
+      );
+      expect(
+        await fixture.metadata.load(ComponentKind.backend, baseline: 'ignored'),
+        prior,
+      );
+      expect(
+        await File('${fixture.directories.data.path}/settings.json')
+            .readAsString(),
+        'current',
+      );
+      await blocker.delete();
+      await fixture.service.rollback(ComponentKind.backend);
+      expect(
+        await File('${fixture.directories.data.path}/settings.json')
+            .readAsString(),
+        'old',
+      );
+    },
+  );
 }
 
 Future<_Fixture> _fixture({

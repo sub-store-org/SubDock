@@ -102,6 +102,39 @@ void main() {
       expect(fixture.downloads.calls, 0);
     }
   });
+
+  test('restores and retries after post-pending retention failure', () async {
+    final fixture = await _fixture();
+    addTearDown(fixture.dispose);
+    final blocker = File(
+      '${fixture.directories.components.path}/frontend/9.9.9',
+    );
+    await blocker.parent.create(recursive: true);
+    await blocker.writeAsString('blocker');
+
+    await expectLater(
+      fixture.updater.update(_release('2.32.0')),
+      throwsStateError,
+    );
+    expect(
+      await fixture.metadata.load(ComponentKind.frontend, baseline: 'ignored'),
+      const ComponentMetadata(baseline: '2.31.3'),
+    );
+    expect(
+      await Directory('${fixture.directories.components.path}/frontend/2.32.0')
+          .exists(),
+      isFalse,
+    );
+    await blocker.delete();
+    await fixture.updater.update(_release('2.32.0'));
+    expect(
+      (await fixture.metadata.load(
+        ComponentKind.frontend,
+        baseline: 'ignored',
+      )).active,
+      '2.32.0',
+    );
+  });
 }
 
 Future<_Fixture> _fixture({

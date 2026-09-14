@@ -85,6 +85,8 @@ class BackendComponentUpdater {
         ),
       );
       pendingSaved = true;
+      await ComponentStorage(directories.components)
+          .retain(ComponentKind.backend, [version, previous]);
       await metadataStore.save(
         ComponentKind.backend,
         ComponentMetadata(
@@ -93,8 +95,6 @@ class BackendComponentUpdater {
           previous: previous,
         ),
       );
-      await ComponentStorage(directories.components)
-          .retain(ComponentKind.backend, [version, previous]);
     } catch (_) {
       if (pendingSaved) {
         await _rollback(prior, backupId!, version);

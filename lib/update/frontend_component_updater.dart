@@ -82,6 +82,8 @@ class FrontendComponentUpdater {
         ),
       );
       pendingSaved = true;
+      await ComponentStorage(directories.components)
+          .retain(ComponentKind.frontend, [version, previous]);
       await metadataStore.save(
         ComponentKind.frontend,
         ComponentMetadata(
@@ -90,8 +92,6 @@ class FrontendComponentUpdater {
           previous: previous,
         ),
       );
-      await ComponentStorage(directories.components)
-          .retain(ComponentKind.frontend, [version, previous]);
     } catch (_) {
       if (pendingSaved) await _rollback(prior);
       if (await candidate.exists()) await candidate.delete(recursive: true);
