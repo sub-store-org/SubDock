@@ -715,6 +715,21 @@ void main() {
     await _pumpRealIo(tester);
     expect(updates.checkCalls[ComponentKind.backend], 1);
     expect(updates.checkCalls[ComponentKind.frontend], isNull);
+    expect(find.byKey(const ValueKey('settings-child-save')), findsNothing);
+    for (final state in [RuntimeStatus.starting, RuntimeStatus.stopping]) {
+      runtime.emitState(state);
+      await tester.pump();
+      expect(
+        tester
+            .widget<OutlinedButton>(
+              find.byKey(const ValueKey('component-update-stop-backend')),
+            )
+            .onPressed,
+        isNull,
+      );
+    }
+    runtime.emitState(RuntimeStatus.running);
+    await tester.pump();
     expect(
       tester
           .widget<FilledButton>(
