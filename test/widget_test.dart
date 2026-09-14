@@ -1456,6 +1456,68 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
+  testWidgets('settings about page renders localized metadata labels', (
+    tester,
+  ) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    final coordinator = AppCoordinator(
+      runtime: _FakeBackendRuntime(),
+      environmentStore: BackendEnvStore(directories!),
+    );
+    final loader = AboutInfoLoader(
+      loadPackageMetadata: () async => (version: '1.2.3', buildNumber: '42'),
+      operatingSystem: () => 'linux',
+      architecture: () => 'x64',
+    );
+    await tester.pumpWidget(
+      SubDockApp(
+        coordinator: coordinator,
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('zh'),
+        aboutInfoLoader: loader,
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
+    await tester.pumpAndSettle();
+    await tester.drag(
+      find.byKey(const ValueKey('settings-list')),
+      const Offset(0, -500),
+    );
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('settings-card-about')),
+      -200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.drag(
+      find.byKey(const ValueKey('settings-list')),
+      const Offset(0, -160),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('settings-card-about')));
+    await _pumpRealIo(tester);
+
+    expect(find.text('SubDock 版本: 1.2.3'), findsOneWidget);
+    expect(find.text('构建号: 42'), findsOneWidget);
+    expect(find.text('许可证: GPL-3.0'), findsOneWidget);
+    expect(
+      find.text('项目主页: https://github.com/Delusions6515/SubDock'),
+      findsOneWidget,
+    );
+    expect(find.text('操作系统: linux'), findsOneWidget);
+    expect(find.text('架构: x64'), findsOneWidget);
+    expect(find.text('Current version'), findsNothing);
+    expect(find.text('Previous version'), findsNothing);
+    expect(find.byKey(const ValueKey('settings-child-save')), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('desktop navigation exposes semantic tap actions and selection', (
     tester,
   ) async {
