@@ -685,6 +685,8 @@ void main() {
   testWidgets('backend update page stops a running backend', (tester) async {
     late Directory temp;
     addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    await tester.binding.setSurfaceSize(const Size(600, 480));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
     final directories = await tester.runAsync(() async {
       temp = await Directory.systemTemp.createTemp('subdock_widget_');
       return RuntimeDirectories.fromBaseDirectory(temp);
@@ -717,6 +719,27 @@ void main() {
     expect(updates.checkCalls[ComponentKind.backend], 1);
     expect(updates.checkCalls[ComponentKind.frontend], isNull);
     expect(find.byKey(const ValueKey('settings-child-save')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('component-update-local-status-backend')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('component-update-recheck-backend')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('component-update-action-backend')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('component-rollback-action-backend')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('component-release-notes-backend')),
+      findsNothing,
+    );
+    expect(tester.takeException(), isNull);
     for (final state in [RuntimeStatus.starting, RuntimeStatus.stopping]) {
       runtime.emitState(state);
       await tester.pump();
@@ -766,6 +789,11 @@ void main() {
     );
     expect(updates.updateCalls, isEmpty);
     expect(updates.rollbackCalls, isEmpty);
+    await tester.drag(
+      find.byKey(const ValueKey('settings-list')),
+      const Offset(0, 10000),
+    );
+    await tester.pump();
     await tester.tap(find.byKey(const ValueKey('settings-back')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('settings-appearance')), findsOneWidget);
@@ -777,6 +805,12 @@ void main() {
     await tester.tap(find.text('Backend Update'));
     await _pumpRealIo(tester);
     expect(updates.checkCalls[ComponentKind.backend], 2);
+    expect(updates.checkCalls[ComponentKind.frontend], isNull);
+    await tester.tap(
+      find.byKey(const ValueKey('component-update-recheck-backend')),
+    );
+    await _pumpRealIo(tester);
+    expect(updates.checkCalls[ComponentKind.backend], 3);
     expect(updates.checkCalls[ComponentKind.frontend], isNull);
     await tester.pumpWidget(const SizedBox());
   });
