@@ -942,6 +942,66 @@ abstract class AppLocalizations {
   /// **'查看发行说明'**
   String get viewReleaseNotes;
 
+  /// No description provided for @aboutSubDock.
+  ///
+  /// In zh, this message translates to:
+  /// **'关于 SubDock'**
+  String get aboutSubDock;
+
+  /// No description provided for @aboutSubDockSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'版本、许可证和平台信息'**
+  String get aboutSubDockSubtitle;
+
+  /// No description provided for @aboutVersion.
+  ///
+  /// In zh, this message translates to:
+  /// **'SubDock 版本'**
+  String get aboutVersion;
+
+  /// No description provided for @aboutBuildNumber.
+  ///
+  /// In zh, this message translates to:
+  /// **'构建号'**
+  String get aboutBuildNumber;
+
+  /// No description provided for @aboutLicense.
+  ///
+  /// In zh, this message translates to:
+  /// **'许可证'**
+  String get aboutLicense;
+
+  /// No description provided for @aboutProjectHomepage.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目主页'**
+  String get aboutProjectHomepage;
+
+  /// No description provided for @aboutOperatingSystem.
+  ///
+  /// In zh, this message translates to:
+  /// **'操作系统'**
+  String get aboutOperatingSystem;
+
+  /// No description provided for @aboutArchitecture.
+  ///
+  /// In zh, this message translates to:
+  /// **'架构'**
+  String get aboutArchitecture;
+
+  /// No description provided for @aboutMetadataLoading.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在加载应用信息…'**
+  String get aboutMetadataLoading;
+
+  /// No description provided for @aboutMetadataUnavailable.
+  ///
+  /// In zh, this message translates to:
+  /// **'无法获取应用信息'**
+  String get aboutMetadataUnavailable;
+
   /// No description provided for @envIssueMissingPair.
   ///
   /// In zh, this message translates to:

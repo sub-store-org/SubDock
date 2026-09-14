@@ -478,6 +478,37 @@ class AppLocalizationsEn extends AppLocalizations {
   String get viewReleaseNotes => 'View release notes';
 
   @override
+  String get aboutSubDock => 'About SubDock';
+
+  @override
+  String get aboutSubDockSubtitle =>
+      'Version, license, and platform information';
+
+  @override
+  String get aboutVersion => 'SubDock version';
+
+  @override
+  String get aboutBuildNumber => 'Build number';
+
+  @override
+  String get aboutLicense => 'License';
+
+  @override
+  String get aboutProjectHomepage => 'Project homepage';
+
+  @override
+  String get aboutOperatingSystem => 'Operating system';
+
+  @override
+  String get aboutArchitecture => 'Architecture';
+
+  @override
+  String get aboutMetadataLoading => 'Loading application information…';
+
+  @override
+  String get aboutMetadataUnavailable => 'Application information unavailable';
+
+  @override
   String get envIssueMissingPair => 'Missing KEY=VALUE';
 
   @override

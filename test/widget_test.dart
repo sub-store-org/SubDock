@@ -27,6 +27,7 @@ import 'package:flutter/widgets.dart'
     show GestureDetector, Offstage, SizedBox, ValueKey;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:subdock/app/app.dart';
+import 'package:subdock/app/about_info.dart';
 import 'package:subdock/app/app_coordinator.dart';
 import 'package:subdock/runtime/backend_runtime.dart';
 import 'package:subdock/runtime/runtime_directories.dart';
@@ -1238,6 +1239,97 @@ void main() {
       findsNothing,
     );
     expect(runtime.restarts, 0);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('settings about page renders injected application metadata', (
+    tester,
+  ) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    final coordinator = AppCoordinator(
+      runtime: _FakeBackendRuntime(),
+      environmentStore: BackendEnvStore(directories!),
+    );
+    final loader = AboutInfoLoader(
+      loadPackageMetadata: () async => (version: '1.2.3', buildNumber: ''),
+      operatingSystem: () => 'linux',
+      architecture: () => 'x64',
+    );
+    await tester.pumpWidget(
+      SubDockApp(
+        coordinator: coordinator,
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('en'),
+        aboutInfoLoader: loader,
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
+    await tester.pumpAndSettle();
+    await tester.drag(
+      find.byKey(const ValueKey('settings-list')),
+      const Offset(0, -500),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('About SubDock'));
+    await _pumpRealIo(tester);
+    expect(find.byKey(const ValueKey('settings-about-page')), findsOneWidget);
+    expect(find.text('SubDock version: 1.2.3'), findsOneWidget);
+    expect(find.text('Build number: -'), findsOneWidget);
+    expect(find.text('License: GPL-3.0'), findsOneWidget);
+    expect(
+      find.text('Project homepage: https://github.com/Delusions6515/SubDock'),
+      findsOneWidget,
+    );
+    expect(find.text('Operating system: linux'), findsOneWidget);
+    expect(find.text('Architecture: x64'), findsOneWidget);
+    expect(find.byKey(const ValueKey('settings-child-save')), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('settings about page shows metadata failure', (tester) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    final coordinator = AppCoordinator(
+      runtime: _FakeBackendRuntime(),
+      environmentStore: BackendEnvStore(directories!),
+    );
+    final loader = AboutInfoLoader(
+      loadPackageMetadata: () async => throw StateError('metadata failed'),
+    );
+    await tester.pumpWidget(
+      SubDockApp(
+        coordinator: coordinator,
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('en'),
+        aboutInfoLoader: loader,
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
+    await tester.pumpAndSettle();
+    await tester.drag(
+      find.byKey(const ValueKey('settings-list')),
+      const Offset(0, -500),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('About SubDock'));
+    await _pumpRealIo(tester);
+    expect(
+      find.textContaining('Application information unavailable'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('metadata failed'), findsOneWidget);
+    expect(find.byKey(const ValueKey('about-version')), findsNothing);
     await tester.pumpWidget(const SizedBox());
   });
 

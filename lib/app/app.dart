@@ -24,6 +24,7 @@ import '../update/component_update_service.dart';
 import 'app_colors.dart';
 import 'app_coordinator.dart';
 import 'app_typography.dart';
+import 'about_info.dart';
 import 'close_request_guard.dart';
 
 const navigationBreakpoint = 600.0;
@@ -41,6 +42,7 @@ enum _SettingsSection {
   frontendUpdate,
   backendUpdate,
   advancedEnv,
+  about,
 }
 
 enum _NullableBoolDraft { inherit, enabled, disabled }
@@ -76,6 +78,7 @@ class SubDockApp extends StatefulWidget {
     this.onLocaleChanged,
     this.locale,
     this.onOpenExternalUri,
+    this.aboutInfoLoader,
   });
 
   final AppCoordinator coordinator;
@@ -100,6 +103,7 @@ class SubDockApp extends StatefulWidget {
   /// Initial locale override used when no saved preference selects a language.
   final Locale? locale;
   final Future<bool> Function(Uri uri)? onOpenExternalUri;
+  final AboutInfoLoader? aboutInfoLoader;
 
   @override
   State<SubDockApp> createState() => _SubDockAppState();
@@ -487,6 +491,7 @@ class _SubDockAppState extends State<SubDockApp> {
         onResetConfiguration: () => _run(widget.coordinator.resetConfiguration),
         onChildStateChanged: (child) => setState(() => _settingsChild = child),
         onOpenExternalUri: widget.onOpenExternalUri ?? _launchExternalUri,
+        aboutInfoLoader: widget.aboutInfoLoader,
       ),
     ];
     final body = Stack(
@@ -2040,6 +2045,7 @@ class _SettingsPage extends StatefulWidget {
     required this.onResetConfiguration,
     required this.onChildStateChanged,
     required this.onOpenExternalUri,
+    this.aboutInfoLoader,
   });
 
   final BackendEnvDocument environment;
@@ -2058,6 +2064,7 @@ class _SettingsPage extends StatefulWidget {
   final Future<void> Function() onResetConfiguration;
   final ValueChanged<bool> onChildStateChanged;
   final Future<bool> Function(Uri uri) onOpenExternalUri;
+  final AboutInfoLoader? aboutInfoLoader;
 
   @override
   State<_SettingsPage> createState() => _SettingsPageState();
@@ -2766,6 +2773,12 @@ class _SettingsPageState extends State<_SettingsPage> {
                     onTap: () =>
                         unawaited(_openSection(_SettingsSection.backendUpdate)),
                   ),
+                  _SettingsSectionTile(
+                    title: l10n.aboutSubDock,
+                    subtitle: l10n.aboutSubDockSubtitle,
+                    onTap: () =>
+                        unawaited(_openSection(_SettingsSection.about)),
+                  ),
                 ],
                 SizedBox(height: typography.spacingLg),
                 if (_section == _SettingsSection.subDockConfig) ...[
@@ -2979,6 +2992,11 @@ class _SettingsPageState extends State<_SettingsPage> {
                     coordinator: widget.coordinator,
                     onOpenExternalUri: widget.onOpenExternalUri,
                   ),
+                if (_section == _SettingsSection.about)
+                  _AboutPage(
+                    key: const ValueKey('settings-about-page'),
+                    loader: widget.aboutInfoLoader,
+                  ),
                 if (_section == _SettingsSection.home)
                   _SettingsSectionTile(
                     title: l10n.advancedRawEnv,
@@ -3046,6 +3064,7 @@ class _SettingsPageState extends State<_SettingsPage> {
                           : null,
                     _SettingsSection.frontendUpdate => null,
                     _SettingsSection.backendUpdate => null,
+                    _SettingsSection.about => null,
                     _SettingsSection.home => null,
                   },
                   child: Text(l10n.save),
@@ -3349,6 +3368,82 @@ class _ComponentUpdatePageState extends State<_ComponentUpdatePage> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _AboutPage extends StatefulWidget {
+  const _AboutPage({super.key, this.loader});
+
+  final AboutInfoLoader? loader;
+
+  @override
+  State<_AboutPage> createState() => _AboutPageState();
+}
+
+class _AboutPageState extends State<_AboutPage> {
+  AboutInfo? _info;
+  Object? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_load());
+  }
+
+  Future<void> _load() async {
+    try {
+      final info = await (widget.loader ?? AboutInfoLoader()).load();
+      if (mounted) setState(() => _info = info);
+    } catch (error) {
+      if (mounted) setState(() => _error = error);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final info = _info;
+    return _SurfacePanel(
+      child: info == null
+          ? (_error == null
+                ? Text(l10n.aboutMetadataLoading)
+                : Text(
+                    '${l10n.aboutMetadataUnavailable}: ${_localizedError(l10n, _error)}',
+                  ))
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  l10n.aboutSubDock,
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                Text(
+                  '${l10n.aboutVersion}: ${info.version}',
+                  key: const ValueKey('about-version'),
+                ),
+                Text(
+                  '${l10n.aboutBuildNumber}: ${info.buildNumber.isEmpty ? '-' : info.buildNumber}',
+                  key: const ValueKey('about-build-number'),
+                ),
+                Text(
+                  '${l10n.aboutLicense}: $subDockLicenseId',
+                  key: const ValueKey('about-license'),
+                ),
+                Text(
+                  '${l10n.aboutProjectHomepage}: $subDockProjectHomepage',
+                  key: const ValueKey('about-homepage'),
+                ),
+                Text(
+                  '${l10n.aboutOperatingSystem}: ${info.operatingSystem}',
+                  key: const ValueKey('about-os'),
+                ),
+                Text(
+                  '${l10n.aboutArchitecture}: ${info.architecture}',
+                  key: const ValueKey('about-architecture'),
+                ),
+              ],
+            ),
     );
   }
 }

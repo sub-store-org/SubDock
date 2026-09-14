@@ -463,6 +463,36 @@ class AppLocalizationsZh extends AppLocalizations {
   String get viewReleaseNotes => '查看发行说明';
 
   @override
+  String get aboutSubDock => '关于 SubDock';
+
+  @override
+  String get aboutSubDockSubtitle => '版本、许可证和平台信息';
+
+  @override
+  String get aboutVersion => 'SubDock 版本';
+
+  @override
+  String get aboutBuildNumber => '构建号';
+
+  @override
+  String get aboutLicense => '许可证';
+
+  @override
+  String get aboutProjectHomepage => '项目主页';
+
+  @override
+  String get aboutOperatingSystem => '操作系统';
+
+  @override
+  String get aboutArchitecture => '架构';
+
+  @override
+  String get aboutMetadataLoading => '正在加载应用信息…';
+
+  @override
+  String get aboutMetadataUnavailable => '无法获取应用信息';
+
+  @override
   String get envIssueMissingPair => '缺少 KEY=VALUE';
 
   @override
