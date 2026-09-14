@@ -31,6 +31,7 @@ jobs:
             libwebkit2gtk-4.1-dev \
             libayatana-appindicator3-dev
       - name: Get Flutter packages
+        if: inputs.run_tests
         run: flutter pub get
       - name: Analyze and test
         if: inputs.run_tests
@@ -43,14 +44,13 @@ jobs:
           tool/prepare_frontend.sh
           tool/prepare_runtime.sh linux-x64
           tool/prepare_http_meta.sh linux-x64
-      - name: Build and verify bundle
-        run: |
-          flutter build linux --release
-          tool/verify_bundle.sh build/linux/x64/release/bundle
       - name: Package DEB and RPM
         run: |
           dart pub global activate fastforge 0.6.12
-          fastforge package --platform linux --targets deb,rpm
+          fastforge package \
+            --platform linux \
+            --targets deb,rpm \
+            --hook-pre 'tool/verify_bundle.sh "$BUILD_OUTPUT_DIRECTORY"'
       - uses: actions/upload-artifact@v7
         with:
           name: linux-packages
@@ -114,18 +114,15 @@ jobs:
           tool/prepare_frontend.sh
           tool/prepare_runtime.sh windows-x64
           tool/prepare_http_meta.sh windows-x64
-      - name: Build and verify bundle
-        shell: bash
-        run: |
-          flutter pub get
-          flutter build windows --release
-          tool/verify_bundle.sh build/windows/x64/runner/Release windows
       - name: Package EXE
         shell: bash
         run: |
           choco install innosetup --no-progress --yes
           dart pub global activate fastforge 0.6.12
-          dart pub global run fastforge:main package --platform windows --targets exe
+          dart pub global run fastforge:main package \
+            --platform windows \
+            --targets exe \
+            --hook-pre 'tool/verify_bundle.sh "$BUILD_OUTPUT_DIRECTORY" windows'
       - uses: actions/upload-artifact@v7
         with:
           name: windows-exe
@@ -162,7 +159,7 @@ jobs:
             --platform macos \
             --targets dmg \
             --hook-pre '
-              tool/verify_bundle.sh "$BUILD_OUTPUT_DIRECTORY/SubDock.app/Contents/MacOS" &&
+              tool/verify_bundle.sh "$BUILD_OUTPUT_DIRECTORY" &&
               tool/thin_macos_bundle.sh "$BUILD_OUTPUT_DIRECTORY/SubDock.app" "$TARGET_ARCH"
             '
       - uses: actions/upload-artifact@v7
