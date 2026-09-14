@@ -9,6 +9,7 @@ import 'package:flutter/material.dart'
         DropdownButton,
         FilterChip,
         FilledButton,
+        InkWell,
         Locale,
         ListTile,
         ListView,
@@ -2502,6 +2503,74 @@ void main() {
 
     final back = find.byKey(const ValueKey('settings-back'));
     await tester.ensureVisible(back);
+    await tester.tap(back);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('settings-appearance')), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('600x480 frontend update page keeps back reachable', (
+    tester,
+  ) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+
+    final updates = _FakeComponentUpdateOperations();
+
+    await tester.binding.setSurfaceSize(const Size(600, 480));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      SubDockApp(
+        coordinator: AppCoordinator(
+          runtime: _FakeBackendRuntime(),
+          environmentStore: BackendEnvStore(directories!),
+          componentUpdates: updates,
+        ),
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('en'),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
+    await tester.pumpAndSettle();
+
+    await tester.drag(
+      find.byKey(const ValueKey('settings-list')),
+      const Offset(0, -500),
+    );
+    await tester.pumpAndSettle();
+    final frontendCard = find.byKey(
+      const ValueKey('settings-card-frontend-update'),
+    );
+    expect(frontendCard, findsOneWidget);
+    await tester.ensureVisible(frontendCard);
+    await tester.pumpAndSettle();
+    final cardCenter = tester.getCenter(frontendCard);
+    expect(cardCenter.dy, greaterThan(0));
+    expect(cardCenter.dy, lessThan(480));
+    final frontendTile = find.descendant(
+      of: frontendCard,
+      matching: find.byType(InkWell),
+    );
+    expect(frontendTile, findsOneWidget);
+    await tester.tap(frontendTile);
+    await _pumpRealIo(tester);
+
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const ValueKey('settings-back')), findsOneWidget);
+    expect(find.byKey(const ValueKey('settings-child-save')), findsNothing);
+
+    final back = find.byKey(const ValueKey('settings-back'));
+    final settingsList = find.byKey(const ValueKey('settings-list'));
+    expect(settingsList, findsOneWidget);
+    await tester.drag(settingsList, const Offset(0, 600));
+    await tester.pumpAndSettle();
+    expect(tester.getCenter(back).dy, greaterThan(0));
     await tester.tap(back);
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('settings-appearance')), findsOneWidget);
