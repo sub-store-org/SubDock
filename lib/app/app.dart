@@ -1880,12 +1880,14 @@ class _LogsPageState extends State<_LogsPage> {
                         children: [
                           for (final source in ['Backend', 'HTTP-META'])
                             FilterChip(
+                              key: ValueKey('logs-source-$source'),
                               label: Text(source),
                               selected: _sources.contains(source),
                               onSelected: (_) => _toggleSource(source),
                             ),
                           for (final level in _LogLevel.values)
                             FilterChip(
+                              key: ValueKey('logs-level-${level.name}'),
                               label: Text(_levelLabel(l10n, level)),
                               selected: _levels.contains(level),
                               onSelected: (_) => _toggleLevel(level),

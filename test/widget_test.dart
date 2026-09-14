@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart'
     show
@@ -42,6 +43,23 @@ import 'package:subdock/update/component_metadata_store.dart';
 import 'package:subdock/update/component_update_checker.dart';
 import 'package:subdock/update/github_release_client.dart';
 import 'package:subdock/update/component_update_service.dart';
+
+void _expectSegmentSemantics(
+  WidgetTester tester,
+  Finder finder, {
+  required String label,
+  required bool selected,
+}) {
+  final data = tester.getSemantics(finder).getSemanticsData();
+
+  expect(data.label, label);
+  final flags = data.flagsCollection;
+
+  expect(flags.isSelected, selected ? ui.Tristate.isTrue : ui.Tristate.isFalse);
+  expect(flags.isInMutuallyExclusiveGroup, isTrue);
+  expect(data.hasAction(ui.SemanticsAction.tap), isTrue);
+  expect(data.hasAction(ui.SemanticsAction.focus), isTrue);
+}
 
 void main() {
   testWidgets('runtime controls the backend through its abstraction', (
@@ -1521,6 +1539,236 @@ void main() {
         hasSelectedState: true,
         hasTapAction: true,
       ),
+    );
+    semantics.dispose();
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('logs controls expose localized semantics and state', (
+    tester,
+  ) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    await tester.binding.setSurfaceSize(const Size(1000, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final semantics = tester.ensureSemantics();
+    final coordinator = AppCoordinator(
+      runtime: _FakeBackendRuntime(),
+      environmentStore: BackendEnvStore(directories!),
+    );
+    await tester.pumpWidget(
+      SubDockApp(
+        coordinator: coordinator,
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('en'),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-logs')));
+    await tester.pump();
+
+    expect(
+      tester.getSemantics(find.text('Current')),
+      matchesSemantics(
+        label: 'Current',
+        isSelected: true,
+        hasSelectedState: true,
+        isButton: true,
+        isFocusable: true,
+        hasEnabledState: true,
+        isEnabled: true,
+        isInMutuallyExclusiveGroup: true,
+        hasTapAction: true,
+        hasFocusAction: true,
+      ),
+    );
+    expect(
+      tester.getSemantics(find.text('History')),
+      matchesSemantics(
+        label: 'History',
+        isSelected: false,
+        hasSelectedState: true,
+        isButton: true,
+        isFocusable: true,
+        hasEnabledState: true,
+        isEnabled: true,
+        isInMutuallyExclusiveGroup: true,
+        hasTapAction: true,
+        hasFocusAction: true,
+      ),
+    );
+    final backend = tester.getSemantics(
+      find.byKey(const ValueKey('logs-source-Backend')),
+    );
+    expect(
+      backend,
+      matchesSemantics(
+        label: 'Backend',
+        isSelected: true,
+        hasSelectedState: true,
+        isButton: true,
+        isFocusable: true,
+        hasEnabledState: true,
+        isEnabled: true,
+        hasTapAction: true,
+        hasFocusAction: true,
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('logs-source-Backend')));
+    await tester.pump();
+    expect(
+      tester.getSemantics(find.byKey(const ValueKey('logs-source-Backend'))),
+      matchesSemantics(
+        label: 'Backend',
+        isSelected: false,
+        hasSelectedState: true,
+        isButton: true,
+        isFocusable: true,
+        hasEnabledState: true,
+        isEnabled: true,
+        hasTapAction: true,
+        hasFocusAction: true,
+      ),
+    );
+    final warning = find.byKey(const ValueKey('logs-level-warning'));
+    expect(
+      tester.getSemantics(warning),
+      matchesSemantics(
+        label: 'Warning',
+        isSelected: true,
+        hasSelectedState: true,
+        isButton: true,
+        isFocusable: true,
+        hasEnabledState: true,
+        isEnabled: true,
+        hasTapAction: true,
+        hasFocusAction: true,
+      ),
+    );
+    await tester.tap(warning);
+    await tester.pump();
+    expect(
+      tester.getSemantics(warning),
+      matchesSemantics(
+        label: 'Warning',
+        isSelected: false,
+        hasSelectedState: true,
+        isButton: true,
+        isFocusable: true,
+        hasEnabledState: true,
+        isEnabled: true,
+        hasTapAction: true,
+        hasFocusAction: true,
+      ),
+    );
+    _expectSegmentSemantics(
+      tester,
+      find.text('Newest first'),
+      label: 'Newest first',
+      selected: true,
+    );
+    _expectSegmentSemantics(
+      tester,
+      find.text('Newest last'),
+      label: 'Newest last',
+      selected: false,
+    );
+    await tester.tap(find.text('Newest last'));
+    await tester.pumpAndSettle();
+    _expectSegmentSemantics(
+      tester,
+      find.text('Newest last'),
+      label: 'Newest last',
+      selected: true,
+    );
+    _expectSegmentSemantics(
+      tester,
+      find.text('Newest first'),
+      label: 'Newest first',
+      selected: false,
+    );
+    await tester.tap(find.text('History'));
+    await tester.pump();
+    expect(
+      tester.getSemantics(find.text('History')),
+      matchesSemantics(
+        label: 'History',
+        isSelected: true,
+        hasSelectedState: true,
+        isButton: true,
+        isFocusable: true,
+        hasEnabledState: true,
+        isEnabled: true,
+        isInMutuallyExclusiveGroup: true,
+        hasTapAction: true,
+        hasFocusAction: true,
+      ),
+    );
+    semantics.dispose();
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('logs controls localize Chinese semantics', (tester) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    await tester.binding.setSurfaceSize(const Size(1000, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final semantics = tester.ensureSemantics();
+    await tester.pumpWidget(
+      SubDockApp(
+        coordinator: AppCoordinator(
+          runtime: _FakeBackendRuntime(),
+          environmentStore: BackendEnvStore(directories!),
+        ),
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('zh'),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-logs')));
+    await tester.pump();
+    expect(
+      tester.getSemantics(find.text('当前')),
+      matchesSemantics(
+        label: '当前',
+        isSelected: true,
+        hasSelectedState: true,
+        isButton: true,
+        isFocusable: true,
+        hasEnabledState: true,
+        isEnabled: true,
+        isInMutuallyExclusiveGroup: true,
+        hasTapAction: true,
+        hasFocusAction: true,
+      ),
+    );
+    expect(
+      tester.getSemantics(find.byKey(const ValueKey('logs-level-warning'))),
+      matchesSemantics(
+        label: '警告',
+        isSelected: true,
+        hasSelectedState: true,
+        isButton: true,
+        isFocusable: true,
+        hasEnabledState: true,
+        isEnabled: true,
+        hasTapAction: true,
+        hasFocusAction: true,
+      ),
+    );
+    _expectSegmentSemantics(
+      tester,
+      find.text('最新在前'),
+      label: '最新在前',
+      selected: true,
     );
     semantics.dispose();
     await tester.pumpWidget(const SizedBox());
