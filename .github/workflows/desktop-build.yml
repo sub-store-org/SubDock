@@ -137,10 +137,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-15
+          - runner: macos-latest
             arch: arm64
             runtime: darwin-arm64
-          - runner: macos-15-intel
+          - runner: macos-26-intel
             arch: x64
             runtime: darwin-x64
     runs-on: ${{ matrix.runner }}
@@ -168,6 +168,10 @@ jobs:
           flutter pub get
           flutter build macos --release
           tool/verify_bundle.sh build/macos/Build/Products/Release/SubDock.app/Contents/MacOS
+      - name: Verify macOS architecture
+        run: |
+          file build/macos/Build/Products/Release/SubDock.app/Contents/MacOS/SubDock
+          lipo -archs build/macos/Build/Products/Release/SubDock.app/Contents/MacOS/SubDock
       - name: Package DMG
         env:
           FLUTTER_XCODE_CODE_SIGNING_ALLOWED: 'NO'
