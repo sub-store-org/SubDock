@@ -126,6 +126,36 @@ void main() {
     expect(calls, contains('exit'));
   });
 
+  test('a failed exit can be retried', () async {
+    final calls = <String>[];
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    const windowChannel = MethodChannel('window_manager');
+    messenger.setMockMethodCallHandler(windowChannel, (call) async {
+      calls.add(call.method);
+      return true;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(windowChannel, null));
+    var attempts = 0;
+    final lifecycle = DesktopLifecycle(
+      onExit: () async {
+        attempts++;
+        if (attempts == 1) {
+          throw StateError('fixture cleanup failure');
+        }
+      },
+    );
+
+    await expectLater(lifecycle.exit(), throwsStateError);
+    expect(attempts, 1);
+    expect(calls, isNot(contains('destroy')));
+
+    await lifecycle.exit();
+
+    expect(attempts, 2);
+    expect(calls.where((method) => method == 'destroy'), hasLength(1));
+  });
+
   test('hides a ready tray instead of exiting', () async {
     final calls = <String>[];
     final messenger =

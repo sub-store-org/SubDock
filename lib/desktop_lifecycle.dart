@@ -97,10 +97,12 @@ class DesktopLifecycle with WindowListener, TrayListener {
       await onExit();
       if (_trayReady) await trayManager.destroy();
       await windowManager.destroy();
-    } finally {
-      windowManager.removeListener(this);
-      trayManager.removeListener(this);
+    } catch (_) {
+      _exiting = false;
+      rethrow;
     }
+    windowManager.removeListener(this);
+    trayManager.removeListener(this);
   }
 
   Future<void> minimize() => windowManager.minimize();
