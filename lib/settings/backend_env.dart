@@ -168,6 +168,7 @@ class BackendEnvPolicy {
       issues.add(const BackendEnvIssue(BackendEnvIssueCode.pathPrefix));
     }
     for (final origin in _origins(document.values[corsAllowedOrigins])) {
+      if (origin == '*') continue;
       final uri = Uri.tryParse(origin);
       if (uri == null ||
           (uri.scheme != 'http' && uri.scheme != 'https') ||
@@ -204,7 +205,9 @@ class BackendEnvPolicy {
   static List<String> externalOrigins(BackendEnvDocument document) {
     final local = localOrigin(document).origin;
     return _origins(document.values[corsAllowedOrigins])
-        .where((origin) => Uri.tryParse(origin)?.origin != local)
+        .where(
+          (origin) => origin == '*' || Uri.tryParse(origin)?.origin != local,
+        )
         .toList(growable: false);
   }
 

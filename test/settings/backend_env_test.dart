@@ -43,6 +43,34 @@ void main() {
     expect(BackendEnvPolicy.externalOrigins(document), ['https://example.com']);
   });
 
+  test('accepts wildcard CORS and reports it as external', () {
+    final document = BackendEnvDocument.parse(
+      'SUB_STORE_BACKEND_API_HOST=127.0.0.1\n'
+      'SUB_STORE_BACKEND_API_PORT=3001\n'
+      'SUB_STORE_CORS_ALLOWED_ORIGINS=*\n',
+    );
+
+    expect(BackendEnvPolicy.validate(document), isEmpty);
+    expect(BackendEnvPolicy.externalOrigins(document), ['*']);
+  });
+
+  test('wildcard support does not relax invalid CORS URL validation', () {
+    final document = BackendEnvDocument.parse(
+      'SUB_STORE_CORS_ALLOWED_ORIGINS=not-an-origin\n',
+    );
+
+    expect(
+      BackendEnvPolicy.validate(document),
+      contains(
+        isA<BackendEnvIssue>().having(
+          (issue) => issue.code,
+          'code',
+          BackendEnvIssueCode.corsOrigin,
+        ),
+      ),
+    );
+  });
+
   test('saves a valid document atomically with private permissions', () async {
     final temp = await Directory.systemTemp.createTemp('subdock_env_test_');
     addTearDown(() => temp.delete(recursive: true));
