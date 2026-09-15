@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:webview_all/webview_all.dart';
+import 'package:subdock/app/embedded_webview.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -26,19 +26,28 @@ class _ProbePage extends StatefulWidget {
 }
 
 class _ProbePageState extends State<_ProbePage> {
-  late final WebViewController _controller;
+  late final EmbeddedWebViewController _controller;
   HttpServer? _server;
   var _pageLoaded = false;
+  var _bridgeInstalled = false;
   var _navigationIntercepted = false;
   var _downloadRequested = false;
   var _blobReceived = false;
+  var _keyboardInputReceived = false;
+  var _imeCompositionReceived = false;
+  var _automatedPassReported = false;
+  var _completePassReported = false;
   var _started = false;
   String? _error;
 
   @override
   void initState() {
     super.initState();
-    _controller = WebViewController();
+    _controller = EmbeddedWebViewController.create(
+      onNavigationRequest: _onNavigationRequest,
+      onBlobMessage: _onMessage,
+      bridgeScript: _bridgeScript,
+    );
     unawaited(_start());
   }
 
@@ -48,38 +57,40 @@ class _ProbePageState extends State<_ProbePage> {
     super.dispose();
   }
 
-  Future<NavigationDecision> _onNavigationRequest(
-    NavigationRequest request,
+  Future<EmbeddedNavigationDecision> _onNavigationRequest(
+    EmbeddedNavigationRequest request,
   ) async {
-    if (request.url.endsWith('/intercept')) {
+    if (request.uri.path == '/intercept') {
       _set(() => _navigationIntercepted = true);
       _completeIfReady();
-      return NavigationDecision.prevent;
+      return EmbeddedNavigationDecision.prevent;
     }
-    return NavigationDecision.navigate;
+    return EmbeddedNavigationDecision.navigate;
   }
 
-  void _onMessage(JavaScriptMessage message) {
-    switch (message.message) {
+  void _onMessage(String message) {
+    switch (message) {
       case 'loaded':
         _set(() => _pageLoaded = true);
-        unawaited(_triggerChecks());
+        _completeIfReady();
+      case 'bridge-installed':
+        _set(() => _bridgeInstalled = true);
+        _completeIfReady();
       case 'blob:probe-blob':
         _set(() => _blobReceived = true);
+        _completeIfReady();
+      case 'keyboard-input':
+        _set(() => _keyboardInputReceived = true);
+        _completeIfReady();
+      case 'ime-composition':
+        _set(() => _imeCompositionReceived = true);
         _completeIfReady();
     }
   }
 
   Future<void> _start() async {
     try {
-      await _controller.setJavaScriptMode(JavaScriptMode.unrestricted);
-      await _controller.setNavigationDelegate(
-        NavigationDelegate(onNavigationRequest: _onNavigationRequest),
-      );
-      await _controller.addJavaScriptChannel(
-        'Probe',
-        onMessageReceived: _onMessage,
-      );
+      await _controller.initialize();
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       _server = server;
       unawaited(_serve(server));
@@ -114,29 +125,29 @@ class _ProbePageState extends State<_ProbePage> {
     }
   }
 
-  Future<void> _triggerChecks() async {
-    try {
-      await _controller.runJavaScript(
-        "document.getElementById('intercept').click()",
-      );
-      await _controller.runJavaScript(
-        "document.getElementById('download').click()",
-      );
-      await _controller.runJavaScript(
-        "document.getElementById('blob').click()",
-      );
-    } catch (error) {
-      _set(() => _error = '$error');
-    }
-  }
-
   void _completeIfReady() {
-    if (_pageLoaded &&
+    final automatedReady =
+        _pageLoaded &&
+        _bridgeInstalled &&
         _navigationIntercepted &&
         _downloadRequested &&
-        _blobReceived) {
+        _blobReceived;
+    if (automatedReady && !_automatedPassReported) {
+      _automatedPassReported = true;
       debugPrint(
-        'WEBVIEW_PROBE_PASS: page, navigation, HTTP download, Blob channel',
+        'WEBVIEW_PROBE_AUTOMATED_PASS: '
+        'page, bridge, navigation, HTTP download, Blob channel',
+      );
+    }
+    if (automatedReady &&
+        _keyboardInputReceived &&
+        _imeCompositionReceived &&
+        !_completePassReported) {
+      _completePassReported = true;
+      debugPrint(
+        'WEBVIEW_PROBE_PASS: '
+        'page, bridge, navigation, HTTP download, Blob channel, '
+        'keyboard input, IME composition',
       );
     }
   }
@@ -146,24 +157,49 @@ class _ProbePageState extends State<_ProbePage> {
     setState(update);
   }
 
+  static const _bridgeScript = '''
+SubDockBlob.postMessage('bridge-installed');
+''';
+
   static const _page = '''<!doctype html>
 <html><body>
+  <p>Type in the field below with a physical keyboard, then commit text with an IME.</p>
+  <input id="keyboard" placeholder="Keyboard / IME probe">
   <button id="intercept" onclick="location.href='/intercept'">intercept</button>
   <a id="download" href="/download" download="probe.txt">download</a>
-  <button id="blob" onclick="const reader = new FileReader(); reader.onload = () => Probe.postMessage('blob:' + reader.result); reader.readAsText(new Blob(['probe-blob']))">blob</button>
-  <script>window.addEventListener('load', () => Probe.postMessage('loaded'));</script>
+  <button id="blob" onclick="const reader = new FileReader(); reader.onload = () => SubDockBlob.postMessage('blob:' + reader.result); reader.readAsText(new Blob(['probe-blob']))">blob</button>
+  <script>
+    const keyboard = document.getElementById('keyboard');
+    keyboard.addEventListener(
+      'input',
+      () => SubDockBlob.postMessage('keyboard-input'),
+    );
+    keyboard.addEventListener(
+      'compositionend',
+      () => SubDockBlob.postMessage('ime-composition'),
+    );
+    window.addEventListener('load', () => {
+      SubDockBlob.postMessage('loaded');
+      setTimeout(() => document.getElementById('intercept').click(), 50);
+      setTimeout(() => document.getElementById('download').click(), 150);
+      setTimeout(() => document.getElementById('blob').click(), 250);
+    });
+  </script>
 </body></html>''';
 
   @override
   Widget build(BuildContext context) {
     final checks = <String, bool>{
       'Merged page loaded': _pageLoaded,
+      'Production bridge injected': _bridgeInstalled,
       'Navigation intercepted': _navigationIntercepted,
       'HTTP download requested': _downloadRequested,
       'Blob channel received': _blobReceived,
+      'Keyboard input delivered (manual)': _keyboardInputReceived,
+      'IME composition committed (manual)': _imeCompositionReceived,
     };
     return Scaffold(
-      appBar: AppBar(title: const Text('webview_all probe')),
+      appBar: AppBar(title: const Text('Embedded WebView probe')),
       body: Column(
         children: [
           if (_error != null)
@@ -174,7 +210,7 @@ class _ProbePageState extends State<_ProbePage> {
               title: Text(check.key),
             ),
           if (!_started) const LinearProgressIndicator(),
-          Expanded(child: WebViewWidget(controller: _controller)),
+          Expanded(child: _controller.build()),
         ],
       ),
     );
