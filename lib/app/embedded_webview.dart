@@ -18,16 +18,12 @@ typedef EmbeddedNavigationHandler = Future<EmbeddedNavigationDecision> Function(
 
 class EmbeddedWebViewController {
   EmbeddedWebViewController._({
-    required Object controller,
-    required Future<void> Function() initialize,
-    required Widget Function() buildWidget,
-    required Future<void> Function() reload,
-    required Future<Uri?> Function() currentUrl,
-  }) : _controller = controller,
-       _initialize = initialize,
-       _buildWidget = buildWidget,
-       _reload = reload,
-       _currentUrl = currentUrl;
+    required this._controller,
+    required this._initialize,
+    required this._buildWidget,
+    required this._reload,
+    required this._currentUrl,
+  });
 
   final Object _controller;
   final Future<void> Function() _initialize;
