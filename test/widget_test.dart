@@ -14,6 +14,7 @@ import 'package:flutter/material.dart'
         ListTile,
         ListView,
         NavigationBar,
+        NavigationDestination,
         OutlinedButton,
         SelectableText,
         Scrollable,
@@ -2200,6 +2201,23 @@ void main() {
       ),
     );
     expect(find.byType(NavigationBar), findsOneWidget);
+    final mobileNavigation = tester.widget<NavigationBar>(
+      find.byType(NavigationBar),
+    );
+    expect(
+      mobileNavigation.destinations
+          .whereType<NavigationDestination>()
+          .map((destination) => destination.label),
+      ['概览', '管理', '日志', '更新', '设置'],
+    );
+    mobileNavigation.onDestinationSelected?.call(3);
+    await tester.pump();
+    expect(
+      tester
+          .widget<Offstage>(find.byKey(const ValueKey('page-updates')))
+          .offstage,
+      isFalse,
+    );
 
     await tester.binding.setSurfaceSize(const Size(600, 800));
     await tester.pump();
@@ -2212,7 +2230,7 @@ void main() {
   });
 
   testWidgets(
-    'shell renders the four pages and the warning banner in dark mode',
+    'shell renders the five pages and the warning banner in dark mode',
     (WidgetTester tester) async {
       late Directory temp;
       addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
@@ -2252,6 +2270,7 @@ void main() {
       for (final key in [
         'nav-item-overview',
         'nav-item-logs',
+        'nav-item-updates',
         'nav-item-settings',
         'nav-item-manage',
       ]) {

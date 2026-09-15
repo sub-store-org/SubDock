@@ -4,6 +4,7 @@
   "manage": "Manage",
   "overview": "Overview",
   "logs": "Logs",
+  "updates": "Updates",
   "settings": "Settings",
   "frontendUpdate": "Frontend Update",
   "frontendUpdateSubtitle": "Check and manage the installed Frontend component",

@@ -122,6 +122,12 @@ abstract class AppLocalizations {
   /// **'日志'**
   String get logs;
 
+  /// No description provided for @updates.
+  ///
+  /// In zh, this message translates to:
+  /// **'更新'**
+  String get updates;
+
   /// No description provided for @settings.
   ///
   /// In zh, this message translates to:

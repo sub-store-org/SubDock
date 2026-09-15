@@ -33,7 +33,7 @@ final _notMaximized = ValueNotifier<bool>(false);
 Future<bool> _launchExternalUri(Uri uri) =>
     launchUrl(uri, mode: LaunchMode.externalApplication);
 
-enum _AppPage { overview, manage, logs, settings }
+enum _AppPage { overview, manage, logs, updates, settings }
 
 enum _SettingsSection {
   home,
@@ -442,6 +442,11 @@ class _SubDockAppState extends State<SubDockApp> {
         label: l10n.logs,
       ),
       _ShellDestination(
+        icon: const Icon(Icons.system_update_alt_outlined),
+        selectedIcon: const Icon(Icons.system_update_alt),
+        label: l10n.updates,
+      ),
+      _ShellDestination(
         icon: const Icon(Icons.settings_outlined),
         selectedIcon: const Icon(Icons.settings),
         label: l10n.settings,
@@ -478,6 +483,7 @@ class _SubDockAppState extends State<SubDockApp> {
         entryGeneration: _logsEntryGeneration,
         onSortChanged: _onLogSortChanged,
       ),
+      const SizedBox.shrink(),
       _SettingsPage(
         key: _settingsKey,
         environment: widget.coordinator.environment,

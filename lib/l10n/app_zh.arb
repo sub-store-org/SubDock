@@ -4,6 +4,7 @@
   "manage": "管理",
   "overview": "概览",
   "logs": "日志",
+  "updates": "更新",
   "settings": "设置",
   "frontendUpdate": "前端更新",
   "frontendUpdateSubtitle": "检查和管理已安装的前端组件",

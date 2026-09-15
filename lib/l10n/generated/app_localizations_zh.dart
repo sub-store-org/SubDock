@@ -22,6 +22,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get logs => '日志';
 
   @override
+  String get updates => '更新';
+
+  @override
   String get settings => '设置';
 
   @override
