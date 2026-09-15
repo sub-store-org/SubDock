@@ -26,6 +26,7 @@ import 'app_typography.dart';
 import 'about_info.dart';
 import 'close_request_guard.dart';
 import 'embedded_webview.dart';
+import 'runtime_observations.dart';
 
 const navigationBreakpoint = 600.0;
 final _notMaximized = ValueNotifier<bool>(false);
@@ -117,6 +118,7 @@ class _SubDockAppState extends State<SubDockApp> {
   late final StreamSubscription<RuntimeLog> _logSubscription;
   late final AppLifecycleListener _lifecycleListener;
   late RuntimeState _state;
+  final _observations = RuntimeObservations();
   final _logs = <RuntimeLog>[];
   _AppPage _page = _AppPage.overview;
   final _overviewComponentStatuses = <ComponentKind, ComponentVersionStatus>{};
@@ -146,6 +148,7 @@ class _SubDockAppState extends State<SubDockApp> {
         ? widget.locale
         : Locale(preferences.locale!);
     _state = widget.coordinator.runtime.currentState;
+    _observations.observeState(_state);
     _error = widget.initialError;
     if (_error != null) _page = _AppPage.overview;
     _stateSubscription = widget.coordinator.runtime.state.listen(_onState);
@@ -203,6 +206,7 @@ class _SubDockAppState extends State<SubDockApp> {
 
   void _onState(RuntimeState state) {
     if (!mounted) return;
+    _observations.observeState(state);
     setState(() {
       _state = state;
       if (state.status == RuntimeStatus.starting) {
@@ -219,6 +223,7 @@ class _SubDockAppState extends State<SubDockApp> {
 
   void _appendLog(RuntimeLog log) {
     if (!mounted) return;
+    _observations.observeLog(log);
     setState(() {
       _logs.add(log);
       if (_logs.length > _currentRunLogLimit) {
