@@ -77,16 +77,23 @@ class AppLocalizationsZh extends AppLocalizations {
   String get frontendComponentDescription => 'Sub-Store WebUI';
 
   @override
-  String get frontendUpdate => '前端更新';
+  String get independentlyUpdatable => '可独立更新';
 
   @override
-  String get frontendUpdateSubtitle => '检查和管理已安装的前端组件';
+  String get packagedWithSubDock => '随 SubDock 提供';
 
   @override
-  String get backendUpdate => '后端更新';
+  String get packagedResourcesDescription =>
+      '这些运行资源属于应用安装包，不通过 Frontend / Backend 的在线更新器单独替换。';
 
   @override
-  String get backendUpdateSubtitle => '检查和管理已安装的后端组件';
+  String get nodeJsRuntime => 'Node.js Runtime';
+
+  @override
+  String get mihomo => 'Mihomo';
+
+  @override
+  String get httpMetaResource => 'HTTP-META 资源';
 
   @override
   String get recheck => '重新检查';
@@ -522,9 +529,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get languageFollowSystem => '跟随系统';
-
-  @override
-  String get componentUpdatesHeading => '组件更新';
 
   @override
   String get checkForUpdates => '检查更新';

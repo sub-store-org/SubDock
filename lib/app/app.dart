@@ -36,15 +36,7 @@ Future<bool> _launchExternalUri(Uri uri) =>
 
 enum _AppPage { overview, manage, logs, updates, settings }
 
-enum _SettingsSection {
-  home,
-  subDockConfig,
-  backendConfig,
-  frontendUpdate,
-  backendUpdate,
-  advancedEnv,
-  about,
-}
+enum _SettingsSection { home, subDockConfig, backendConfig, advancedEnv, about }
 
 enum _NullableBoolDraft { inherit, enabled, disabled }
 
@@ -122,6 +114,7 @@ class SubDockApp extends StatefulWidget {
 
 class _SubDockAppState extends State<SubDockApp> {
   final _settingsKey = GlobalKey<_SettingsPageState>();
+  final _updatesKey = GlobalKey<_UpdatesPageState>();
   late final StreamSubscription<RuntimeState> _stateSubscription;
   late final StreamSubscription<RuntimeLog> _logSubscription;
   late final AppLifecycleListener _lifecycleListener;
@@ -499,7 +492,14 @@ class _SubDockAppState extends State<SubDockApp> {
         entryGeneration: _logsEntryGeneration,
         onSortChanged: _onLogSortChanged,
       ),
-      const SizedBox.shrink(),
+      _UpdatesPage(
+        key: _updatesKey,
+        active: _page == _AppPage.updates,
+        state: _state,
+        info: _info,
+        coordinator: widget.coordinator,
+        onOpenExternalUri: widget.onOpenExternalUri ?? _launchExternalUri,
+      ),
       _SettingsPage(
         key: _settingsKey,
         environment: widget.coordinator.environment,
@@ -530,6 +530,16 @@ class _SubDockAppState extends State<SubDockApp> {
     );
     final pageFrame = _PageFrame(
       title: destinations[_page.index].label,
+      trailing: _page == _AppPage.updates
+          ? OutlinedButton.icon(
+              key: const ValueKey('updates-check-all'),
+              onPressed: () => unawaited(
+                _updatesKey.currentState?.checkAll() ?? Future<void>.value(),
+              ),
+              icon: const Icon(Icons.refresh),
+              label: Text(l10n.checkForUpdates),
+            )
+          : null,
       child: body,
     );
     return Scaffold(
@@ -579,6 +589,9 @@ class _SubDockAppState extends State<SubDockApp> {
                           destinations: destinations
                               .map(
                                 (destination) => NavigationDestination(
+                                  key: ValueKey(
+                                    'nav-item-${_AppPage.values[destinations.indexOf(destination)].name}',
+                                  ),
                                   icon: destination.icon,
                                   selectedIcon: destination.selectedIcon,
                                   label: destination.label,
@@ -783,22 +796,24 @@ class _DesktopChrome extends StatelessWidget {
 }
 
 class _PageFrame extends StatelessWidget {
-  const _PageFrame({required this.title, required this.child});
+  const _PageFrame({required this.title, this.trailing, required this.child});
   final String title;
+  final Widget? trailing;
   final Widget child;
 
   @override
   Widget build(BuildContext context) => Column(
     children: [
-      _PageHeader(title: title),
+      _PageHeader(title: title, trailing: trailing),
       Expanded(child: child),
     ],
   );
 }
 
 class _PageHeader extends StatelessWidget {
-  const _PageHeader({required this.title});
+  const _PageHeader({required this.title, this.trailing});
   final String title;
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -817,7 +832,12 @@ class _PageHeader extends StatelessWidget {
           color: colors.surfaceLowest,
           border: Border(bottom: BorderSide(color: colors.divider)),
         ),
-        child: Text(title, style: typography.titleLarge),
+        child: Row(
+          children: [
+            Expanded(child: Text(title, style: typography.titleLarge)),
+            ?trailing,
+          ],
+        ),
       ),
     );
   }
@@ -1366,11 +1386,13 @@ class _SurfacePanel extends StatelessWidget {
     required this.child,
     this.padding,
     this.radius,
+    this.borderColor,
   });
 
   final Widget child;
   final EdgeInsetsGeometry? padding;
   final double? radius;
+  final Color? borderColor;
 
   @override
   Widget build(BuildContext context) {
@@ -1380,7 +1402,7 @@ class _SurfacePanel extends StatelessWidget {
       color: colors.surfaceLow,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(radius ?? typography.radiusMd),
-        side: BorderSide(color: colors.divider),
+        side: BorderSide(color: borderColor ?? colors.divider),
       ),
       child: Padding(
         padding: padding ?? EdgeInsets.all(typography.spacingMd),
@@ -3307,34 +3329,6 @@ class _SettingsPageState extends State<_SettingsPage> {
                           SizedBox(
                             width: width,
                             child: _SettingsSectionTile(
-                              key: const ValueKey(
-                                'settings-card-frontend-update',
-                              ),
-                              icon: Icons.web_asset_outlined,
-                              title: l10n.frontendUpdate,
-                              subtitle: l10n.frontendUpdateSubtitle,
-                              onTap: () => unawaited(
-                                _openSection(_SettingsSection.frontendUpdate),
-                              ),
-                            ),
-                          ),
-                          SizedBox(
-                            width: width,
-                            child: _SettingsSectionTile(
-                              key: const ValueKey(
-                                'settings-card-backend-update',
-                              ),
-                              icon: Icons.system_update_alt,
-                              title: l10n.backendUpdate,
-                              subtitle: l10n.backendUpdateSubtitle,
-                              onTap: () => unawaited(
-                                _openSection(_SettingsSection.backendUpdate),
-                              ),
-                            ),
-                          ),
-                          SizedBox(
-                            width: width,
-                            child: _SettingsSectionTile(
                               icon: Icons.terminal,
                               title: l10n.advancedRawEnv,
                               subtitle: _dirty
@@ -3564,20 +3558,6 @@ class _SettingsPageState extends State<_SettingsPage> {
                     ),
                   ),
                 SizedBox(height: typography.spacingLg),
-                if (_section == _SettingsSection.frontendUpdate)
-                  _ComponentUpdatePage(
-                    key: const ValueKey('settings-frontend-update-page'),
-                    kind: ComponentKind.frontend,
-                    coordinator: widget.coordinator,
-                    onOpenExternalUri: widget.onOpenExternalUri,
-                  ),
-                if (_section == _SettingsSection.backendUpdate)
-                  _ComponentUpdatePage(
-                    key: const ValueKey('settings-backend-update-page'),
-                    kind: ComponentKind.backend,
-                    coordinator: widget.coordinator,
-                    onOpenExternalUri: widget.onOpenExternalUri,
-                  ),
                 if (_section == _SettingsSection.about)
                   _AboutPage(
                     key: const ValueKey('settings-about-page'),
@@ -3639,8 +3619,6 @@ class _SettingsPageState extends State<_SettingsPage> {
                       _dirty && BackendEnvPolicy.validate(_document).isEmpty
                           ? _save
                           : null,
-                    _SettingsSection.frontendUpdate => null,
-                    _SettingsSection.backendUpdate => null,
                     _SettingsSection.about => null,
                     _SettingsSection.home => null,
                   },
@@ -3654,14 +3632,287 @@ class _SettingsPageState extends State<_SettingsPage> {
   }
 }
 
+class _UpdatesPage extends StatefulWidget {
+  const _UpdatesPage({
+    super.key,
+    required this.active,
+    required this.state,
+    required this.info,
+    required this.coordinator,
+    required this.onOpenExternalUri,
+  });
+
+  final RuntimeState state;
+  final bool active;
+  final BackendInfo? info;
+  final AppCoordinator coordinator;
+  final Future<bool> Function(Uri uri) onOpenExternalUri;
+
+  @override
+  State<_UpdatesPage> createState() => _UpdatesPageState();
+}
+
+class _UpdatesPageState extends State<_UpdatesPage> {
+  final _frontendKey = GlobalKey<_ComponentUpdatePageState>();
+  final _backendKey = GlobalKey<_ComponentUpdatePageState>();
+  Object? _stopError;
+
+  Future<void> checkAll() async {
+    await Future.wait([
+      _frontendKey.currentState?._check() ?? Future<void>.value(),
+      _backendKey.currentState?._check() ?? Future<void>.value(),
+    ]);
+  }
+
+  Future<void> _stopBackend() async {
+    try {
+      await widget.coordinator.stop();
+    } catch (error) {
+      if (mounted) setState(() => _stopError = error);
+    }
+  }
+
+  String _runtimeLabel(AppLocalizations l10n) => switch (widget.state.status) {
+    RuntimeStatus.stopped => l10n.stopped,
+    RuntimeStatus.starting => l10n.starting,
+    RuntimeStatus.running => l10n.running,
+    RuntimeStatus.stopping => l10n.stopping,
+    RuntimeStatus.unhealthy => l10n.unhealthy,
+    RuntimeStatus.crashed => l10n.crashed,
+  };
+
+  String _httpMetaLabel(AppLocalizations l10n) =>
+      switch (widget.state.httpMetaStatus) {
+        HttpMetaStatus.disabled => l10n.httpMetaDisabled,
+        HttpMetaStatus.unavailable => l10n.httpMetaUnavailable,
+        HttpMetaStatus.starting => l10n.httpMetaStarting,
+        HttpMetaStatus.running => l10n.httpMetaRunning(
+          widget.state.httpMetaPort ?? '-',
+          widget.state.httpMetaVersion ?? '-',
+        ),
+        HttpMetaStatus.degraded => l10n.httpMetaDegraded,
+        HttpMetaStatus.stopped => l10n.httpMetaStopped,
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final colors = Theme.of(context).extension<AppColors>()!;
+    final typography = Theme.of(context).extension<AppTypography>()!;
+    final compact = MediaQuery.sizeOf(context).width < navigationBreakpoint;
+    final transitioning =
+        widget.state.status == RuntimeStatus.starting ||
+        widget.state.status == RuntimeStatus.stopping;
+    final stopped = widget.state.status == RuntimeStatus.stopped;
+
+    return SingleChildScrollView(
+      key: const ValueKey('updates-list'),
+      padding: compact
+          ? EdgeInsets.only(
+              top: typography.spacingSm,
+              left: typography.spacingSm,
+              right: typography.spacingSm,
+              bottom: typography.spacingLg,
+            )
+          : EdgeInsets.all(typography.spacingLg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (!stopped) ...[
+            _SurfacePanel(
+              key: const ValueKey('updates-backend-notice'),
+              radius: typography.radiusLg,
+              borderColor: colors.warning,
+              child: Flex(
+                key: const ValueKey('updates-backend-notice-layout'),
+                direction: compact ? Axis.vertical : Axis.horizontal,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (compact)
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${l10n.backendRuntime} ${_runtimeLabel(l10n)}',
+                          style: typography.titleMedium,
+                        ),
+                        SizedBox(height: typography.spacingXs),
+                        Text(l10n.backendMustBeStopped),
+                        if (_stopError != null)
+                          Text(
+                            _localizedError(l10n, _stopError),
+                            style: TextStyle(color: colors.error),
+                          ),
+                      ],
+                    )
+                  else
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '${l10n.backendRuntime} ${_runtimeLabel(l10n)}',
+                            style: typography.titleMedium,
+                          ),
+                          SizedBox(height: typography.spacingXs),
+                          Text(l10n.backendMustBeStopped),
+                          if (_stopError != null)
+                            Text(
+                              _localizedError(l10n, _stopError),
+                              style: TextStyle(color: colors.error),
+                            ),
+                        ],
+                      ),
+                    ),
+                  if (!compact) SizedBox(width: typography.spacingMd),
+                  if (compact) SizedBox(height: typography.spacingSm),
+                  OutlinedButton(
+                    key: const ValueKey('updates-backend-stop'),
+                    onPressed: transitioning ? null : _stopBackend,
+                    child: Text(l10n.stopBackend),
+                  ),
+                ],
+              ),
+            ),
+            SizedBox(height: typography.spacingLg),
+          ],
+          Text(l10n.independentlyUpdatable, style: typography.titleMedium),
+          SizedBox(height: typography.spacingSm),
+          _SurfacePanel(
+            key: const ValueKey('updates-independent-section'),
+            padding: EdgeInsets.zero,
+            radius: typography.radiusLg,
+            child: Column(
+              children: [
+                _ComponentUpdatePage(
+                  key: _frontendKey,
+                  kind: ComponentKind.frontend,
+                  embedded: true,
+                  active: widget.active,
+                  coordinator: widget.coordinator,
+                  onOpenExternalUri: widget.onOpenExternalUri,
+                ),
+                Divider(height: 1, color: colors.divider),
+                _ComponentUpdatePage(
+                  key: _backendKey,
+                  kind: ComponentKind.backend,
+                  embedded: true,
+                  active: widget.active,
+                  coordinator: widget.coordinator,
+                  onOpenExternalUri: widget.onOpenExternalUri,
+                ),
+              ],
+            ),
+          ),
+          SizedBox(height: typography.spacingLg),
+          Text(l10n.packagedWithSubDock, style: typography.titleMedium),
+          SizedBox(height: typography.spacingXs),
+          Text(l10n.packagedResourcesDescription, style: typography.bodySmall),
+          SizedBox(height: typography.spacingSm),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final width = compact
+                  ? constraints.maxWidth
+                  : (constraints.maxWidth - typography.spacingSm * 2) / 3;
+              return Wrap(
+                key: const ValueKey('updates-packaged-grid'),
+                spacing: typography.spacingSm,
+                runSpacing: typography.spacingSm,
+                children: [
+                  _PackagedResourceTile(
+                    key: const ValueKey('updates-packaged-http-meta'),
+                    width: width,
+                    name: 'HTTP-META',
+                    version: widget.state.httpMetaVersion ?? '-',
+                    badge: l10n.httpMetaBundled,
+                    detail: _httpMetaLabel(l10n),
+                  ),
+                  _PackagedResourceTile(
+                    key: const ValueKey('updates-packaged-mihomo'),
+                    width: width,
+                    name: l10n.mihomo,
+                    version: '-',
+                    badge: l10n.httpMetaResource,
+                  ),
+                  _PackagedResourceTile(
+                    key: const ValueKey('updates-packaged-node'),
+                    width: width,
+                    name: l10n.nodeJsRuntime,
+                    version: widget.info?.nodeVersion ?? '-',
+                    badge: l10n.httpMetaBundled,
+                  ),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PackagedResourceTile extends StatelessWidget {
+  const _PackagedResourceTile({
+    super.key,
+    required this.width,
+    required this.name,
+    required this.version,
+    required this.badge,
+    this.detail,
+  });
+
+  final double width;
+  final String name;
+  final String version;
+  final String badge;
+  final String? detail;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<AppColors>()!;
+    final typography = Theme.of(context).extension<AppTypography>()!;
+    return SizedBox(
+      width: width,
+      child: Material(
+        color: colors.surfaceLowest,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(typography.radiusMd),
+          side: BorderSide(color: colors.divider),
+        ),
+        child: Padding(
+          padding: EdgeInsets.all(typography.spacingMd),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(name, style: typography.bodySmall),
+              SizedBox(height: typography.spacingXs),
+              Text(version, style: typography.titleMedium),
+              SizedBox(height: typography.spacingXs),
+              _OverviewBadge(text: badge),
+              if (detail != null) ...[
+                SizedBox(height: typography.spacingXs),
+                Text(detail!, style: typography.bodySmall),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _ComponentUpdatePage extends StatefulWidget {
   const _ComponentUpdatePage({
     super.key,
     required this.kind,
+    this.embedded = false,
+    this.active = true,
     required this.coordinator,
     required this.onOpenExternalUri,
   });
   final ComponentKind kind;
+  final bool embedded;
+  final bool active;
   final AppCoordinator coordinator;
   final Future<bool> Function(Uri uri) onOpenExternalUri;
   @override
@@ -3689,7 +3940,13 @@ class _ComponentUpdatePageState extends State<_ComponentUpdatePage> {
       if (mounted) setState(() => _runtimeState = state);
     });
     unawaited(_loadStatus());
-    unawaited(_check());
+    if (widget.active) unawaited(_check());
+  }
+
+  @override
+  void didUpdateWidget(covariant _ComponentUpdatePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!oldWidget.active && widget.active) unawaited(_check());
   }
 
   @override
@@ -3726,7 +3983,12 @@ class _ComponentUpdatePageState extends State<_ComponentUpdatePage> {
       final update = await widget.coordinator.checkComponent(widget.kind);
       if (mounted) setState(() => _update = update);
     } catch (error) {
-      if (mounted) setState(() => _checkError = error);
+      if (mounted) {
+        setState(() {
+          _checkError = error;
+          _update = null;
+        });
+      }
     } finally {
       if (mounted) setState(() => _checking = false);
     }
@@ -3839,7 +4101,7 @@ class _ComponentUpdatePageState extends State<_ComponentUpdatePage> {
 
   Future<void> _openReleaseNotes() async {
     final update = _update;
-    if (update == null || !update.isAvailable) return;
+    if (update == null || _checkError != null) return;
     final l10n = AppLocalizations.of(context)!;
     try {
       if (!await widget.onOpenExternalUri(update.release.releaseUri)) {
@@ -3855,97 +4117,168 @@ class _ComponentUpdatePageState extends State<_ComponentUpdatePage> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final colors = Theme.of(context).extension<AppColors>()!;
+    final typography = Theme.of(context).extension<AppTypography>()!;
     final kind = widget.kind.name;
     final title = widget.kind == ComponentKind.frontend
-        ? l10n.frontendUpdate
-        : l10n.backendUpdate;
+        ? l10n.frontendComponent
+        : l10n.backendComponent;
+    final description = widget.kind == ComponentKind.frontend
+        ? l10n.frontendComponentDescription
+        : l10n.backendComponentDescription;
     final gate = _stopped
         ? l10n.backendStoppedForUpdates
         : _transitioning
         ? l10n.backendTransitioning
         : l10n.backendMustBeStopped;
     final busy = _checking || _mutating || _restarting;
-    return _SurfacePanel(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title, style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 12),
-          Text(
-            _status == null
-                ? (_statusError == null
-                      ? l10n.componentReadingVersion
-                      : '${l10n.componentStatusUnavailable}: ${_localizedError(l10n, _statusError)}')
-                : '${l10n.currentVersion}: ${_status!.current}\n${l10n.previousVersion}: ${_status!.previous ?? '-'}',
-            key: ValueKey('component-update-local-status-$kind'),
+    final latest =
+        _update != null && !_update!.isAvailable && _checkError == null;
+    final actions = Wrap(
+      key: ValueKey('component-actions-$kind'),
+      spacing: typography.spacingXs,
+      runSpacing: typography.spacingXs,
+      children: [
+        if (_update != null && _checkError == null)
+          TextButton(
+            key: ValueKey('component-release-notes-$kind'),
+            onPressed: busy ? null : _openReleaseNotes,
+            child: Text(l10n.viewReleaseNotes),
           ),
-          const SizedBox(height: 12),
-          if (_checking)
-            const CircularProgressIndicator()
-          else
+        OutlinedButton(
+          key: ValueKey('component-update-recheck-$kind'),
+          onPressed: busy ? null : _check,
+          child: Text(l10n.recheck),
+        ),
+        if (!_stopped && !widget.embedded)
+          OutlinedButton(
+            key: ValueKey('component-update-stop-$kind'),
+            onPressed: _transitioning || busy ? null : _stop,
+            child: Text(l10n.stopBackend),
+          ),
+        if (_update?.isAvailable == true)
+          FilledButton(
+            key: ValueKey('component-update-action-$kind'),
+            onPressed: _stopped && !busy ? _applyUpdate : null,
+            child: Text(l10n.update),
+          ),
+        if (_status?.previous != null)
+          TextButton(
+            key: ValueKey('component-rollback-action-$kind'),
+            onPressed: _stopped && !busy ? _rollback : null,
+            child: Text(l10n.rollback),
+          ),
+      ],
+    );
+    final body = LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = MediaQuery.sizeOf(context).width < navigationBreakpoint;
+        final details = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Flexible(child: Text(title, style: typography.titleMedium)),
+                if (latest) ...[
+                  SizedBox(width: typography.spacingS),
+                  _OverviewBadge(text: l10n.latest, color: colors.success),
+                ],
+              ],
+            ),
+            SizedBox(height: typography.spacingXs),
+            Text(description, style: typography.bodySmall),
+            SizedBox(height: typography.spacingXs),
             Text(
-              _checkError != null
-                  ? _localizedError(l10n, _checkError)
-                  : _update?.isAvailable == true
-                  ? '${l10n.availableVersion}: ${_update!.availableVersion}'
-                  : l10n.componentUpToDate(
-                      _update?.currentVersion ?? _status?.current ?? '-',
-                      _status?.previous ?? '-',
-                    ),
+              _status == null
+                  ? (_statusError == null
+                        ? l10n.componentReadingVersion
+                        : '${l10n.componentStatusUnavailable}: ${_localizedError(l10n, _statusError)}')
+                  : '${l10n.currentVersion}: ${_status!.current}\n${l10n.previousVersion}: ${_status!.previous ?? '-'}',
+              key: ValueKey('component-update-local-status-$kind'),
             ),
-          if (_update?.isAvailable == true)
-            TextButton(
-              key: ValueKey('component-release-notes-$kind'),
-              onPressed: busy ? null : _openReleaseNotes,
-              child: Text(l10n.viewReleaseNotes),
-            ),
-          if (_mutationError != null)
-            Text(_localizedError(l10n, _mutationError!)),
-          if (_restartRequired) ...[
-            const SizedBox(height: 8),
-            Text(l10n.backendRestartRequired),
-            FilledButton(
-              key: ValueKey('component-restart-now-$kind'),
-              onPressed: busy ? null : _restartBackend,
-              child: Text(l10n.restartNow),
-            ),
-          ],
-          const SizedBox(height: 12),
-          Text(gate),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            children: [
-              OutlinedButton(
-                key: ValueKey('component-update-recheck-$kind'),
-                onPressed: busy ? null : _check,
-                child: Text(l10n.recheck),
+            SizedBox(height: typography.spacingXs),
+            if (_checking)
+              const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            else
+              Text(
+                _checkError != null
+                    ? _localizedError(l10n, _checkError)
+                    : _update?.isAvailable == true
+                    ? '${l10n.availableVersion}: ${_update!.availableVersion}'
+                    : l10n.componentUpToDate(
+                        _update?.currentVersion ?? _status?.current ?? '-',
+                        _status?.previous ?? '-',
+                      ),
               ),
-              if (!_stopped)
-                OutlinedButton(
-                  key: ValueKey('component-update-stop-$kind'),
-                  onPressed: _transitioning || busy ? null : _stop,
-                  child: Text(l10n.stopBackend),
-                ),
+            if (_mutationError != null)
+              Text(_localizedError(l10n, _mutationError!)),
+            if (_restartRequired) ...[
+              SizedBox(height: typography.spacingXs),
+              Text(l10n.backendRestartRequired),
               FilledButton(
-                key: ValueKey('component-update-action-$kind'),
-                onPressed: _stopped && !busy && _update?.isAvailable == true
-                    ? _applyUpdate
-                    : null,
-                child: Text(l10n.update),
-              ),
-              TextButton(
-                key: ValueKey('component-rollback-action-$kind'),
-                onPressed: _stopped && !busy && _status?.previous != null
-                    ? _rollback
-                    : null,
-                child: Text(l10n.rollback),
+                key: ValueKey('component-restart-now-$kind'),
+                onPressed: busy ? null : _restartBackend,
+                child: Text(l10n.restartNow),
               ),
             ],
-          ),
-        ],
-      ),
+            if (!widget.embedded) ...[
+              SizedBox(height: typography.spacingSm),
+              Text(gate),
+            ],
+          ],
+        );
+        final identity = Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: compact ? 40 : 42,
+              height: compact ? 40 : 42,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: colors.surfaceHigh,
+                border: Border.all(color: colors.divider),
+                borderRadius: BorderRadius.circular(typography.radiusMd),
+              ),
+              child: Icon(
+                widget.kind == ComponentKind.frontend
+                    ? Icons.web_asset_outlined
+                    : Icons.dns_outlined,
+                color: colors.accent,
+              ),
+            ),
+            SizedBox(width: typography.spacingMd),
+            Expanded(child: details),
+          ],
+        );
+        final content = Flex(
+          key: ValueKey('component-layout-$kind'),
+          direction: compact ? Axis.vertical : Axis.horizontal,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (compact) identity else Expanded(child: identity),
+            if (!compact) ...[
+              SizedBox(width: typography.spacingMd),
+              Flexible(
+                child: Align(alignment: Alignment.topRight, child: actions),
+              ),
+            ],
+            if (compact) ...[
+              SizedBox(height: typography.spacingSm),
+              SizedBox(width: double.infinity, child: actions),
+            ],
+          ],
+        );
+        return Padding(
+          padding: EdgeInsets.all(typography.spacingMd),
+          child: content,
+        );
+      },
     );
+    return widget.embedded ? body : _SurfacePanel(child: body);
   }
 }
 

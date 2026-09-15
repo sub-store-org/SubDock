@@ -180,15 +180,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
-    await tester.pumpAndSettle();
-
-    final frontendUpdateCard = find.byKey(
-      const ValueKey('settings-card-frontend-update'),
-    );
-    await tester.ensureVisible(frontendUpdateCard);
-    await tester.pumpAndSettle();
-    await tester.tap(frontendUpdateCard);
+    await tester.tap(find.byKey(const ValueKey('nav-item-updates')));
     await tester.pumpAndSettle();
 
     final releaseNotes = find.byKey(

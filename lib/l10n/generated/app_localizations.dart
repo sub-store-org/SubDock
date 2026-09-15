@@ -230,29 +230,41 @@ abstract class AppLocalizations {
   /// **'Sub-Store WebUI'**
   String get frontendComponentDescription;
 
-  /// No description provided for @frontendUpdate.
+  /// No description provided for @independentlyUpdatable.
   ///
   /// In zh, this message translates to:
-  /// **'前端更新'**
-  String get frontendUpdate;
+  /// **'可独立更新'**
+  String get independentlyUpdatable;
 
-  /// No description provided for @frontendUpdateSubtitle.
+  /// No description provided for @packagedWithSubDock.
   ///
   /// In zh, this message translates to:
-  /// **'检查和管理已安装的前端组件'**
-  String get frontendUpdateSubtitle;
+  /// **'随 SubDock 提供'**
+  String get packagedWithSubDock;
 
-  /// No description provided for @backendUpdate.
+  /// No description provided for @packagedResourcesDescription.
   ///
   /// In zh, this message translates to:
-  /// **'后端更新'**
-  String get backendUpdate;
+  /// **'这些运行资源属于应用安装包，不通过 Frontend / Backend 的在线更新器单独替换。'**
+  String get packagedResourcesDescription;
 
-  /// No description provided for @backendUpdateSubtitle.
+  /// No description provided for @nodeJsRuntime.
   ///
   /// In zh, this message translates to:
-  /// **'检查和管理已安装的后端组件'**
-  String get backendUpdateSubtitle;
+  /// **'Node.js Runtime'**
+  String get nodeJsRuntime;
+
+  /// No description provided for @mihomo.
+  ///
+  /// In zh, this message translates to:
+  /// **'Mihomo'**
+  String get mihomo;
+
+  /// No description provided for @httpMetaResource.
+  ///
+  /// In zh, this message translates to:
+  /// **'HTTP-META 资源'**
+  String get httpMetaResource;
 
   /// No description provided for @recheck.
   ///
@@ -1061,12 +1073,6 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'跟随系统'**
   String get languageFollowSystem;
-
-  /// No description provided for @componentUpdatesHeading.
-  ///
-  /// In zh, this message translates to:
-  /// **'组件更新'**
-  String get componentUpdatesHeading;
 
   /// No description provided for @checkForUpdates.
   ///

@@ -77,18 +77,23 @@ class AppLocalizationsEn extends AppLocalizations {
   String get frontendComponentDescription => 'Sub-Store WebUI';
 
   @override
-  String get frontendUpdate => 'Frontend Update';
+  String get independentlyUpdatable => 'Independently updatable';
 
   @override
-  String get frontendUpdateSubtitle =>
-      'Check and manage the installed Frontend component';
+  String get packagedWithSubDock => 'Ships with SubDock';
 
   @override
-  String get backendUpdate => 'Backend Update';
+  String get packagedResourcesDescription =>
+      'These runtime resources ship in the application package and are not replaced independently by the Frontend / Backend online updater.';
 
   @override
-  String get backendUpdateSubtitle =>
-      'Check and manage the installed Backend component';
+  String get nodeJsRuntime => 'Node.js Runtime';
+
+  @override
+  String get mihomo => 'Mihomo';
+
+  @override
+  String get httpMetaResource => 'HTTP-META resource';
 
   @override
   String get recheck => 'Recheck';
@@ -541,9 +546,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get languageFollowSystem => 'Follow system';
-
-  @override
-  String get componentUpdatesHeading => 'Component Updates';
 
   @override
   String get checkForUpdates => 'Check for updates';

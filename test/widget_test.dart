@@ -14,7 +14,6 @@ import 'package:flutter/material.dart'
         Flex,
         FilterChip,
         FilledButton,
-        InkWell,
         IconButton,
         Locale,
         ListTile,
@@ -25,6 +24,7 @@ import 'package:flutter/material.dart'
         Expanded,
         SelectableText,
         Scrollable,
+        SingleChildScrollView,
         SegmentedButton,
         SwitchListTile,
         Theme,
@@ -1021,33 +1021,102 @@ void main() {
         locale: const Locale('en'),
       ),
     );
-    await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
-    await tester.pumpAndSettle();
-    await tester.drag(
-      find.byKey(const ValueKey('settings-list')),
-      const Offset(0, -500),
-    );
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('settings-card-frontend-update')),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey('settings-card-frontend-update')),
-    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-updates')));
     await _pumpRealIo(tester);
     expect(updates.checkCalls[ComponentKind.frontend], 1);
-    expect(updates.checkCalls[ComponentKind.backend], isNull);
+    expect(updates.checkCalls[ComponentKind.backend], 1);
     expect(
       find.byKey(const ValueKey('component-update-local-status-frontend')),
       findsOneWidget,
     );
+    expect(
+      tester
+          .widget<OutlinedButton>(
+            find.byKey(const ValueKey('updates-check-all')),
+          )
+          .onPressed,
+      isNotNull,
+    );
+    expect(
+      find.byKey(const ValueKey('component-release-notes-frontend')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('component-update-action-frontend')),
+      findsNothing,
+    );
     expect(find.byKey(const ValueKey('settings-child-save')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('updates-check-all')));
+    await _pumpRealIo(tester);
+    expect(updates.checkCalls[ComponentKind.frontend], 2);
+    expect(updates.checkCalls[ComponentKind.backend], 2);
     await tester.tap(
       find.byKey(const ValueKey('component-update-recheck-frontend')),
     );
     await _pumpRealIo(tester);
-    expect(updates.checkCalls[ComponentKind.frontend], 2);
+    expect(updates.checkCalls[ComponentKind.frontend], 3);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('updates page separates packaged resources', (tester) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    final runtime = _FakeBackendRuntime();
+    final coordinator = AppCoordinator(
+      runtime: runtime,
+      environmentStore: BackendEnvStore(directories!),
+      componentUpdates: _FakeComponentUpdateOperations(),
+    );
+    await tester.pumpWidget(
+      SubDockApp(
+        coordinator: coordinator,
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('en'),
+      ),
+    );
+    runtime.emitState(
+      RuntimeStatus.running,
+      httpMetaStatus: HttpMetaStatus.running,
+      httpMetaPort: 9876,
+      httpMetaVersion: '1.3.0',
+    );
+    await _pumpRealIo(tester);
+    await tester.tap(find.byKey(const ValueKey('nav-item-updates')));
+    await _pumpRealIo(tester);
+
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('updates-packaged-http-meta')),
+        matching: find.text('1.3.0'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('updates-packaged-node')),
+        matching: find.text('v24.20.0'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('updates-packaged-mihomo')),
+        matching: find.text('-'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('updates-packaged-grid')),
+        matching: find.byType(FilledButton),
+      ),
+      findsNothing,
+    );
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -1076,23 +1145,10 @@ void main() {
         locale: const Locale('en'),
       ),
     );
-    await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
-    await tester.pumpAndSettle();
-    await tester.drag(
-      find.byKey(const ValueKey('settings-list')),
-      const Offset(0, -500),
-    );
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('settings-card-backend-update')),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey('settings-card-backend-update')),
-    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-updates')));
     await _pumpRealIo(tester);
     expect(updates.checkCalls[ComponentKind.backend], 1);
-    expect(updates.checkCalls[ComponentKind.frontend], isNull);
+    expect(updates.checkCalls[ComponentKind.frontend], 1);
     expect(find.byKey(const ValueKey('settings-child-save')), findsNothing);
     expect(
       find.byKey(const ValueKey('component-update-local-status-backend')),
@@ -1104,7 +1160,7 @@ void main() {
     );
     expect(
       find.byKey(const ValueKey('component-update-action-backend')),
-      findsOneWidget,
+      findsNothing,
     );
     expect(
       find.byKey(const ValueKey('component-rollback-action-backend')),
@@ -1112,7 +1168,7 @@ void main() {
     );
     expect(
       find.byKey(const ValueKey('component-release-notes-backend')),
-      findsNothing,
+      findsOneWidget,
     );
     expect(tester.takeException(), isNull);
     for (final state in [RuntimeStatus.starting, RuntimeStatus.stopping]) {
@@ -1121,7 +1177,7 @@ void main() {
       expect(
         tester
             .widget<OutlinedButton>(
-              find.byKey(const ValueKey('component-update-stop-backend')),
+              find.byKey(const ValueKey('updates-backend-stop')),
             )
             .onPressed,
         isNull,
@@ -1130,12 +1186,8 @@ void main() {
     runtime.emitState(RuntimeStatus.running);
     await tester.pump();
     expect(
-      tester
-          .widget<FilledButton>(
-            find.byKey(const ValueKey('component-update-action-backend')),
-          )
-          .onPressed,
-      isNull,
+      find.byKey(const ValueKey('component-update-action-backend')),
+      findsNothing,
     );
     expect(
       tester
@@ -1148,51 +1200,33 @@ void main() {
     expect(
       tester
           .widget<OutlinedButton>(
-            find.byKey(const ValueKey('component-update-stop-backend')),
+            find.byKey(const ValueKey('updates-backend-stop')),
           )
           .onPressed,
       isNotNull,
     );
-    await tester.tap(
-      find.byKey(const ValueKey('component-update-stop-backend')),
-    );
+    await tester.tap(find.byKey(const ValueKey('updates-backend-stop')));
     await _pumpRealIo(tester);
     expect(runtime.stops, 1);
     expect(
       find.text('Backend is stopped. Component changes are available.'),
-      findsOneWidget,
+      findsNothing,
     );
     expect(updates.updateCalls, isEmpty);
     expect(updates.rollbackCalls, isEmpty);
-    await tester.drag(
-      find.byKey(const ValueKey('settings-list')),
-      const Offset(0, 10000),
-    );
-    await tester.pump();
-    await tester.tap(find.byKey(const ValueKey('settings-back')));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('settings-appearance')), findsOneWidget);
-    await tester.drag(
-      find.byKey(const ValueKey('settings-list')),
-      const Offset(0, -500),
-    );
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('settings-card-backend-update')),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey('settings-card-backend-update')),
-    );
     await _pumpRealIo(tester);
-    expect(updates.checkCalls[ComponentKind.backend], 2);
-    expect(updates.checkCalls[ComponentKind.frontend], isNull);
+    expect(updates.checkCalls[ComponentKind.backend], 1);
+    expect(updates.checkCalls[ComponentKind.frontend], 1);
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('component-update-recheck-backend')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(
       find.byKey(const ValueKey('component-update-recheck-backend')),
     );
     await _pumpRealIo(tester);
-    expect(updates.checkCalls[ComponentKind.backend], 3);
-    expect(updates.checkCalls[ComponentKind.frontend], isNull);
+    expect(updates.checkCalls[ComponentKind.backend], 2);
+    expect(updates.checkCalls[ComponentKind.frontend], 1);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -1218,23 +1252,10 @@ void main() {
         locale: const Locale('en'),
       ),
     );
-    await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
-    await tester.pumpAndSettle();
-    await tester.drag(
-      find.byKey(const ValueKey('settings-list')),
-      const Offset(0, -500),
-    );
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('settings-card-frontend-update')),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey('settings-card-frontend-update')),
-    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-updates')));
     await _pumpRealIo(tester);
     expect(updates.checkCalls[ComponentKind.frontend], 1);
-    expect(updates.checkCalls[ComponentKind.backend], isNull);
+    expect(updates.checkCalls[ComponentKind.backend], 1);
     final local = tester.widget<Text>(
       find.byKey(const ValueKey('component-update-local-status-frontend')),
     );
@@ -1300,20 +1321,8 @@ void main() {
         },
       ),
     );
-    await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
+    await tester.tap(find.byKey(const ValueKey('nav-item-updates')));
     await tester.pumpAndSettle();
-    await tester.drag(
-      find.byKey(const ValueKey('settings-list')),
-      const Offset(0, -500),
-    );
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('settings-card-frontend-update')),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey('settings-card-frontend-update')),
-    );
     await _pumpRealIo(tester);
     expect(
       find.byKey(const ValueKey('component-release-notes-frontend')),
@@ -1339,9 +1348,11 @@ void main() {
       find.byKey(const ValueKey('component-release-notes-frontend')),
       findsNothing,
     );
-    await tester.tap(
-      find.byKey(const ValueKey('component-restart-now-frontend')),
+    final restart = find.byKey(
+      const ValueKey('component-restart-now-frontend'),
     );
+    await tester.ensureVisible(restart);
+    await tester.tap(restart);
     await _pumpRealIo(tester);
     expect(runtime.restarts, 1);
     expect(
@@ -1351,33 +1362,27 @@ void main() {
     expect(updates.updateCalls, hasLength(1));
     expect(updates.rollbackCalls, isEmpty);
     openResult = false;
-    await tester.tap(
-      find.byKey(const ValueKey('component-update-recheck-frontend')),
+    updates.checkErrors[ComponentKind.frontend] = StateError('network failed');
+    final recheck = find.byKey(
+      const ValueKey('component-update-recheck-frontend'),
     );
+    await tester.ensureVisible(recheck);
+    await tester.tap(recheck);
     await _pumpRealIo(tester);
     final updateCount = updates.updateCalls.length;
     final rollbackCount = updates.rollbackCalls.length;
     final restartCount = runtime.restarts;
     final openedCount = opened.length;
-    await tester.tap(
-      find.byKey(const ValueKey('component-release-notes-frontend')),
-    );
-    await _pumpRealIo(tester);
     expect(
-      find.textContaining('system browser could not open'),
-      findsOneWidget,
+      find.byKey(const ValueKey('component-release-notes-frontend')),
+      findsNothing,
     );
-    expect(opened, hasLength(openedCount + 1));
-    expect(opened.last, Uri.parse('https://example.invalid/frontend'));
+    expect(opened, hasLength(openedCount));
     expect(
       find.byKey(const ValueKey('component-update-local-status-frontend')),
       findsOneWidget,
     );
     expect(find.textContaining('Current version: 1.1.0'), findsOneWidget);
-    expect(
-      find.byKey(const ValueKey('component-release-notes-frontend')),
-      findsOneWidget,
-    );
     expect(updates.updateCalls.length, updateCount);
     expect(updates.rollbackCalls.length, rollbackCount);
     expect(runtime.restarts, restartCount);
@@ -1413,20 +1418,8 @@ void main() {
         locale: const Locale('en'),
       ),
     );
-    await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
+    await tester.tap(find.byKey(const ValueKey('nav-item-updates')));
     await tester.pumpAndSettle();
-    await tester.drag(
-      find.byKey(const ValueKey('settings-list')),
-      const Offset(0, -500),
-    );
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('settings-card-backend-update')),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey('settings-card-backend-update')),
-    );
     await _pumpRealIo(tester);
     await tester.scrollUntilVisible(
       find.byKey(const ValueKey('component-rollback-action-backend')),
@@ -1441,10 +1434,13 @@ void main() {
     await tester.tap(find.text('Cancel'));
     await tester.pump();
     expect(updates.rollbackCalls, isEmpty);
-    await tester.tap(
-      find.byKey(const ValueKey('component-rollback-action-backend')),
+    final rollback = find.byKey(
+      const ValueKey('component-rollback-action-backend'),
     );
+    await tester.ensureVisible(rollback);
+    await tester.tap(rollback);
     await tester.pump();
+    await tester.ensureVisible(find.text('Rollback').last);
     await tester.tap(find.text('Rollback').last);
     await _pumpRealIo(tester);
     expect(updates.rollbackCalls, [ComponentKind.backend]);
@@ -1493,20 +1489,8 @@ void main() {
         locale: const Locale('en'),
       ),
     );
-    await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
+    await tester.tap(find.byKey(const ValueKey('nav-item-updates')));
     await tester.pumpAndSettle();
-    await tester.drag(
-      find.byKey(const ValueKey('settings-list')),
-      const Offset(0, -500),
-    );
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('settings-card-frontend-update')),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey('settings-card-frontend-update')),
-    );
     await _pumpRealIo(tester);
     await tester.tap(
       find.byKey(const ValueKey('component-update-action-frontend')),
@@ -1564,20 +1548,8 @@ void main() {
         locale: const Locale('en'),
       ),
     );
-    await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
+    await tester.tap(find.byKey(const ValueKey('nav-item-updates')));
     await tester.pumpAndSettle();
-    await tester.drag(
-      find.byKey(const ValueKey('settings-list')),
-      const Offset(0, -500),
-    );
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('settings-card-frontend-update')),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey('settings-card-frontend-update')),
-    );
     await _pumpRealIo(tester);
     await tester.tap(
       find.byKey(const ValueKey('component-update-action-frontend')),
@@ -1630,25 +1602,16 @@ void main() {
         locale: const Locale('en'),
       ),
     );
-    await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
+    await tester.tap(find.byKey(const ValueKey('nav-item-updates')));
     await tester.pumpAndSettle();
-    await tester.drag(
-      find.byKey(const ValueKey('settings-list')),
-      const Offset(0, -500),
-    );
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('settings-card-backend-update')),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey('settings-card-backend-update')),
-    );
     await _pumpRealIo(tester);
-    await tester.tap(
-      find.byKey(const ValueKey('component-rollback-action-backend')),
+    final rollback = find.byKey(
+      const ValueKey('component-rollback-action-backend'),
     );
+    await tester.ensureVisible(rollback);
+    await tester.tap(rollback);
     await tester.pump();
+    await tester.ensureVisible(find.text('Rollback').last);
     await tester.tap(find.text('Rollback').last);
     await _pumpRealIo(tester);
     expect(updates.rollbackCalls, [ComponentKind.backend]);
@@ -2971,9 +2934,7 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('600x480 frontend update page keeps back reachable', (
-    tester,
-  ) async {
+  testWidgets('599x480 updates page uses mobile hierarchy', (tester) async {
     late Directory temp;
     addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
     final directories = await tester.runAsync(() async {
@@ -2982,13 +2943,14 @@ void main() {
     });
 
     final updates = _FakeComponentUpdateOperations();
+    final runtime = _FakeBackendRuntime();
 
-    await tester.binding.setSurfaceSize(const Size(600, 480));
+    await tester.binding.setSurfaceSize(const Size(599, 480));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
       SubDockApp(
         coordinator: AppCoordinator(
-          runtime: _FakeBackendRuntime(),
+          runtime: runtime,
           environmentStore: BackendEnvStore(directories!),
           componentUpdates: updates,
         ),
@@ -2998,50 +2960,61 @@ void main() {
       ),
     );
 
-    await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
-    await tester.pumpAndSettle();
-
-    await tester.drag(
-      find.byKey(const ValueKey('settings-list')),
-      const Offset(0, -500),
-    );
-    await tester.pumpAndSettle();
-    final frontendCard = find.byKey(
-      const ValueKey('settings-card-frontend-update'),
-    );
-    expect(frontendCard, findsOneWidget);
-    await tester.ensureVisible(frontendCard);
-    await tester.pumpAndSettle();
-    final cardCenter = tester.getCenter(frontendCard);
-    expect(cardCenter.dy, greaterThan(0));
-    expect(cardCenter.dy, lessThan(480));
-    final frontendTile = find.descendant(
-      of: frontendCard,
-      matching: find.byType(InkWell),
-    );
-    expect(frontendTile, findsOneWidget);
-    await tester.tap(frontendTile);
+    await tester.tap(find.byKey(const ValueKey('nav-item-updates')));
     await _pumpRealIo(tester);
+    runtime.emitState(RuntimeStatus.running);
+    await tester.pump();
 
     expect(tester.takeException(), isNull);
-    expect(find.byKey(const ValueKey('settings-back')), findsOneWidget);
-    expect(find.byKey(const ValueKey('settings-child-save')), findsNothing);
-
-    final back = find.byKey(const ValueKey('settings-back'));
-    final settingsList = find.byKey(const ValueKey('settings-list'));
-    expect(settingsList, findsOneWidget);
-    await tester.drag(settingsList, const Offset(0, 600));
-    await tester.pumpAndSettle();
-    expect(tester.getCenter(back).dy, greaterThan(0));
-    await tester.tap(back);
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('settings-appearance')), findsOneWidget);
+    expect(
+      tester
+          .widget<SingleChildScrollView>(
+            find.byKey(const ValueKey('updates-list')),
+          )
+          .padding,
+      const EdgeInsets.only(top: 12, left: 12, right: 12, bottom: 24),
+    );
+    expect(
+      tester
+          .widget<Flex>(find.byKey(const ValueKey('component-layout-frontend')))
+          .direction,
+      Axis.vertical,
+    );
+    expect(
+      tester
+          .widget<Flex>(find.byKey(const ValueKey('component-layout-backend')))
+          .direction,
+      Axis.vertical,
+    );
+    expect(
+      tester
+          .widget<Flex>(
+            find.byKey(const ValueKey('updates-backend-notice-layout')),
+          )
+          .direction,
+      Axis.vertical,
+    );
+    expect(
+      find.byKey(const ValueKey('updates-independent-section')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('updates-packaged-grid')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('component-release-notes-frontend')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('component-update-action-frontend')),
+      findsNothing,
+    );
+    expect(
+      tester.getSize(find.byKey(const ValueKey('updates-packaged-node'))).width,
+      greaterThan(500),
+    );
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('600x480 backend update page keeps back reachable', (
-    tester,
-  ) async {
+  testWidgets('600x480 updates page uses desktop hierarchy', (tester) async {
     late Directory temp;
     addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
     final directories = await tester.runAsync(() async {
@@ -3054,13 +3027,14 @@ void main() {
         current: '2.0.0',
         previous: '1.0.0',
       );
+    final runtime = _FakeBackendRuntime();
 
     await tester.binding.setSurfaceSize(const Size(600, 480));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
       SubDockApp(
         coordinator: AppCoordinator(
-          runtime: _FakeBackendRuntime(),
+          runtime: runtime,
           environmentStore: BackendEnvStore(directories!),
           componentUpdates: updates,
         ),
@@ -3070,43 +3044,57 @@ void main() {
       ),
     );
 
-    await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
-    await tester.pumpAndSettle();
-
-    await tester.drag(
-      find.byKey(const ValueKey('settings-list')),
-      const Offset(0, -500),
-    );
-    await tester.pumpAndSettle();
-
-    final backendCard = find.byKey(
-      const ValueKey('settings-card-backend-update'),
-    );
-    expect(backendCard, findsOneWidget);
-    await tester.ensureVisible(backendCard);
-    await tester.pumpAndSettle();
-    final backendTile = find.descendant(
-      of: backendCard,
-      matching: find.byType(InkWell),
-    );
-    expect(backendTile, findsOneWidget);
-    await tester.tap(backendTile);
+    await tester.tap(find.byKey(const ValueKey('nav-item-updates')));
     await _pumpRealIo(tester);
+    runtime.emitState(RuntimeStatus.running);
+    await tester.pump();
 
     expect(tester.takeException(), isNull);
-    expect(find.byKey(const ValueKey('settings-back')), findsOneWidget);
-    expect(find.byKey(const ValueKey('settings-child-save')), findsNothing);
-
-    final back = find.byKey(const ValueKey('settings-back'));
-    final settingsList = find.byKey(const ValueKey('settings-list'));
-    expect(settingsList, findsOneWidget);
-    await tester.drag(settingsList, const Offset(0, 600));
-    await tester.pumpAndSettle();
-    expect(tester.getCenter(back).dy, greaterThan(0));
-    await tester.tap(back);
-    await tester.pumpAndSettle();
-
-    expect(find.byKey(const ValueKey('settings-appearance')), findsOneWidget);
+    expect(
+      tester
+          .widget<SingleChildScrollView>(
+            find.byKey(const ValueKey('updates-list')),
+          )
+          .padding,
+      const EdgeInsets.all(24),
+    );
+    expect(
+      tester
+          .widget<Flex>(find.byKey(const ValueKey('component-layout-frontend')))
+          .direction,
+      Axis.horizontal,
+    );
+    expect(
+      tester
+          .widget<Flex>(find.byKey(const ValueKey('component-layout-backend')))
+          .direction,
+      Axis.horizontal,
+    );
+    expect(
+      tester
+          .widget<Flex>(
+            find.byKey(const ValueKey('updates-backend-notice-layout')),
+          )
+          .direction,
+      Axis.horizontal,
+    );
+    expect(
+      find.byKey(const ValueKey('updates-independent-section')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('updates-packaged-http-meta')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('updates-packaged-mihomo')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('updates-packaged-node')), findsOneWidget);
+    expect(
+      tester.getSize(find.byKey(const ValueKey('updates-packaged-node'))).width,
+      lessThan(300),
+    );
     await tester.pumpWidget(const SizedBox());
   });
 
