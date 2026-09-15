@@ -2,12 +2,6 @@ name: Desktop build
 
 on:
   workflow_call:
-    inputs:
-      run_tests:
-        description: Run the repository analysis and test suite.
-        required: false
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -30,14 +24,6 @@ jobs:
             libgtk-3-dev \
             libwebkit2gtk-4.1-dev \
             libayatana-appindicator3-dev
-      - name: Get Flutter packages
-        if: inputs.run_tests
-        run: flutter pub get
-      - name: Analyze and test
-        if: inputs.run_tests
-        run: |
-          flutter analyze
-          flutter test
       - name: Prepare latest stable runtime resources
         run: |
           tool/prepare_backend.sh

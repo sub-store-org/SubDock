@@ -33,8 +33,6 @@ jobs:
   build:
     needs: prepare-release
     uses: ./.github/workflows/desktop-build.yml
-    with:
-      run_tests: false
     permissions:
       contents: read
 

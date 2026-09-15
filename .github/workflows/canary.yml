@@ -1,4 +1,4 @@
-name: Canary artifacts
+name: Canary
 
 on:
   push:
@@ -7,13 +7,26 @@ on:
     tags-ignore:
       - '**'
 
-permissions: {}
+permissions:
+  contents: read
 
 jobs:
-  canary-ci:
-    if: "!contains(github.event.head_commit.message, 'Bump version') && !contains(github.event.head_commit.message, '[release]')"
+  test:
+    if: "!contains(github.event.head_commit.message, '[release]')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+
+  build:
+    needs: test
+    if: contains(github.event.head_commit.message, '[build]')
     uses: ./.github/workflows/desktop-build.yml
-    with:
-      run_tests: true
     permissions:
       contents: read
