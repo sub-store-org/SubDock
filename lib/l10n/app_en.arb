@@ -108,6 +108,7 @@
   "historyLoadError": "Unable to load history",
   "logEvents": "events",
   "back": "Back",
+  "forward": "Forward",
   "deleteRun": "Delete run",
   "clearHistory": "Clear history",
   "undo": "Undo",

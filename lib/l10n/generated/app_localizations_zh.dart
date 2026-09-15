@@ -333,6 +333,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get back => '返回';
 
   @override
+  String get forward => '前进';
+
+  @override
   String get deleteRun => '删除运行记录';
 
   @override

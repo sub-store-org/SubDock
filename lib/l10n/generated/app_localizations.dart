@@ -710,6 +710,12 @@ abstract class AppLocalizations {
   /// **'返回'**
   String get back;
 
+  /// No description provided for @forward.
+  ///
+  /// In zh, this message translates to:
+  /// **'前进'**
+  String get forward;
+
   /// No description provided for @deleteRun.
   ///
   /// In zh, this message translates to:

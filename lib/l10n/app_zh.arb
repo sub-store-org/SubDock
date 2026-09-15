@@ -108,6 +108,7 @@
   "historyLoadError": "无法加载历史记录",
   "logEvents": "条日志",
   "back": "返回",
+  "forward": "前进",
   "deleteRun": "删除运行记录",
   "clearHistory": "清空历史",
   "undo": "撤销",

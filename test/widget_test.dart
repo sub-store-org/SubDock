@@ -7,11 +7,15 @@ import 'package:flutter/material.dart'
         AxisDirection,
         Brightness,
         Axis,
+        BorderRadius,
+        BoxDecoration,
+        Container,
         DropdownButton,
         Flex,
         FilterChip,
         FilledButton,
         InkWell,
+        IconButton,
         Locale,
         ListTile,
         ListView,
@@ -37,6 +41,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:subdock/app/app.dart';
 import 'package:subdock/app/about_info.dart';
 import 'package:subdock/app/app_coordinator.dart';
+import 'package:subdock/app/embedded_webview.dart';
 import 'package:subdock/l10n/generated/app_localizations.dart';
 import 'package:subdock/runtime/backend_runtime.dart';
 import 'package:subdock/runtime/runtime_directories.dart';
@@ -2295,6 +2300,166 @@ void main() {
     expect(find.byKey(const ValueKey('manage-transition')), findsOneWidget);
     expect(find.byTooltip('刷新'), findsNothing);
     expect(find.byTooltip('在系统浏览器中打开'), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('ready manage toolbar follows v5 browser hierarchy', (
+    WidgetTester tester,
+  ) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    final runtime = _FakeBackendRuntime();
+    final coordinator = AppCoordinator(
+      runtime: runtime,
+      environmentStore: BackendEnvStore(directories!),
+    );
+    Uri? openedUri;
+    late EmbeddedPageChangeHandler? pageChanged;
+    late EmbeddedNavigationHandler navigationRequest;
+    var canGoBack = false;
+    var canGoForward = false;
+    var wentBack = false;
+    var wentForward = false;
+
+    await tester.binding.setSurfaceSize(const Size(600, 480));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      SubDockApp(
+        coordinator: coordinator,
+        autoStart: false,
+        locale: const Locale('zh'),
+        onOpenExternalUri: (uri) async {
+          openedUri = uri;
+          return true;
+        },
+        webViewControllerFactory:
+            ({
+              required onNavigationRequest,
+              required onBlobMessage,
+              required bridgeScript,
+              onPageChanged,
+            }) {
+              pageChanged = onPageChanged;
+              navigationRequest = onNavigationRequest;
+              return EmbeddedWebViewController.testing(
+                initialize: () async {},
+                buildWidget: () =>
+                    const SizedBox(key: ValueKey('fake-manage-webview')),
+                loadRequest: (uri) async => onPageChanged?.call(uri),
+                reload: () async {},
+                currentUrl: () async => coordinator.webUiUri,
+                canGoBack: () async => canGoBack,
+                goBack: () async {
+                  wentBack = true;
+                },
+                canGoForward: () async => canGoForward,
+                goForward: () async {
+                  wentForward = true;
+                },
+              );
+            },
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-manage')));
+    await tester.pump();
+    runtime.emitState(RuntimeStatus.running);
+    await _pumpRealIo(tester);
+
+    expect(
+      find.byKey(const ValueKey('manage-browser-toolbar')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('manage-url')), findsOneWidget);
+    expect(find.text(coordinator.webUiUri.toString()), findsOneWidget);
+    final urlDecoration =
+        tester
+                .widget<Container>(find.byKey(const ValueKey('manage-url')))
+                .decoration!
+            as BoxDecoration;
+    expect(urlDecoration.borderRadius, BorderRadius.circular(8));
+    for (final key in [
+      'manage-back',
+      'manage-forward',
+      'manage-reload',
+      'manage-open-external',
+    ]) {
+      expect(find.byKey(ValueKey(key)), findsOneWidget);
+    }
+    expect(
+      tester
+          .widget<IconButton>(find.byKey(const ValueKey('manage-back')))
+          .onPressed,
+      isNull,
+    );
+    expect(
+      tester
+          .widget<IconButton>(find.byKey(const ValueKey('manage-forward')))
+          .onPressed,
+      isNull,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('manage-open-external')));
+    await _pumpRealIo(tester);
+    expect(openedUri, coordinator.webUiUri);
+
+    canGoBack = true;
+    canGoForward = true;
+    pageChanged!.call(Uri.parse('${coordinator.webUiUri}/settings'));
+    await _pumpRealIo(tester);
+    expect(find.text('${coordinator.webUiUri}/settings'), findsOneWidget);
+    expect(
+      tester
+          .widget<IconButton>(find.byKey(const ValueKey('manage-back')))
+          .onPressed,
+      isNotNull,
+    );
+    expect(
+      tester
+          .widget<IconButton>(find.byKey(const ValueKey('manage-forward')))
+          .onPressed,
+      isNotNull,
+    );
+    await tester.tap(find.byKey(const ValueKey('manage-back')));
+    await tester.tap(find.byKey(const ValueKey('manage-forward')));
+    await _pumpRealIo(tester);
+    expect(wentBack, isTrue);
+    expect(wentForward, isTrue);
+    await tester.tap(find.byKey(const ValueKey('manage-open-external')));
+    await _pumpRealIo(tester);
+    expect(openedUri, Uri.parse('${coordinator.webUiUri}/settings'));
+
+    final sameOrigin = await navigationRequest(
+      EmbeddedNavigationRequest(Uri.parse('${coordinator.webUiUri}/other')),
+    );
+    expect(sameOrigin, EmbeddedNavigationDecision.navigate);
+    final external = Uri.parse('https://example.com/outside');
+    expect(
+      await navigationRequest(EmbeddedNavigationRequest(external)),
+      EmbeddedNavigationDecision.prevent,
+    );
+    expect(openedUri, external);
+    final nonHttp = Uri.parse('mailto:test@example.com');
+    expect(
+      await navigationRequest(EmbeddedNavigationRequest(nonHttp)),
+      EmbeddedNavigationDecision.prevent,
+    );
+    expect(openedUri, external);
+
+    await tester.binding.setSurfaceSize(const Size(599, 480));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('manage-url')), findsNothing);
+    for (final key in [
+      'manage-back',
+      'manage-forward',
+      'manage-reload',
+      'manage-open-external',
+    ]) {
+      expect(find.byKey(ValueKey(key)), findsOneWidget);
+    }
     await tester.pumpWidget(const SizedBox());
   });
 

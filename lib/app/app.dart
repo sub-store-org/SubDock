@@ -80,6 +80,7 @@ class SubDockApp extends StatefulWidget {
     this.locale,
     this.onOpenExternalUri,
     this.aboutInfoLoader,
+    this.webViewControllerFactory,
     this.showCustomDesktopChrome = true,
   });
 
@@ -106,6 +107,13 @@ class SubDockApp extends StatefulWidget {
   final Locale? locale;
   final Future<bool> Function(Uri uri)? onOpenExternalUri;
   final AboutInfoLoader? aboutInfoLoader;
+  final EmbeddedWebViewController Function({
+    required EmbeddedNavigationHandler onNavigationRequest,
+    required void Function(String message) onBlobMessage,
+    required String bridgeScript,
+    EmbeddedPageChangeHandler? onPageChanged,
+  })?
+  webViewControllerFactory;
   final bool showCustomDesktopChrome;
 
   @override
@@ -475,6 +483,8 @@ class _SubDockAppState extends State<SubDockApp> {
         coordinator: widget.coordinator,
         error: _error,
         enabled: widget.enableWebView,
+        onOpenExternalUri: widget.onOpenExternalUri ?? _launchExternalUri,
+        webViewControllerFactory: widget.webViewControllerFactory,
         onRecover: () => _selectPage(
           widget.coordinator.canOpenWebUi
               ? _AppPage.overview
@@ -819,6 +829,8 @@ class _ManagePage extends StatefulWidget {
     required this.coordinator,
     required this.error,
     required this.enabled,
+    required this.onOpenExternalUri,
+    this.webViewControllerFactory,
     required this.onRecover,
   });
 
@@ -826,6 +838,14 @@ class _ManagePage extends StatefulWidget {
   final AppCoordinator coordinator;
   final Object? error;
   final bool enabled;
+  final Future<bool> Function(Uri uri) onOpenExternalUri;
+  final EmbeddedWebViewController Function({
+    required EmbeddedNavigationHandler onNavigationRequest,
+    required void Function(String message) onBlobMessage,
+    required String bridgeScript,
+    EmbeddedPageChangeHandler? onPageChanged,
+  })?
+  webViewControllerFactory;
   final VoidCallback onRecover;
 
   @override
@@ -839,6 +859,9 @@ class _ManagePageState extends State<_ManagePage> {
   );
 
   EmbeddedWebViewController? _controller;
+  Uri? _currentUri;
+  var _canGoBack = false;
+  var _canGoForward = false;
   String? _webViewError;
   var _missingWebView2 = false;
 
@@ -858,6 +881,9 @@ class _ManagePageState extends State<_ManagePage> {
     super.didUpdateWidget(oldWidget);
     if (!_ready) {
       _controller = null;
+      _currentUri = null;
+      _canGoBack = false;
+      _canGoForward = false;
       return;
     }
     unawaited(_ensureController());
@@ -865,13 +891,20 @@ class _ManagePageState extends State<_ManagePage> {
 
   Future<void> _ensureController() async {
     if (!_ready || _controller != null) return;
-    final controller = EmbeddedWebViewController.create(
+    late final EmbeddedWebViewController controller;
+    final createController =
+        widget.webViewControllerFactory ?? EmbeddedWebViewController.create;
+    controller = createController(
       onNavigationRequest: _onNavigationRequest,
       onBlobMessage: (message) => unawaited(_saveBlob(message)),
       bridgeScript: _blobDownloadBridge,
+      onPageChanged: (uri) => unawaited(_onPageChanged(controller, uri)),
     );
     setState(() {
       _controller = controller;
+      _currentUri = widget.coordinator.webUiUri;
+      _canGoBack = false;
+      _canGoForward = false;
       _webViewError = null;
       _missingWebView2 = false;
     });
@@ -889,6 +922,65 @@ class _ManagePageState extends State<_ManagePage> {
     }
   }
 
+  Future<void> _onPageChanged(
+    EmbeddedWebViewController controller,
+    Uri uri,
+  ) async {
+    if (!mounted || !identical(_controller, controller)) return;
+    setState(() => _currentUri = uri);
+    try {
+      final canGoBack = await controller.canGoBack();
+      final canGoForward = await controller.canGoForward();
+      if (!mounted || !identical(_controller, controller)) return;
+      setState(() {
+        _canGoBack = canGoBack;
+        _canGoForward = canGoForward;
+      });
+    } catch (error) {
+      if (mounted && identical(_controller, controller)) {
+        setState(() => _webViewError = '$error');
+      }
+    }
+  }
+
+  Future<void> _refreshHistory(EmbeddedWebViewController controller) async {
+    try {
+      final canGoBack = await controller.canGoBack();
+      final canGoForward = await controller.canGoForward();
+      if (!mounted || !identical(_controller, controller)) return;
+      setState(() {
+        _canGoBack = canGoBack;
+        _canGoForward = canGoForward;
+      });
+    } catch (error) {
+      if (mounted && identical(_controller, controller)) {
+        setState(() => _webViewError = '$error');
+      }
+    }
+  }
+
+  Future<void> _goBack() async {
+    final controller = _controller;
+    if (controller == null || !_canGoBack) return;
+    try {
+      await controller.goBack();
+      await _refreshHistory(controller);
+    } catch (error) {
+      if (mounted) setState(() => _webViewError = '$error');
+    }
+  }
+
+  Future<void> _goForward() async {
+    final controller = _controller;
+    if (controller == null || !_canGoForward) return;
+    try {
+      await controller.goForward();
+      await _refreshHistory(controller);
+    } catch (error) {
+      if (mounted) setState(() => _webViewError = '$error');
+    }
+  }
+
   Future<EmbeddedNavigationDecision> _onNavigationRequest(
     EmbeddedNavigationRequest request,
   ) async {
@@ -903,7 +995,7 @@ class _ManagePageState extends State<_ManagePage> {
     }
     if (uri.scheme == 'http' || uri.scheme == 'https') {
       try {
-        if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+        if (!await widget.onOpenExternalUri(uri)) {
           throw StateError(l10n.openSystemBrowserFailed(uri.toString()));
         }
       } catch (error) {
@@ -995,8 +1087,11 @@ class _ManagePageState extends State<_ManagePage> {
   }
 
   Future<void> _reloadCurrentPage() async {
+    final controller = _controller;
+    if (controller == null) return;
     try {
-      await _controller!.reload();
+      await controller.reload();
+      await _refreshHistory(controller);
     } catch (error) {
       if (mounted) setState(() => _webViewError = '$error');
     }
@@ -1005,12 +1100,11 @@ class _ManagePageState extends State<_ManagePage> {
   Future<void> _openCurrentPage() async {
     final l10n = AppLocalizations.of(context)!;
     try {
-      final value = await _controller!.currentUrl();
-      final uri = value;
+      final uri = _currentUri;
       if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https')) {
         throw StateError(l10n.webViewCurrentUrlUnavailable);
       }
-      if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      if (!await widget.onOpenExternalUri(uri)) {
         throw StateError(l10n.openSystemBrowserFailed(uri.toString()));
       }
     } catch (error) {
@@ -1122,70 +1216,146 @@ class _ManagePageState extends State<_ManagePage> {
         ),
       );
     }
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: Column(
+    final compact = MediaQuery.sizeOf(context).width < navigationBreakpoint;
+    final controller = _controller!;
+    return Padding(
+      padding: compact ? EdgeInsets.zero : EdgeInsets.all(typography.spacingMd),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: colors.surfaceLowest,
+          border: compact ? null : Border.all(color: colors.divider),
+          borderRadius: BorderRadius.circular(
+            compact ? 0 : typography.radiusLg,
+          ),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(
+            compact ? 0 : typography.radiusLg,
+          ),
+          child: Stack(
             children: [
-              Material(
-                color: colors.surfaceLow,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
+              Positioned.fill(
+                child: Column(
                   children: [
-                    IconButton(
-                      tooltip: l10n.refresh,
-                      onPressed: () => unawaited(_reloadCurrentPage()),
-                      icon: const Icon(Icons.refresh),
+                    Material(
+                      key: const ValueKey('manage-browser-toolbar'),
+                      color: colors.surfaceLow,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          border: Border(
+                            bottom: BorderSide(color: colors.divider),
+                          ),
+                        ),
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: typography.spacingXs,
+                          ),
+                          child: Row(
+                            children: [
+                              IconButton(
+                                key: const ValueKey('manage-back'),
+                                tooltip: l10n.back,
+                                onPressed: _canGoBack
+                                    ? () => unawaited(_goBack())
+                                    : null,
+                                icon: const Icon(Icons.arrow_back),
+                              ),
+                              SizedBox(width: typography.spacingXs),
+                              IconButton(
+                                key: const ValueKey('manage-forward'),
+                                tooltip: l10n.forward,
+                                onPressed: _canGoForward
+                                    ? () => unawaited(_goForward())
+                                    : null,
+                                icon: const Icon(Icons.arrow_forward),
+                              ),
+                              SizedBox(width: typography.spacingXs),
+                              IconButton(
+                                key: const ValueKey('manage-reload'),
+                                tooltip: l10n.refresh,
+                                onPressed: () =>
+                                    unawaited(_reloadCurrentPage()),
+                                icon: const Icon(Icons.refresh),
+                              ),
+                              SizedBox(width: typography.spacingXs),
+                              if (!compact)
+                                Expanded(
+                                  child: Container(
+                                    key: const ValueKey('manage-url'),
+                                    height: 32,
+                                    alignment: Alignment.centerLeft,
+                                    margin: EdgeInsets.symmetric(
+                                      vertical: typography.spacingXs,
+                                    ),
+                                    padding: EdgeInsets.symmetric(
+                                      horizontal: typography.spacingSm,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: colors.surfaceLowest,
+                                      border: Border.all(color: colors.divider),
+                                      borderRadius: BorderRadius.circular(
+                                        typography.radiusMd,
+                                      ),
+                                    ),
+                                    child: Text(
+                                      _currentUri?.toString() ?? '',
+                                      overflow: TextOverflow.ellipsis,
+                                      maxLines: 1,
+                                      style: typography.bodySmall.copyWith(
+                                        color: colors.disabled,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              if (!compact)
+                                SizedBox(width: typography.spacingXs),
+                              IconButton(
+                                key: const ValueKey('manage-open-external'),
+                                tooltip: l10n.openInSystemBrowser,
+                                onPressed: () => unawaited(_openCurrentPage()),
+                                icon: const Icon(Icons.open_in_browser),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
                     ),
-                    IconButton(
-                      tooltip: l10n.openInSystemBrowser,
-                      onPressed: () => unawaited(_openCurrentPage()),
-                      icon: const Icon(Icons.open_in_browser),
-                    ),
+                    Expanded(child: controller.build()),
                   ],
                 ),
               ),
-              Expanded(child: _controller!.build()),
+              if (_webViewError != null)
+                Align(
+                  alignment: Alignment.topCenter,
+                  child: Padding(
+                    padding: EdgeInsets.all(typography.spacingSm),
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 720),
+                      child: _SurfacePanel(
+                        key: const ValueKey('manage-webview-error'),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              _webViewError!,
+                              style: TextStyle(color: colors.error),
+                            ),
+                            if (_missingWebView2)
+                              TextButton(
+                                onPressed: () =>
+                                    unawaited(_openWebView2Download()),
+                                child: Text(l10n.openWebView2DownloadPage),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
             ],
           ),
         ),
-        Positioned.fill(
-          child: IgnorePointer(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                border: Border.all(color: colors.divider),
-              ),
-            ),
-          ),
-        ),
-        if (_webViewError != null)
-          Align(
-            alignment: Alignment.topCenter,
-            child: Padding(
-              padding: EdgeInsets.all(typography.spacingSm),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 720),
-                child: _SurfacePanel(
-                  key: const ValueKey('manage-webview-error'),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        _webViewError!,
-                        style: TextStyle(color: colors.error),
-                      ),
-                      if (_missingWebView2)
-                        TextButton(
-                          onPressed: () => unawaited(_openWebView2Download()),
-                          child: Text(l10n.openWebView2DownloadPage),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-      ],
+      ),
     );
   }
 }

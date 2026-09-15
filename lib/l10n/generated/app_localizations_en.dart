@@ -342,6 +342,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get back => 'Back';
 
   @override
+  String get forward => 'Forward';
+
+  @override
   String get deleteRun => 'Delete run';
 
   @override
