@@ -4,8 +4,20 @@ import 'package:subdock/desktop_main.dart';
 import 'package:window_manager/window_manager.dart';
 
 void main() {
-  test('starts without a system title bar', () {
-    expect(desktopWindowOptions().titleBarStyle, TitleBarStyle.hidden);
+  test('uses the native title bar and no custom chrome on macOS', () {
+    expect(
+      desktopWindowOptions(isMacOS: true).titleBarStyle,
+      TitleBarStyle.normal,
+    );
+    expect(usesCustomDesktopChrome(isMacOS: true), isFalse);
+  });
+
+  test('keeps the custom title bar on Windows and Linux', () {
+    expect(
+      desktopWindowOptions(isMacOS: false).titleBarStyle,
+      TitleBarStyle.hidden,
+    );
+    expect(usesCustomDesktopChrome(isMacOS: false), isTrue);
   });
 
   group('resolveEffectiveLocale', () {

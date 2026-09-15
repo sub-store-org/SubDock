@@ -7,7 +7,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:webview_all/webview_all.dart';
 
 import '../l10n/generated/app_localizations.dart';
 import '../runtime/backend_runtime.dart';
@@ -26,6 +25,7 @@ import 'app_coordinator.dart';
 import 'app_typography.dart';
 import 'about_info.dart';
 import 'close_request_guard.dart';
+import 'embedded_webview.dart';
 
 const navigationBreakpoint = 600.0;
 final _notMaximized = ValueNotifier<bool>(false);
@@ -79,6 +79,7 @@ class SubDockApp extends StatefulWidget {
     this.locale,
     this.onOpenExternalUri,
     this.aboutInfoLoader,
+    this.showCustomDesktopChrome = true,
   });
 
   final AppCoordinator coordinator;
@@ -104,6 +105,7 @@ class SubDockApp extends StatefulWidget {
   final Locale? locale;
   final Future<bool> Function(Uri uri)? onOpenExternalUri;
   final AboutInfoLoader? aboutInfoLoader;
+  final bool showCustomDesktopChrome;
 
   @override
   State<SubDockApp> createState() => _SubDockAppState();
@@ -511,18 +513,19 @@ class _SubDockAppState extends State<SubDockApp> {
     return Scaffold(
       body: Column(
         children: [
-          _DesktopChrome(
-            title: l10n.appTitle,
-            onStartDragging: widget.onStartDragging,
-            onMinimize: widget.onMinimize,
-            onToggleMaximize: widget.onToggleMaximize,
-            onClose: widget.onClose,
-            isMaximized: widget.isMaximized,
-            minimizeTooltip: l10n.minimizeTooltip,
-            maximizeTooltip: l10n.maximizeTooltip,
-            restoreTooltip: l10n.restoreTooltip,
-            closeTooltip: l10n.closeTooltip,
-          ),
+          if (widget.showCustomDesktopChrome)
+            _DesktopChrome(
+              title: l10n.appTitle,
+              onStartDragging: widget.onStartDragging,
+              onMinimize: widget.onMinimize,
+              onToggleMaximize: widget.onToggleMaximize,
+              onClose: widget.onClose,
+              isMaximized: widget.isMaximized,
+              minimizeTooltip: l10n.minimizeTooltip,
+              maximizeTooltip: l10n.maximizeTooltip,
+              restoreTooltip: l10n.restoreTooltip,
+              closeTooltip: l10n.closeTooltip,
+            ),
           if (widget.desktopWarning?.value case final warning?)
             Container(
               width: double.infinity,
@@ -817,7 +820,7 @@ class _ManagePageState extends State<_ManagePage> {
     'https://developer.microsoft.com/microsoft-edge/webview2/',
   );
 
-  WebViewController? _controller;
+  EmbeddedWebViewController? _controller;
   String? _webViewError;
   var _missingWebView2 = false;
 
@@ -844,24 +847,18 @@ class _ManagePageState extends State<_ManagePage> {
 
   Future<void> _ensureController() async {
     if (!_ready || _controller != null) return;
-    final controller = WebViewController();
+    final controller = EmbeddedWebViewController.create(
+      onNavigationRequest: _onNavigationRequest,
+      onBlobMessage: (message) => unawaited(_saveBlob(message)),
+      bridgeScript: _blobDownloadBridge,
+    );
     setState(() {
       _controller = controller;
       _webViewError = null;
       _missingWebView2 = false;
     });
     try {
-      await controller.setJavaScriptMode(JavaScriptMode.unrestricted);
-      await controller.setNavigationDelegate(
-        NavigationDelegate(onNavigationRequest: _onNavigationRequest),
-      );
-      await controller.addJavaScriptChannel(
-        'SubDockBlob',
-        onMessageReceived: (message) => unawaited(_saveBlob(message.message)),
-      );
-      await controller.addUserScript(
-        const WebViewUserScript(source: _blobDownloadBridge),
-      );
+      await controller.initialize();
       await controller.loadRequest(widget.coordinator.webUiUri);
     } catch (error) {
       if (mounted) {
@@ -874,18 +871,17 @@ class _ManagePageState extends State<_ManagePage> {
     }
   }
 
-  Future<NavigationDecision> _onNavigationRequest(
-    NavigationRequest request,
+  Future<EmbeddedNavigationDecision> _onNavigationRequest(
+    EmbeddedNavigationRequest request,
   ) async {
     final l10n = AppLocalizations.of(context)!;
-    final uri = Uri.tryParse(request.url);
-    if (uri == null) return NavigationDecision.prevent;
+    final uri = request.uri;
     if (_sameOrigin(uri, widget.coordinator.webUiUri)) {
       if (_isDownloadUri(uri)) {
         unawaited(_saveHttpDownload(uri));
-        return NavigationDecision.prevent;
+        return EmbeddedNavigationDecision.prevent;
       }
-      return NavigationDecision.navigate;
+      return EmbeddedNavigationDecision.navigate;
     }
     if (uri.scheme == 'http' || uri.scheme == 'https') {
       try {
@@ -896,7 +892,7 @@ class _ManagePageState extends State<_ManagePage> {
         if (mounted) setState(() => _webViewError = '$error');
       }
     }
-    return NavigationDecision.prevent;
+    return EmbeddedNavigationDecision.prevent;
   }
 
   Future<void> _saveHttpDownload(Uri uri) async {
@@ -992,7 +988,7 @@ class _ManagePageState extends State<_ManagePage> {
     final l10n = AppLocalizations.of(context)!;
     try {
       final value = await _controller!.currentUrl();
-      final uri = value == null ? null : Uri.tryParse(value);
+      final uri = value;
       if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https')) {
         throw StateError(l10n.webViewCurrentUrlUnavailable);
       }
@@ -1131,7 +1127,7 @@ class _ManagePageState extends State<_ManagePage> {
                   ],
                 ),
               ),
-              Expanded(child: WebViewWidget(controller: _controller!)),
+              Expanded(child: _controller!.build()),
             ],
           ),
         ),

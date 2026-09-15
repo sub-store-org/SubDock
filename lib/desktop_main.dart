@@ -131,6 +131,7 @@ Future<void> main() async {
       isMaximized: lifecycle.isMaximized,
       closeRequestGuard: closeRequestGuard,
       onStartDragging: windowManager.startDragging,
+      showCustomDesktopChrome: usesCustomDesktopChrome(),
       preferences: preferences,
       preferencesStore: preferencesStore,
       onLocaleChanged: (locale) async {
@@ -160,8 +161,13 @@ Future<void> _showWindow() async {
   await windowManager.focus();
 }
 
-WindowOptions desktopWindowOptions() => const WindowOptions(
-  title: 'SubDock',
-  minimumSize: Size(600, 480),
-  titleBarStyle: TitleBarStyle.hidden,
-);
+WindowOptions desktopWindowOptions({bool? isMacOS}) {
+  final macOS = isMacOS ?? Platform.isMacOS;
+  return WindowOptions(
+    title: 'SubDock',
+    minimumSize: const Size(600, 480),
+    titleBarStyle: macOS ? TitleBarStyle.normal : TitleBarStyle.hidden,
+  );
+}
+
+bool usesCustomDesktopChrome({bool? isMacOS}) => !(isMacOS ?? Platform.isMacOS);

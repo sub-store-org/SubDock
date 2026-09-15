@@ -130,6 +130,41 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
+  testWidgets('native host mode omits the custom desktop chrome', (
+    WidgetTester tester,
+  ) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final runtime = _FakeBackendRuntime();
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    final coordinator = AppCoordinator(
+      runtime: runtime,
+      environmentStore: BackendEnvStore(directories!),
+    );
+    await tester.binding.setSurfaceSize(const Size(600, 480));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      SubDockApp(
+        coordinator: coordinator,
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('zh'),
+        showCustomDesktopChrome: false,
+      ),
+    );
+
+    expect(find.byKey(const ValueKey('desktop-chrome')), findsNothing);
+    expect(find.byKey(const ValueKey('desktop-sidebar')), findsOneWidget);
+    expect(find.byKey(const ValueKey('page-title')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('app stops the runtime when it detaches', (
     WidgetTester tester,
   ) async {

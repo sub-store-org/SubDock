@@ -49,7 +49,13 @@ class AppCoordinator {
         '/',
       );
 
-  Uri get webUiUri => _frontendOrigin.replace(path: '/');
+  Uri get webUiUri {
+    final frontend = _frontendOrigin.replace(path: '/');
+    if (_effectiveValue(BackendEnvPolicy.merge) != 'false') {
+      return frontend;
+    }
+    return frontend.replace(queryParameters: {'api': webUiApiUri.toString()});
+  }
 
   Uri get webUiApiUri => _frontendOrigin.replace(
     path: _effectiveValue(BackendEnvPolicy.frontendBackendPath) ?? '/',
