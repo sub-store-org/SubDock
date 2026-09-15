@@ -6,7 +6,9 @@ import 'package:flutter/material.dart'
     show
         AxisDirection,
         Brightness,
+        Axis,
         DropdownButton,
+        Flex,
         FilterChip,
         FilledButton,
         InkWell,
@@ -16,6 +18,7 @@ import 'package:flutter/material.dart'
         NavigationBar,
         NavigationDestination,
         OutlinedButton,
+        Expanded,
         SelectableText,
         Scrollable,
         SegmentedButton,
@@ -29,7 +32,7 @@ import 'package:flutter/material.dart'
 import 'package:flutter/scheduler.dart' show AppLifecycleState;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart'
-    show GestureDetector, Offstage, SizedBox, ValueKey;
+    show EdgeInsets, GestureDetector, Offstage, Padding, SizedBox, ValueKey;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:subdock/app/app.dart';
 import 'package:subdock/app/about_info.dart';
@@ -99,9 +102,9 @@ void main() {
     expect(managementPage, findsOneWidget);
     expect(tester.widget<Offstage>(managementPage).offstage, isTrue);
     expect(find.text('已停止'), findsOneWidget);
-    expect(find.text('Node'), findsOneWidget);
-    expect(find.text('Backend'), findsOneWidget);
-    expect(find.text('Port'), findsOneWidget);
+    expect(find.textContaining('Node'), findsOneWidget);
+    expect(find.textContaining('Backend'), findsWidgets);
+    expect(find.textContaining('端口'), findsWidgets);
     expect(
       tester
           .widget<FilledButton>(find.widgetWithText(FilledButton, '启动'))
@@ -115,10 +118,10 @@ void main() {
     await tester.pump(const Duration(milliseconds: 1));
 
     expect(runtime.starts, 1);
-    expect(find.text('运行中'), findsOneWidget);
-    expect(find.text('v24.20.0'), findsOneWidget);
+    expect(find.textContaining('运行中'), findsWidgets);
+    expect(find.textContaining('v24.20.0'), findsWidgets);
     expect(find.text('fixture-backend'), findsOneWidget);
-    expect(find.text('3001'), findsOneWidget);
+    expect(find.textContaining('3001'), findsWidgets);
     expect(tester.takeException(), isNull);
 
     tester
@@ -768,10 +771,41 @@ void main() {
     await _pumpRealIo(tester);
 
     expect(
-      find.text('backend: 当前 backend-current; 上一版 backend-previous; 可回滚'),
+      find.text('当前 backend-current，上一版 backend-previous'),
       findsOneWidget,
     );
-    expect(find.text('frontend: 当前 frontend-current; 不可回滚'), findsOneWidget);
+    expect(find.text('当前 frontend-current'), findsOneWidget);
+    final frontend = find.byKey(const ValueKey('overview-component-frontend'));
+    final backend = find.byKey(const ValueKey('overview-component-backend'));
+    final componentDivider = find.byKey(
+      const ValueKey('overview-component-divider'),
+    );
+    expect(
+      tester.getTopLeft(frontend).dy,
+      lessThan(tester.getTopLeft(backend).dy),
+    );
+    expect(componentDivider, findsOneWidget);
+    expect(
+      tester.getTopLeft(frontend).dy,
+      lessThan(tester.getTopLeft(componentDivider).dy),
+    );
+    expect(
+      tester.getTopLeft(componentDivider).dy,
+      lessThan(tester.getTopLeft(backend).dy),
+    );
+    expect(
+      tester
+          .widget<Padding>(
+            find
+                .descendant(
+                  of: find.byKey(const ValueKey('overview-component-card')),
+                  matching: find.byType(Padding),
+                )
+                .first,
+          )
+          .padding,
+      EdgeInsets.zero,
+    );
     expect(updates.statusCalls[ComponentKind.backend], greaterThanOrEqualTo(1));
     expect(
       updates.statusCalls[ComponentKind.frontend],
@@ -791,6 +825,173 @@ void main() {
       frontendStatusCalls + 1,
     );
     expect(updates.checkCalls, isEmpty);
+    updates.statusErrors[ComponentKind.frontend] = StateError('status failed');
+    await tester.tap(find.byKey(const ValueKey('nav-item-logs')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('nav-item-overview')));
+    await _pumpRealIo(tester);
+    expect(
+      find.descendant(of: frontend, matching: find.text('最新')),
+      findsNothing,
+    );
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('overview follows v5 hierarchy and displays runtime statistics', (
+    tester,
+  ) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    final runtime = _FakeBackendRuntime();
+    final coordinator = AppCoordinator(
+      runtime: runtime,
+      environmentStore: BackendEnvStore(directories!),
+    );
+    await tester.binding.setSurfaceSize(const Size(599, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      SubDockApp(
+        coordinator: coordinator,
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('zh'),
+      ),
+    );
+    await _pumpRealIo(tester);
+
+    expect(
+      tester
+          .widget<Flex>(find.byKey(const ValueKey('overview-hero-grid')))
+          .direction,
+      Axis.vertical,
+    );
+    expect(
+      tester
+          .widget<Flex>(find.byKey(const ValueKey('overview-backend-hero-top')))
+          .direction,
+      Axis.vertical,
+    );
+    expect(
+      tester
+          .widget<Flex>(
+            find.byKey(const ValueKey('overview-http-meta-hero-top')),
+          )
+          .direction,
+      Axis.vertical,
+    );
+
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('overview-stats')),
+      400,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(
+      tester
+          .widget<Flex>(find.byKey(const ValueKey('overview-stats')))
+          .direction,
+      Axis.vertical,
+    );
+
+    await tester.binding.setSurfaceSize(const Size(600, 800));
+    await tester.pump();
+    expect(
+      tester
+          .widget<Flex>(find.byKey(const ValueKey('overview-stats')))
+          .direction,
+      Axis.horizontal,
+    );
+
+    await tester.fling(
+      find.byType(Scrollable).first,
+      const Offset(0, 1000),
+      1000,
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<Flex>(find.byKey(const ValueKey('overview-hero-grid')))
+          .direction,
+      Axis.horizontal,
+    );
+    expect(
+      tester
+          .widget<Flex>(find.byKey(const ValueKey('overview-backend-hero-top')))
+          .direction,
+      Axis.horizontal,
+    );
+    expect(
+      tester
+          .widget<Flex>(
+            find.byKey(const ValueKey('overview-http-meta-hero-top')),
+          )
+          .direction,
+      Axis.horizontal,
+    );
+    final heroGrid = tester.widget<Flex>(
+      find.byKey(const ValueKey('overview-hero-grid')),
+    );
+    expect(
+      (heroGrid.children[0] as Expanded).flex,
+      greaterThan((heroGrid.children[2] as Expanded).flex),
+    );
+    expect(find.text('独立运行状态；资源随 SubDock 安装包提供，不属于独立更新组件。'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('overview-component-status')),
+        matching: find.byKey(const ValueKey('overview-component-divider')),
+      ),
+      findsOneWidget,
+    );
+
+    runtime.emitState(RuntimeStatus.starting);
+    runtime.emitLog(
+      RuntimeLog(
+        timestamp: DateTime.now(),
+        source: RuntimeLogSource.stdout,
+        message: 'overview log',
+      ),
+    );
+    runtime.emitState(
+      RuntimeStatus.running,
+      httpMetaStatus: HttpMetaStatus.running,
+      httpMetaPort: 9876,
+      httpMetaVersion: '1.3.0',
+    );
+    await _pumpRealIo(tester);
+
+    expect(find.byKey(const ValueKey('overview-backend-hero')), findsOneWidget);
+    expect(find.text('fixture-backend'), findsOneWidget);
+    expect(find.text('1.3.0'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('overview-http-meta-hero')),
+        matching: find.textContaining('9876'),
+      ),
+      findsWidgets,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('overview-stat-logs')),
+        matching: find.text('1'),
+      ),
+      findsOneWidget,
+    );
+
+    runtime.emitState(RuntimeStatus.unhealthy);
+    await tester.pump();
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('overview-stat-anomalies')),
+        matching: find.text('1'),
+      ),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -2205,9 +2406,9 @@ void main() {
       find.byType(NavigationBar),
     );
     expect(
-      mobileNavigation.destinations
-          .whereType<NavigationDestination>()
-          .map((destination) => destination.label),
+      mobileNavigation.destinations.whereType<NavigationDestination>().map(
+        (destination) => destination.label,
+      ),
       ['概览', '管理', '日志', '更新', '设置'],
     );
     mobileNavigation.onDestinationSelected?.call(3);
@@ -3189,8 +3390,20 @@ class _FakeBackendRuntime extends BackendRuntime {
 
   void emitLog(RuntimeLog log) => _logs.add(log);
 
-  void emitState(RuntimeStatus status) =>
-      _states.add(RuntimeState(status: status, changedAt: DateTime.now()));
+  void emitState(
+    RuntimeStatus status, {
+    HttpMetaStatus httpMetaStatus = HttpMetaStatus.disabled,
+    int? httpMetaPort,
+    String? httpMetaVersion,
+  }) => _states.add(
+    RuntimeState(
+      status: status,
+      changedAt: DateTime.now(),
+      httpMetaStatus: httpMetaStatus,
+      httpMetaPort: httpMetaPort,
+      httpMetaVersion: httpMetaVersion,
+    ),
+  );
 
   @override
   RuntimeState get currentState => RuntimeState(
@@ -3252,6 +3465,7 @@ class _FakeBackendRuntime extends BackendRuntime {
 
 class _FakeComponentUpdateOperations implements ComponentUpdateOperations {
   final statusCalls = <ComponentKind, int>{};
+  final statusErrors = <ComponentKind, Object>{};
   final statuses = <ComponentKind, ComponentVersionStatus>{};
   final checkCalls = <ComponentKind, int>{};
   final checkResults = <ComponentKind, ComponentUpdate>{};
@@ -3264,6 +3478,8 @@ class _FakeComponentUpdateOperations implements ComponentUpdateOperations {
   @override
   Future<ComponentVersionStatus> status(ComponentKind kind) async {
     statusCalls[kind] = (statusCalls[kind] ?? 0) + 1;
+    final error = statusErrors[kind];
+    if (error != null) throw error;
     final configured = statuses[kind];
     if (configured != null) return configured;
     return ComponentVersionStatus(

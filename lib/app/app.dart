@@ -462,6 +462,7 @@ class _SubDockAppState extends State<SubDockApp> {
         state: _state,
         info: _info,
         error: _error,
+        observations: _observations.snapshot(),
         componentStatuses: _overviewComponentStatuses,
         unavailableComponents: _overviewComponentUnavailable,
         actionInProgress: _actionInProgress,
@@ -550,10 +551,16 @@ class _SubDockAppState extends State<SubDockApp> {
           Expanded(
             child: LayoutBuilder(
               builder: (context, constraints) {
+                final pageWithViewport = MediaQuery(
+                  data: MediaQuery.of(context).copyWith(
+                    size: Size(constraints.maxWidth, constraints.maxHeight),
+                  ),
+                  child: pageFrame,
+                );
                 if (constraints.maxWidth < navigationBreakpoint) {
                   return Column(
                     children: [
-                      Expanded(child: pageFrame),
+                      Expanded(child: pageWithViewport),
                       if (!(_page == _AppPage.settings && _settingsChild))
                         NavigationBar(
                           selectedIndex: _page.index,
@@ -582,7 +589,7 @@ class _SubDockAppState extends State<SubDockApp> {
                           unawaited(_selectPage(_AppPage.values[index])),
                     ),
                     const VerticalDivider(width: 1),
-                    Expanded(child: pageFrame),
+                    Expanded(child: pageWithViewport),
                   ],
                 );
               },
@@ -1184,10 +1191,16 @@ class _ManagePageState extends State<_ManagePage> {
 }
 
 class _SurfacePanel extends StatelessWidget {
-  const _SurfacePanel({super.key, required this.child, this.padding});
+  const _SurfacePanel({
+    super.key,
+    required this.child,
+    this.padding,
+    this.radius,
+  });
 
   final Widget child;
   final EdgeInsetsGeometry? padding;
+  final double? radius;
 
   @override
   Widget build(BuildContext context) {
@@ -1196,7 +1209,7 @@ class _SurfacePanel extends StatelessWidget {
     return Material(
       color: colors.surfaceLow,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(typography.radiusMd),
+        borderRadius: BorderRadius.circular(radius ?? typography.radiusMd),
         side: BorderSide(color: colors.divider),
       ),
       child: Padding(
@@ -1207,22 +1220,56 @@ class _SurfacePanel extends StatelessWidget {
   }
 }
 
-class _RuntimeInfoItem extends StatelessWidget {
-  const _RuntimeInfoItem({required this.label, required this.value});
+class _OverviewBadge extends StatelessWidget {
+  const _OverviewBadge({required this.text, this.color});
+
+  final String text;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<AppColors>()!;
+    final typography = Theme.of(context).extension<AppTypography>()!;
+    final foreground = color ?? colors.onSurface;
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: typography.spacingS,
+        vertical: typography.spacingXs,
+      ),
+      decoration: BoxDecoration(
+        border: Border.all(color: foreground),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        text,
+        style: typography.labelSmall.copyWith(color: foreground),
+      ),
+    );
+  }
+}
+
+class _OverviewStatCard extends StatelessWidget {
+  const _OverviewStatCard({
+    super.key,
+    required this.label,
+    required this.value,
+  });
 
   final String label;
-  final String? value;
+  final String value;
 
   @override
   Widget build(BuildContext context) {
     final typography = Theme.of(context).extension<AppTypography>()!;
-    return SizedBox(
-      width: 160,
+    return _SurfacePanel(
+      radius: typography.radiusLg,
+      padding: EdgeInsets.all(typography.spacingSm),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: typography.labelSmall),
-          Text(value ?? '-', style: typography.bodyMedium),
+          Text(label, style: typography.titleSmall),
+          SizedBox(height: typography.spacingXs),
+          Text(value, style: typography.titleMedium),
         ],
       ),
     );
@@ -1234,6 +1281,7 @@ class _OverviewPage extends StatelessWidget {
     required this.state,
     required this.info,
     required this.error,
+    required this.observations,
     required this.componentStatuses,
     required this.unavailableComponents,
     required this.actionInProgress,
@@ -1245,6 +1293,7 @@ class _OverviewPage extends StatelessWidget {
   final RuntimeState state;
   final BackendInfo? info;
   final Object? error;
+  final RuntimeObservationSnapshot observations;
   final Map<ComponentKind, ComponentVersionStatus> componentStatuses;
   final Set<ComponentKind> unavailableComponents;
   final bool actionInProgress;
@@ -1257,6 +1306,7 @@ class _OverviewPage extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final colors = Theme.of(context).extension<AppColors>()!;
     final typography = Theme.of(context).extension<AppTypography>()!;
+    final compact = MediaQuery.sizeOf(context).width < navigationBreakpoint;
     final label = switch (state.status) {
       RuntimeStatus.stopped => l10n.stopped,
       RuntimeStatus.starting => l10n.starting,
@@ -1294,15 +1344,60 @@ class _OverviewPage extends StatelessWidget {
       HttpMetaStatus.unavailable => colors.error,
       HttpMetaStatus.disabled || HttpMetaStatus.stopped => colors.onSurface,
     };
+    final backendIdentity = ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 160),
+      child: Row(
+        children: [
+          Icon(Icons.circle, size: 10, color: statusColor),
+          SizedBox(width: typography.spacingS),
+          Flexible(
+            child: Text(
+              '${l10n.backendRuntime} $label',
+              style: typography.titleMedium,
+            ),
+          ),
+        ],
+      ),
+    );
+    final backendBadge = _OverviewBadge(
+      text: state.status == RuntimeStatus.running ? l10n.healthy : label,
+      color: statusColor,
+    );
     final backendPanel = _SurfacePanel(
+      key: const ValueKey('overview-backend-hero'),
+      radius: typography.radiusLg,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          Flex(
+            key: const ValueKey('overview-backend-hero-top'),
+            direction: compact ? Axis.vertical : Axis.horizontal,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.circle, size: 12, color: statusColor),
-              SizedBox(width: typography.spacingS),
-              Text(label, style: typography.titleLarge),
+              compact ? backendIdentity : Flexible(child: backendIdentity),
+              if (compact) SizedBox(height: typography.spacingSm),
+              compact ? backendBadge : Flexible(child: backendBadge),
+            ],
+          ),
+          SizedBox(height: typography.spacingMd),
+          Text(
+            info?.backendVersion ?? '-',
+            style: typography.titleLarge.copyWith(
+              fontSize: compact ? 24 : 28,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          SizedBox(height: typography.spacingS),
+          Wrap(
+            spacing: typography.spacingMd,
+            runSpacing: typography.spacingXs,
+            children: [
+              _OverviewMeta(label: l10n.node, value: info?.nodeVersion),
+              _OverviewMeta(
+                label: l10n.port,
+                value: info == null ? null : '${info!.port}',
+              ),
             ],
           ),
           if (error != null || state.message != null) ...[
@@ -1346,78 +1441,256 @@ class _OverviewPage extends StatelessWidget {
         ],
       ),
     );
+    final httpMetaIdentity = ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 160),
+      child: Row(
+        children: [
+          Icon(Icons.circle, size: 10, color: httpMetaColor),
+          SizedBox(width: typography.spacingS),
+          Flexible(child: Text('HTTP-META', style: typography.titleMedium)),
+        ],
+      ),
+    );
+    final httpMetaBadge = _OverviewBadge(text: l10n.httpMetaBundled);
     final httpMetaPanel = _SurfacePanel(
+      key: const ValueKey('overview-http-meta-hero'),
+      radius: typography.radiusLg,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('HTTP-META', style: typography.titleMedium),
-          SizedBox(height: typography.spacingS),
-          Text(httpMetaLabel, style: TextStyle(color: httpMetaColor)),
-        ],
-      ),
-    );
-    final componentStatusPanel = _SurfacePanel(
-      key: const ValueKey('overview-component-status'),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(l10n.componentStatusHeading, style: typography.titleMedium),
-          SizedBox(height: typography.spacingS),
-          for (final kind in ComponentKind.values)
-            Text(
-              '${kind.name}: ${unavailableComponents.contains(kind)
-                  ? l10n.unavailable
-                  : componentStatuses[kind] == null
-                  ? l10n.componentReadingVersion
-                  : '${l10n.componentCurrent(componentStatuses[kind]!.current)}; '
-                        '${componentStatuses[kind]!.previous == null ? l10n.rollbackUnavailable : '${l10n.componentPrevious(componentStatuses[kind]!.previous!)}; '
-                                  '${l10n.rollbackAvailable}'}'}',
-            ),
-        ],
-      ),
-    );
-    return ListView(
-      padding: EdgeInsets.all(typography.spacingLg),
-      children: [
-        LayoutBuilder(
-          builder: (context, constraints) => constraints.maxWidth < 760
-              ? Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    backendPanel,
-                    SizedBox(height: typography.spacingLg),
-                    httpMetaPanel,
-                  ],
-                )
-              : Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(flex: 2, child: backendPanel),
-                    SizedBox(width: typography.spacingLg),
-                    Expanded(child: httpMetaPanel),
-                  ],
-                ),
-        ),
-        SizedBox(height: typography.spacingLg),
-        _SurfacePanel(
-          child: Wrap(
-            spacing: typography.spacingLg,
-            runSpacing: typography.spacingMd,
+          Flex(
+            key: const ValueKey('overview-http-meta-hero-top'),
+            direction: compact ? Axis.vertical : Axis.horizontal,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _RuntimeInfoItem(label: 'Node', value: info?.nodeVersion),
-              _RuntimeInfoItem(label: 'Backend', value: info?.backendVersion),
-              _RuntimeInfoItem(
-                label: 'Port',
-                value: info == null ? null : '${info!.port}',
+              compact ? httpMetaIdentity : Flexible(child: httpMetaIdentity),
+              if (compact) SizedBox(height: typography.spacingSm),
+              compact ? httpMetaBadge : Flexible(child: httpMetaBadge),
+            ],
+          ),
+          SizedBox(height: typography.spacingMd),
+          Text(
+            state.httpMetaVersion ?? '-',
+            style: typography.titleMedium.copyWith(
+              fontSize: compact ? 20 : 22,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          SizedBox(height: typography.spacingS),
+          Wrap(
+            spacing: typography.spacingMd,
+            runSpacing: typography.spacingXs,
+            children: [
+              _OverviewMeta(
+                label: l10n.port,
+                value: state.httpMetaPort == null
+                    ? null
+                    : '${state.httpMetaPort}',
               ),
+              _OverviewMeta(label: l10n.status, value: httpMetaLabel),
+            ],
+          ),
+          SizedBox(height: typography.spacingSm),
+          Text(l10n.httpMetaBundledDescription, style: typography.bodySmall),
+        ],
+      ),
+    );
+    const componentKinds = [ComponentKind.frontend, ComponentKind.backend];
+    final componentStatusPanel = Column(
+      key: const ValueKey('overview-component-status'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(l10n.components, style: typography.titleMedium),
+        SizedBox(height: typography.spacingSm),
+        _SurfacePanel(
+          key: const ValueKey('overview-component-card'),
+          padding: EdgeInsets.zero,
+          radius: typography.radiusLg,
+          child: Column(
+            children: [
+              for (var index = 0; index < componentKinds.length; index++) ...[
+                _OverviewComponentRow(
+                  key: ValueKey(
+                    'overview-component-${componentKinds[index].name}',
+                  ),
+                  kind: componentKinds[index],
+                  status: componentStatuses[componentKinds[index]],
+                  unavailable: unavailableComponents.contains(
+                    componentKinds[index],
+                  ),
+                ),
+                if (index < componentKinds.length - 1)
+                  Divider(
+                    key: const ValueKey('overview-component-divider'),
+                    height: 1,
+                    color: colors.divider,
+                  ),
+              ],
             ],
           ),
         ),
+      ],
+    );
+    final heroPanels = Flex(
+      key: const ValueKey('overview-hero-grid'),
+      direction: compact ? Axis.vertical : Axis.horizontal,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (compact) ...[
+          backendPanel,
+          SizedBox(height: typography.spacingSm),
+          httpMetaPanel,
+        ] else ...[
+          Expanded(flex: 5, child: backendPanel),
+          SizedBox(width: typography.spacingSm),
+          Expanded(flex: 3, child: httpMetaPanel),
+        ],
+      ],
+    );
+    final startStat = _OverviewStatCard(
+      key: const ValueKey('overview-stat-start'),
+      label: l10n.recentStart,
+      value: _formatDateTime(context, observations.startedAt),
+    );
+    final anomalyStat = _OverviewStatCard(
+      key: const ValueKey('overview-stat-anomalies'),
+      label: l10n.anomalies24h,
+      value: '${observations.anomalyCount}',
+    );
+    final logStat = _OverviewStatCard(
+      key: const ValueKey('overview-stat-logs'),
+      label: l10n.sessionLogs,
+      value: '${observations.currentSessionLogCount}',
+    );
+    final stats = Flex(
+      key: const ValueKey('overview-stats'),
+      direction: compact ? Axis.vertical : Axis.horizontal,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (compact) ...[
+          startStat,
+          SizedBox(height: typography.spacingSm),
+          anomalyStat,
+          SizedBox(height: typography.spacingSm),
+          logStat,
+        ] else ...[
+          Expanded(child: startStat),
+          SizedBox(width: typography.spacingSm),
+          Expanded(child: anomalyStat),
+          SizedBox(width: typography.spacingSm),
+          Expanded(child: logStat),
+        ],
+      ],
+    );
+    return ListView(
+      padding: EdgeInsets.only(
+        left: compact ? typography.spacingSm : typography.spacingLg,
+        top: compact ? typography.spacingSm : typography.spacingLg,
+        right: compact ? typography.spacingSm : typography.spacingLg,
+        bottom: typography.spacingLg,
+      ),
+      children: [
+        heroPanels,
         SizedBox(height: typography.spacingLg),
         componentStatusPanel,
+        SizedBox(height: typography.spacingLg),
+        stats,
       ],
     );
   }
+}
+
+class _OverviewMeta extends StatelessWidget {
+  const _OverviewMeta({required this.label, required this.value});
+
+  final String label;
+  final String? value;
+
+  @override
+  Widget build(BuildContext context) {
+    final typography = Theme.of(context).extension<AppTypography>()!;
+    return Text.rich(
+      TextSpan(
+        text: '$label ',
+        children: [
+          TextSpan(
+            text: value ?? '-',
+            style: typography.bodySmall.copyWith(fontWeight: FontWeight.w600),
+          ),
+        ],
+      ),
+      style: typography.bodySmall,
+    );
+  }
+}
+
+class _OverviewComponentRow extends StatelessWidget {
+  const _OverviewComponentRow({
+    super.key,
+    required this.kind,
+    required this.status,
+    required this.unavailable,
+  });
+
+  final ComponentKind kind;
+  final ComponentVersionStatus? status;
+  final bool unavailable;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final typography = Theme.of(context).extension<AppTypography>()!;
+    final name = switch (kind) {
+      ComponentKind.backend => l10n.backendComponent,
+      ComponentKind.frontend => l10n.frontendComponent,
+    };
+    final description = switch (kind) {
+      ComponentKind.backend => l10n.backendComponentDescription,
+      ComponentKind.frontend => l10n.frontendComponentDescription,
+    };
+    final version = unavailable
+        ? l10n.unavailable
+        : status == null
+        ? l10n.componentReadingVersion
+        : status!.previous == null
+        ? l10n.componentCurrent(status!.current)
+        : l10n.componentCurrentWithPrevious(status!.current, status!.previous!);
+    return Padding(
+      padding: EdgeInsets.symmetric(
+        horizontal: typography.spacingMd,
+        vertical: typography.spacingSm,
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(name, style: typography.titleSmall),
+                Text(description, style: typography.labelSmall),
+              ],
+            ),
+          ),
+          Flexible(child: Text(version, style: typography.bodySmall)),
+          if (!unavailable && status != null) ...[
+            SizedBox(width: typography.spacingS),
+            _OverviewBadge(
+              text: l10n.latest,
+              color: Theme.of(context).extension<AppColors>()!.success,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+String _formatDateTime(BuildContext context, DateTime? value) {
+  if (value == null) return '-';
+  final local = value.toLocal();
+  final material = MaterialLocalizations.of(context);
+  return '${material.formatCompactDate(local)} ${material.formatTimeOfDay(TimeOfDay.fromDateTime(local), alwaysUse24HourFormat: true)}';
 }
 
 enum _LogLevel { debug, info, warning, error }

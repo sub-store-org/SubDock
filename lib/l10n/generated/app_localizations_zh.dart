@@ -28,6 +28,55 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settings => '设置';
 
   @override
+  String get backendRuntime => 'Backend';
+
+  @override
+  String get node => 'Node';
+
+  @override
+  String get port => '端口';
+
+  @override
+  String get status => '状态';
+
+  @override
+  String get healthy => '健康';
+
+  @override
+  String get httpMetaBundled => '随 SubDock 提供';
+
+  @override
+  String get httpMetaBundledDescription =>
+      '独立运行状态；资源随 SubDock 安装包提供，不属于独立更新组件。';
+
+  @override
+  String get components => '组件';
+
+  @override
+  String get latest => '最新';
+
+  @override
+  String get recentStart => '最近启动';
+
+  @override
+  String get anomalies24h => '运行异常（24 小时）';
+
+  @override
+  String get sessionLogs => '日志（当前会话）';
+
+  @override
+  String get backendComponent => 'Backend';
+
+  @override
+  String get frontendComponent => 'Frontend';
+
+  @override
+  String get backendComponentDescription => 'Sub-Store Backend';
+
+  @override
+  String get frontendComponentDescription => 'Sub-Store WebUI';
+
+  @override
   String get frontendUpdate => '前端更新';
 
   @override

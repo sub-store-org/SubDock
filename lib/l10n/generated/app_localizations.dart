@@ -134,6 +134,102 @@ abstract class AppLocalizations {
   /// **'设置'**
   String get settings;
 
+  /// No description provided for @backendRuntime.
+  ///
+  /// In zh, this message translates to:
+  /// **'Backend'**
+  String get backendRuntime;
+
+  /// No description provided for @node.
+  ///
+  /// In zh, this message translates to:
+  /// **'Node'**
+  String get node;
+
+  /// No description provided for @port.
+  ///
+  /// In zh, this message translates to:
+  /// **'端口'**
+  String get port;
+
+  /// No description provided for @status.
+  ///
+  /// In zh, this message translates to:
+  /// **'状态'**
+  String get status;
+
+  /// No description provided for @healthy.
+  ///
+  /// In zh, this message translates to:
+  /// **'健康'**
+  String get healthy;
+
+  /// No description provided for @httpMetaBundled.
+  ///
+  /// In zh, this message translates to:
+  /// **'随 SubDock 提供'**
+  String get httpMetaBundled;
+
+  /// No description provided for @httpMetaBundledDescription.
+  ///
+  /// In zh, this message translates to:
+  /// **'独立运行状态；资源随 SubDock 安装包提供，不属于独立更新组件。'**
+  String get httpMetaBundledDescription;
+
+  /// No description provided for @components.
+  ///
+  /// In zh, this message translates to:
+  /// **'组件'**
+  String get components;
+
+  /// No description provided for @latest.
+  ///
+  /// In zh, this message translates to:
+  /// **'最新'**
+  String get latest;
+
+  /// No description provided for @recentStart.
+  ///
+  /// In zh, this message translates to:
+  /// **'最近启动'**
+  String get recentStart;
+
+  /// No description provided for @anomalies24h.
+  ///
+  /// In zh, this message translates to:
+  /// **'运行异常（24 小时）'**
+  String get anomalies24h;
+
+  /// No description provided for @sessionLogs.
+  ///
+  /// In zh, this message translates to:
+  /// **'日志（当前会话）'**
+  String get sessionLogs;
+
+  /// No description provided for @backendComponent.
+  ///
+  /// In zh, this message translates to:
+  /// **'Backend'**
+  String get backendComponent;
+
+  /// No description provided for @frontendComponent.
+  ///
+  /// In zh, this message translates to:
+  /// **'Frontend'**
+  String get frontendComponent;
+
+  /// No description provided for @backendComponentDescription.
+  ///
+  /// In zh, this message translates to:
+  /// **'Sub-Store Backend'**
+  String get backendComponentDescription;
+
+  /// No description provided for @frontendComponentDescription.
+  ///
+  /// In zh, this message translates to:
+  /// **'Sub-Store WebUI'**
+  String get frontendComponentDescription;
+
   /// No description provided for @frontendUpdate.
   ///
   /// In zh, this message translates to:

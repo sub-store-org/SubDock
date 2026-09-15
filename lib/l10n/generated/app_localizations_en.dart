@@ -28,6 +28,55 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settings => 'Settings';
 
   @override
+  String get backendRuntime => 'Backend';
+
+  @override
+  String get node => 'Node';
+
+  @override
+  String get port => 'Port';
+
+  @override
+  String get status => 'Status';
+
+  @override
+  String get healthy => 'Healthy';
+
+  @override
+  String get httpMetaBundled => 'Ships with SubDock';
+
+  @override
+  String get httpMetaBundledDescription =>
+      'Independent runtime status; this resource ships with SubDock and is not updated independently.';
+
+  @override
+  String get components => 'Components';
+
+  @override
+  String get latest => 'Latest';
+
+  @override
+  String get recentStart => 'Recent start';
+
+  @override
+  String get anomalies24h => 'Anomalies (24h)';
+
+  @override
+  String get sessionLogs => 'Logs (current session)';
+
+  @override
+  String get backendComponent => 'Backend';
+
+  @override
+  String get frontendComponent => 'Frontend';
+
+  @override
+  String get backendComponentDescription => 'Sub-Store Backend';
+
+  @override
+  String get frontendComponentDescription => 'Sub-Store WebUI';
+
+  @override
   String get frontendUpdate => 'Frontend Update';
 
   @override
