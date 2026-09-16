@@ -7,6 +7,7 @@ import 'package:flutter/material.dart'
         Axis,
         BorderRadius,
         BoxDecoration,
+        ClipRRect,
         Container,
         DropdownButton,
         Flex,
@@ -2588,6 +2589,7 @@ void main() {
       find.byKey(const ValueKey('manage-browser-toolbar')),
       findsOneWidget,
     );
+    expect(find.byType(ClipRRect), findsNothing);
     expect(find.byKey(const ValueKey('manage-url')), findsOneWidget);
     expect(find.text(coordinator.webUiUri.toString()), findsOneWidget);
     final urlDecoration =

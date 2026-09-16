@@ -1370,134 +1370,128 @@ class _ManagePageState extends State<_ManagePage> {
             compact ? 0 : typography.radiusLg,
           ),
         ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(
-            compact ? 0 : typography.radiusLg,
-          ),
-          child: Stack(
-            children: [
-              Positioned.fill(
-                child: Column(
-                  children: [
-                    Material(
-                      key: const ValueKey('manage-browser-toolbar'),
-                      color: colors.surfaceLow,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          border: Border(
-                            bottom: BorderSide(color: colors.divider),
-                          ),
+        // webview_all renders Linux WebViews as native GTK overlays. A
+        // non-rectangular Flutter clip hides that overlay, leaving a blank
+        // surface even after navigation reports success.
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: Column(
+                children: [
+                  Material(
+                    key: const ValueKey('manage-browser-toolbar'),
+                    color: colors.surfaceLow,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        border: Border(
+                          bottom: BorderSide(color: colors.divider),
                         ),
-                        child: Padding(
-                          padding: EdgeInsets.symmetric(
-                            horizontal: typography.spacingXs,
-                          ),
-                          child: Row(
-                            children: [
-                              IconButton(
-                                key: const ValueKey('manage-back'),
-                                tooltip: l10n.back,
-                                onPressed: _canGoBack
-                                    ? () => unawaited(_goBack())
-                                    : null,
-                                icon: const Icon(Icons.arrow_back),
-                              ),
-                              SizedBox(width: typography.spacingXs),
-                              IconButton(
-                                key: const ValueKey('manage-forward'),
-                                tooltip: l10n.forward,
-                                onPressed: _canGoForward
-                                    ? () => unawaited(_goForward())
-                                    : null,
-                                icon: const Icon(Icons.arrow_forward),
-                              ),
-                              SizedBox(width: typography.spacingXs),
-                              IconButton(
-                                key: const ValueKey('manage-reload'),
-                                tooltip: l10n.refresh,
-                                onPressed: () =>
-                                    unawaited(_reloadCurrentPage()),
-                                icon: const Icon(Icons.refresh),
-                              ),
-                              SizedBox(width: typography.spacingXs),
-                              if (!compact)
-                                Expanded(
-                                  child: Container(
-                                    key: const ValueKey('manage-url'),
-                                    height: 32,
-                                    alignment: Alignment.centerLeft,
-                                    margin: EdgeInsets.symmetric(
-                                      vertical: typography.spacingXs,
+                      ),
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: typography.spacingXs,
+                        ),
+                        child: Row(
+                          children: [
+                            IconButton(
+                              key: const ValueKey('manage-back'),
+                              tooltip: l10n.back,
+                              onPressed: _canGoBack
+                                  ? () => unawaited(_goBack())
+                                  : null,
+                              icon: const Icon(Icons.arrow_back),
+                            ),
+                            SizedBox(width: typography.spacingXs),
+                            IconButton(
+                              key: const ValueKey('manage-forward'),
+                              tooltip: l10n.forward,
+                              onPressed: _canGoForward
+                                  ? () => unawaited(_goForward())
+                                  : null,
+                              icon: const Icon(Icons.arrow_forward),
+                            ),
+                            SizedBox(width: typography.spacingXs),
+                            IconButton(
+                              key: const ValueKey('manage-reload'),
+                              tooltip: l10n.refresh,
+                              onPressed: () => unawaited(_reloadCurrentPage()),
+                              icon: const Icon(Icons.refresh),
+                            ),
+                            SizedBox(width: typography.spacingXs),
+                            if (!compact)
+                              Expanded(
+                                child: Container(
+                                  key: const ValueKey('manage-url'),
+                                  height: 32,
+                                  alignment: Alignment.centerLeft,
+                                  margin: EdgeInsets.symmetric(
+                                    vertical: typography.spacingXs,
+                                  ),
+                                  padding: EdgeInsets.symmetric(
+                                    horizontal: typography.spacingSm,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: colors.surfaceLowest,
+                                    border: Border.all(color: colors.divider),
+                                    borderRadius: BorderRadius.circular(
+                                      typography.radiusMd,
                                     ),
-                                    padding: EdgeInsets.symmetric(
-                                      horizontal: typography.spacingSm,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: colors.surfaceLowest,
-                                      border: Border.all(color: colors.divider),
-                                      borderRadius: BorderRadius.circular(
-                                        typography.radiusMd,
-                                      ),
-                                    ),
-                                    child: Text(
-                                      _currentUri?.toString() ?? '',
-                                      overflow: TextOverflow.ellipsis,
-                                      maxLines: 1,
-                                      style: typography.bodySmall.copyWith(
-                                        color: colors.disabled,
-                                      ),
+                                  ),
+                                  child: Text(
+                                    _currentUri?.toString() ?? '',
+                                    overflow: TextOverflow.ellipsis,
+                                    maxLines: 1,
+                                    style: typography.bodySmall.copyWith(
+                                      color: colors.disabled,
                                     ),
                                   ),
                                 ),
-                              if (!compact)
-                                SizedBox(width: typography.spacingXs),
-                              IconButton(
-                                key: const ValueKey('manage-open-external'),
-                                tooltip: l10n.openInSystemBrowser,
-                                onPressed: () => unawaited(_openCurrentPage()),
-                                icon: const Icon(Icons.open_in_browser),
                               ),
-                            ],
-                          ),
+                            if (!compact) SizedBox(width: typography.spacingXs),
+                            IconButton(
+                              key: const ValueKey('manage-open-external'),
+                              tooltip: l10n.openInSystemBrowser,
+                              onPressed: () => unawaited(_openCurrentPage()),
+                              icon: const Icon(Icons.open_in_browser),
+                            ),
+                          ],
                         ),
                       ),
                     ),
-                    Expanded(
-                      child: _webViewError != null
-                          ? _manageWebViewState(
-                              key: const ValueKey('manage-webview-error'),
-                              icon: Icons.web_asset_off_outlined,
-                              message: _webViewError!,
-                              action: FilledButton(
-                                onPressed: widget.onRecover,
-                                child: Text(
-                                  widget.coordinator.canOpenWebUi
-                                      ? l10n.viewOverview
-                                      : l10n.fixConfiguration,
-                                ),
+                  ),
+                  Expanded(
+                    child: _webViewError != null
+                        ? _manageWebViewState(
+                            key: const ValueKey('manage-webview-error'),
+                            icon: Icons.web_asset_off_outlined,
+                            message: _webViewError!,
+                            action: FilledButton(
+                              onPressed: widget.onRecover,
+                              child: Text(
+                                widget.coordinator.canOpenWebUi
+                                    ? l10n.viewOverview
+                                    : l10n.fixConfiguration,
                               ),
-                            )
-                          : !_webViewLoading &&
-                                _webViewLoaded &&
-                                webView != null
-                          ? webView
-                          : Stack(
-                              children: [
-                                if (webView != null)
-                                  Positioned.fill(child: webView),
-                                _manageWebViewState(
-                                  key: const ValueKey('manage-webview-loading'),
-                                  icon: Icons.hourglass_top,
-                                  message: l10n.processing,
-                                ),
-                              ],
                             ),
-                    ),
-                  ],
-                ),
+                          )
+                        : !_webViewLoading && _webViewLoaded && webView != null
+                        ? webView
+                        : Stack(
+                            children: [
+                              if (webView != null)
+                                Positioned.fill(child: webView),
+                              _manageWebViewState(
+                                key: const ValueKey('manage-webview-loading'),
+                                icon: Icons.hourglass_top,
+                                message: l10n.processing,
+                              ),
+                            ],
+                          ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
