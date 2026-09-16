@@ -20,6 +20,22 @@ static void first_frame_cb(MyApplication* self, FlView* view) {
   gtk_widget_show(gtk_widget_get_toplevel(GTK_WIDGET(view)));
 }
 
+// Loads the Sub-Store app icon as the window icon. The icon is a committed
+// repo asset (assets/icon) bundled into the package under data/icon next to
+// the executable; when that is missing (e.g. a bare debug bundle) the window
+// simply falls back to the desktop environment's default.
+static void set_window_icon(GtkWindow* window) {
+  g_autofree gchar* executable =
+      g_file_read_link("/proc/self/exe", nullptr);
+  if (executable == nullptr) return;
+  g_autofree gchar* dir = g_path_get_dirname(executable);
+  g_autofree gchar* icon_path = g_build_filename(
+      dir, "data", "icon", "app_icon.png", nullptr);
+  if (g_file_test(icon_path, G_FILE_TEST_EXISTS)) {
+    gtk_window_set_icon_from_file(window, icon_path, nullptr);
+  }
+}
+
 // Implements GApplication::activate.
 static void my_application_activate(GApplication* application) {
   MyApplication* self = MY_APPLICATION(application);
@@ -29,6 +45,7 @@ static void my_application_activate(GApplication* application) {
   }
   GtkWindow* window =
       GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
+  set_window_icon(window);
 
   // Use a header bar when running in GNOME as this is the common style used
   // by applications and is the setup most users will be using (e.g. Ubuntu

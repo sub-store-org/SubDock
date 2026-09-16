@@ -181,12 +181,21 @@ class DesktopLifecycle with WindowListener, TrayListener {
 Future<CloseBehavior> _defaultCloseBehavior() async =>
     CloseBehavior.closeToTray;
 
+/// The icon path handed to tray_manager.setIcon.
+///
+/// On Linux the plugin joins the path under `<exe>/data/flutter_assets`, and on
+/// macOS it loads the path via `rootBundle`, so both platforms take a relative
+/// path into the bundled Flutter assets. Windows loads the path directly with
+/// `LoadImage`, so it needs the absolute .ico path next to the executable.
 String trayIconPath({
   required Directory bundleDirectory,
   required bool isWindows,
-}) => File.fromUri(
-  bundleDirectory.uri.resolve('data/tray_icon${isWindows ? '.ico' : '.png'}'),
-).path;
+}) =>
+    isWindows
+        ? File.fromUri(
+            bundleDirectory.uri.resolve('data/tray_icon.ico'),
+          ).path
+        : 'assets/icon/app_icon_32.png';
 
 bool traySupportsToolTip({required bool isLinux}) => !isLinux;
 

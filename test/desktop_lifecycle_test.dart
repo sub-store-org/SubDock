@@ -10,12 +10,12 @@ import 'package:tray_manager/tray_manager.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('uses the packaged platform tray icon', () {
+  test('uses the Flutter asset tray icon on Linux, packaged ico on Windows', () {
     final bundle = Directory('/opt/subdock');
 
     expect(
       trayIconPath(bundleDirectory: bundle, isWindows: false),
-      '/opt/subdock/data/tray_icon.png',
+      'assets/icon/app_icon_32.png',
     );
     expect(
       trayIconPath(bundleDirectory: bundle, isWindows: true),

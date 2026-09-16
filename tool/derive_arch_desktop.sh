@@ -40,8 +40,8 @@ if [ -z "$startup_notify" ]; then startup_notify="true"; fi
   if [ -n "$generic_name" ]; then printf 'GenericName=%s\n' "$generic_name"; fi
   if [ -n "$comment" ]; then printf 'Comment=%s\n' "$comment"; fi
   printf 'Exec=/opt/subdock/SubDock\n'
-  # Icon 复用 Sub-Store 前端图标（打包内 data/frontend）。
-  printf 'Icon=/opt/subdock/SubDock/data/frontend/512x512.png\n'
+  # Icon 复用打包内 data/icon（提交的应用图标资源 assets/icon/app_icon.png）。
+  printf 'Icon=/opt/subdock/SubDock/data/icon/app_icon.png\n'
   printf 'Terminal=false\n'
   printf 'Categories=%s\n' "$categories"
   printf 'StartupWMClass=%s\n' "$app_id"

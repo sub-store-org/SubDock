@@ -66,9 +66,12 @@ dev_dependencies:
 # The following section is specific to Flutter packages.
 flutter:
   generate: true
+
+  # The tray icon is served to tray_manager as a Flutter asset: on Linux the
+  # plugin joins the path under data/flutter_assets and on macOS it loads the
+  # path via rootBundle, so the icon must ship inside flutter_assets.
   assets:
-    - macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_32.png
-    - windows/runner/resources/app_icon.ico
+    - assets/icon/app_icon_32.png
 
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in

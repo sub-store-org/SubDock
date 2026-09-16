@@ -6,9 +6,12 @@ platform=${2:-unix}
 suffix=
 if test "$platform" = windows; then
   suffix=.exe
+  # Windows loads the tray icon directly from the packaged .ico.
   tray_icon="$bundle_dir/data/tray_icon.ico"
 else
-  tray_icon="$bundle_dir/data/tray_icon.png"
+  # Linux and macOS serve the tray icon from Flutter assets
+  # (assets/icon/app_icon_32.png, bundled into data/flutter_assets).
+  tray_icon="$bundle_dir/data/flutter_assets/assets/icon/app_icon_32.png"
 fi
 
 for file in \
@@ -24,6 +27,7 @@ for file in \
   "$bundle_dir/data/http-meta/meta/tpl.yaml" \
   "$bundle_dir/data/http-meta/meta/mihomo-version" \
   "$bundle_dir/data/licenses/GPL-3.0-only.txt" \
+  "$bundle_dir/data/icon/app_icon.png" \
   "$tray_icon"; do
   test -f "$file"
 done

@@ -155,9 +155,9 @@ install(DIRECTORY "${SUBDOCK_HTTP_META_DIR}/"
   COMPONENT Runtime)
 
 install(FILES
-  "${SUBDOCK_PROJECT_DIR}/macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_32.png"
-  DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
-  RENAME "tray_icon.png"
+  "${SUBDOCK_PROJECT_DIR}/assets/icon/app_icon.png"
+  DESTINATION "${INSTALL_BUNDLE_DATA_DIR}/icon"
+  RENAME "app_icon.png"
   COMPONENT Runtime)
 
 install(FILES "${SUBDOCK_PROJECT_DIR}/LICENSE"
