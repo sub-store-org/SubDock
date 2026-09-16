@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=SubDock
+GenericName=Sub-Store Desktop Manager
+Exec=/opt/subdock/SubDock
+Icon=/opt/subdock/SubDock/data/frontend/512x512.png
+Terminal=false
+Categories=Network;Utility;
+StartupWMClass=org.substore.subdock
+StartupNotify=true

@@ -31,12 +31,12 @@ jobs:
           tool/prepare_frontend.sh
           tool/prepare_runtime.sh linux-x64
           tool/prepare_http_meta.sh linux-x64
-      - name: Package DEB and RPM
+      - name: Package DEB, RPM, and AppImage
         run: |
           dart pub global activate fastforge 0.6.12
           fastforge package \
             --platform linux \
-            --targets deb,rpm \
+            --targets deb,rpm,appimage \
             --hook-pre 'tool/verify_bundle.sh "$BUILD_OUTPUT_DIRECTORY"'
       - uses: actions/upload-artifact@v7
         with:
