@@ -166,6 +166,32 @@ void main() {
     expect(RegExp(r'^/[A-Za-z0-9]+$').hasMatch(path), isTrue);
   });
 
+  test('a generated config path overrides an env-provided path', () async {
+    final temp = await Directory.systemTemp.createTemp('subdock_coordinator_');
+    addTearDown(() => temp.delete(recursive: true));
+    final directories = await RuntimeDirectories.fromBaseDirectory(temp);
+    final store = SubDockConfigStore(directories);
+    final coordinator = AppCoordinator(
+      runtime: _FakeRuntime(),
+      environmentStore: BackendEnvStore(directories),
+      configurationStore: store,
+    );
+    // backend.env 携带一个旧路径；config 首次加载生成随机路径并应覆盖它。
+    await coordinator.saveEnvironment(
+      BackendEnvDocument.parse(
+        'SUB_STORE_FRONTEND_BACKEND_PATH=/legacy\n',
+      ),
+    );
+    await coordinator.loadEnvironment();
+
+    final path = coordinator.configuration.backend.frontendBackendPath!;
+    expect(path, isNot('/legacy'));
+    expect(
+      coordinator.effectiveEnvironment['SUB_STORE_FRONTEND_BACKEND_PATH'],
+      path,
+    );
+  });
+
   test('a generated backend path is stable across loads', () async {
     final temp = await Directory.systemTemp.createTemp('subdock_coordinator_');
     addTearDown(() => temp.delete(recursive: true));
