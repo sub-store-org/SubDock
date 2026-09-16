@@ -1710,16 +1710,14 @@ class _OverviewPage extends StatelessWidget {
       RuntimeStatus.stopped => colors.onSurface,
     };
     final httpMetaLabel = switch (state.httpMetaStatus) {
+      // Overview 只显示健康状态：常态用简短状态词，异常保留详情供排障。
       HttpMetaStatus.disabled => l10n.httpMetaDisabled,
       HttpMetaStatus.unavailable =>
         state.httpMetaMessage == null
             ? l10n.httpMetaUnavailable
             : l10n.httpMetaUnavailableDetail(state.httpMetaMessage!),
-      HttpMetaStatus.starting => l10n.httpMetaStarting,
-      HttpMetaStatus.running => l10n.httpMetaRunning(
-        state.httpMetaPort ?? '-',
-        state.httpMetaVersion ?? '-',
-      ),
+      HttpMetaStatus.starting => l10n.starting,
+      HttpMetaStatus.running => l10n.running,
       HttpMetaStatus.degraded =>
         state.httpMetaMessage == null
             ? l10n.httpMetaDegraded
@@ -1850,37 +1848,26 @@ class _OverviewPage extends StatelessWidget {
             key: const ValueKey('overview-http-meta-hero-top'),
             direction: compact ? Axis.vertical : Axis.horizontal,
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               compact ? httpMetaIdentity : Flexible(child: httpMetaIdentity),
-              if (compact) SizedBox(height: typography.spacingSm),
+              if (compact) SizedBox(height: typography.spacingXs),
               compact ? httpMetaBadge : Flexible(child: httpMetaBadge),
             ],
-          ),
-          SizedBox(height: typography.spacingMd),
-          Text(
-            state.httpMetaVersion ?? '-',
-            style: typography.titleMedium.copyWith(
-              fontSize: compact ? 20 : 22,
-              fontWeight: FontWeight.w600,
-            ),
           ),
           SizedBox(height: typography.spacingS),
           Wrap(
             spacing: typography.spacingMd,
             runSpacing: typography.spacingXs,
             children: [
-              _OverviewMeta(
-                label: l10n.port,
-                value: state.httpMetaPort == null
-                    ? null
-                    : '${state.httpMetaPort}',
-              ),
+              if (state.httpMetaPort != null)
+                _OverviewMeta(
+                  label: l10n.port,
+                  value: '${state.httpMetaPort}',
+                ),
               _OverviewMeta(label: l10n.status, value: httpMetaLabel),
             ],
           ),
-          SizedBox(height: typography.spacingSm),
-          Text(l10n.httpMetaBundledDescription, style: typography.bodySmall),
         ],
       ),
     );

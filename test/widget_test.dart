@@ -1044,13 +1044,10 @@ void main() {
           .direction,
       Axis.vertical,
     );
+    // http-meta 状态行是响应式 Wrap（水平/窄屏都不溢出），非 Flex。
     expect(
-      tester
-          .widget<Flex>(
-            find.byKey(const ValueKey('overview-http-meta-hero-top')),
-          )
-          .direction,
-      Axis.vertical,
+      find.byKey(const ValueKey('overview-http-meta-hero-top')),
+      findsOneWidget,
     );
 
     await tester.scrollUntilVisible(
@@ -1107,7 +1104,7 @@ void main() {
       (heroGrid.children[0] as Expanded).flex,
       greaterThan((heroGrid.children[2] as Expanded).flex),
     );
-    expect(find.text('独立运行状态；资源随 SubDock 安装包提供，不属于独立更新组件。'), findsOneWidget);
+    expect(find.text('独立运行状态；资源随 SubDock 安装包提供，不属于独立更新组件。'), findsNothing);
     expect(
       find.descendant(
         of: find.byKey(const ValueKey('overview-component-status')),
@@ -1134,13 +1131,21 @@ void main() {
 
     expect(find.byKey(const ValueKey('overview-backend-hero')), findsOneWidget);
     expect(find.text('fixture-backend'), findsOneWidget);
-    expect(find.text('1.3.0'), findsOneWidget);
+    // HTTP-META 版本不再在 Overview 显示（只显示健康状态）。
+    expect(find.text('1.3.0'), findsNothing);
     expect(
       find.descendant(
         of: find.byKey(const ValueKey('overview-http-meta-hero')),
         matching: find.textContaining('9876'),
       ),
       findsWidgets,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('overview-http-meta-hero')),
+        matching: find.textContaining('运行中'),
+      ),
+      findsOneWidget,
     );
     expect(
       find.descendant(
