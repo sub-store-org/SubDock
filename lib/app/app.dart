@@ -1024,7 +1024,7 @@ class _ManagePageState extends State<_ManagePage> {
           widget.webViewControllerFactory ?? EmbeddedWebViewController.create;
       controller = createController(
         onNavigationRequest: _onNavigationRequest,
-        onBlobMessage: (message) => unawaited(_saveBlob(message)),
+        onBlobMessage: (message) => unawaited(_onBridgeMessage(message)),
         bridgeScript: _blobDownloadBridge,
         onPageChanged: (uri) => unawaited(_onPageChanged(controller, uri)),
       );
@@ -1176,6 +1176,21 @@ class _ManagePageState extends State<_ManagePage> {
     }
   }
 
+  Future<void> _onBridgeMessage(String message) async {
+    final payload = jsonDecode(message);
+    if (payload is Map<String, dynamic> && payload['type'] == 'url') {
+      if (payload['url'] case final String url) {
+        final controller = _controller;
+        final uri = Uri.tryParse(url);
+        if (controller != null && uri != null) {
+          await _onPageChanged(controller, uri);
+        }
+      }
+      return;
+    }
+    await _saveBlob(message);
+  }
+
   Future<void> _saveBlob(String message) async {
     final l10n = AppLocalizations.of(context)!;
     try {
@@ -1286,6 +1301,21 @@ class _ManagePageState extends State<_ManagePage> {
       SubDockBlob.postMessage(JSON.stringify({error: String(error)}));
     }
   }, true);
+  const reportUrl = () => {
+    SubDockBlob.postMessage(JSON.stringify({type: 'url', url: location.href}));
+  };
+  const wrapHistory = method => {
+    const original = history[method];
+    history[method] = function(...args) {
+      const result = original.apply(this, args);
+      window.setTimeout(reportUrl, 0);
+      return result;
+    };
+  };
+  wrapHistory('pushState');
+  wrapHistory('replaceState');
+  window.addEventListener('popstate', reportUrl);
+  window.addEventListener('hashchange', reportUrl);
 })();''';
 
   @override

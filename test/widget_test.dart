@@ -2680,6 +2680,74 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
+  testWidgets('manage follows SPA route changes reported over the bridge', (
+    WidgetTester tester,
+  ) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    final runtime = _FakeBackendRuntime();
+    final coordinator = AppCoordinator(
+      runtime: runtime,
+      environmentStore: BackendEnvStore(directories!),
+    );
+    late void Function(String message) blobMessage;
+    Uri? loadedUri;
+
+    await tester.binding.setSurfaceSize(const Size(800, 600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      SubDockApp(
+        coordinator: coordinator,
+        autoStart: false,
+        locale: const Locale('zh'),
+        webViewControllerFactory:
+            ({
+              required onNavigationRequest,
+              required onBlobMessage,
+              required bridgeScript,
+              onPageChanged,
+            }) {
+              blobMessage = onBlobMessage;
+              return EmbeddedWebViewController.testing(
+                initialize: () async {},
+                buildWidget: () =>
+                    const SizedBox(key: ValueKey('fake-manage-webview')),
+                loadRequest: (uri) async => loadedUri = uri,
+                reload: () async {},
+                currentUrl: () async => coordinator.webUiUri,
+                canGoBack: () async => false,
+                goBack: () async {},
+                canGoForward: () async => false,
+                goForward: () async {},
+              );
+            },
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-manage')));
+    await tester.pump();
+    runtime.emitState(RuntimeStatus.running);
+    await _pumpRealIo(tester);
+
+    expect(find.byKey(const ValueKey('manage-url')), findsOneWidget);
+    expect(find.text(coordinator.webUiUri.toString()), findsOneWidget);
+    expect(loadedUri, coordinator.webUiUri);
+
+    // SPA pushState to the /subs route reports via the bridge channel.
+    final subsUri = coordinator.webUiUri.replace(path: '/subs');
+    blobMessage(
+      '{"type":"url","url":"${subsUri.toString()}"}',
+    );
+    await _pumpRealIo(tester);
+    expect(find.text(subsUri.toString()), findsOneWidget);
+    expect(find.text(coordinator.webUiUri.toString()), findsNothing);
+
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('desktop controls minimize, maximize, and close', (
     WidgetTester tester,
   ) async {
