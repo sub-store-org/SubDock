@@ -52,7 +52,7 @@ void main() {
       await tester.pumpAndSettle();
 
       final minimize = find.widgetWithIcon(IconButton, Icons.minimize);
-      final maximize = find.widgetWithIcon(IconButton, Icons.maximize);
+      final maximize = find.widgetWithIcon(IconButton, Icons.crop_square);
       final close = find.widgetWithIcon(IconButton, Icons.close);
 
       expect(minimize, findsOneWidget);

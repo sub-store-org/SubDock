@@ -57,7 +57,7 @@ class AppCoordinator {
     return frontend.replace(queryParameters: {'api': webUiApiUri.toString()});
   }
 
-  Uri get webUiApiUri => _frontendOrigin.replace(
+  Uri get webUiApiUri => runtime.endpoint.replace(
     path: _effectiveValue(BackendEnvPolicy.frontendBackendPath) ?? '/',
   );
 

@@ -93,7 +93,7 @@ void main() {
       ),
     );
 
-    expect(coordinator.webUiApiUri, Uri.parse('http://127.0.0.1:3100/subdock'));
+    expect(coordinator.webUiApiUri, Uri.parse('http://127.0.0.1:3001/subdock'));
     expect(coordinator.webUiUri.origin, 'http://127.0.0.1:3100');
     expect(coordinator.webUiUri.path, '/');
     expect(coordinator.webUiUri.queryParameters, {
@@ -118,7 +118,7 @@ void main() {
       ),
     );
 
-    expect(coordinator.webUiApiUri, Uri.parse('http://127.0.0.1:3100/'));
+    expect(coordinator.webUiApiUri, Uri.parse('http://127.0.0.1:3001/'));
     expect(
       coordinator.webUiUri.queryParameters['api'],
       coordinator.webUiApiUri.toString(),

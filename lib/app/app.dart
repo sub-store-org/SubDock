@@ -873,7 +873,7 @@ class _DesktopChrome extends StatelessWidget {
                 builder: (context, maximized, child) => IconButton(
                   tooltip: maximized ? restoreTooltip : maximizeTooltip,
                   onPressed: () => unawaited(onToggleMaximize!()),
-                  icon: Icon(maximized ? Icons.filter_none : Icons.maximize),
+                  icon: Icon(maximized ? Icons.filter_none : Icons.crop_square),
                 ),
               ),
             if (onClose != null)
