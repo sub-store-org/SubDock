@@ -4547,14 +4547,14 @@ class _ComponentUpdatePageState extends State<_ComponentUpdatePage> {
     }
   }
 
-  Future<void> _restartBackend() async {
+  Future<void> _startBackend() async {
     if (!_restartRequired || _restarting || _mutating) return;
     setState(() {
       _restarting = true;
       _mutationError = null;
     });
     try {
-      await widget.coordinator.restart();
+      await widget.coordinator.start();
       if (mounted) setState(() => _restartRequired = false);
     } catch (error) {
       if (mounted) setState(() => _mutationError = error);
@@ -4682,11 +4682,11 @@ class _ComponentUpdatePageState extends State<_ComponentUpdatePage> {
               Text(_localizedError(l10n, _mutationError!)),
             if (_restartRequired) ...[
               SizedBox(height: typography.spacingXs),
-              Text(l10n.backendRestartRequired),
+              Text(l10n.backendUpdatedStart),
               FilledButton(
-                key: ValueKey('component-restart-now-$kind'),
-                onPressed: busy ? null : _restartBackend,
-                child: Text(l10n.restartNow),
+                key: ValueKey('component-start-now-$kind'),
+                onPressed: busy ? null : _startBackend,
+                child: Text(l10n.startBackend),
               ),
             ],
             if (!widget.embedded) ...[

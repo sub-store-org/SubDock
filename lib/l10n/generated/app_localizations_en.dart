@@ -120,7 +120,8 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get backendRestartRequired => 'Backend restart required';
+  String get backendUpdatedStart =>
+      'Backend updated. Press Start Backend to resume.';
 
   @override
   String get backendTransitioning =>
@@ -399,7 +400,7 @@ class AppLocalizationsEn extends AppLocalizations {
       'Saved; takes effect after the Backend restarts.';
 
   @override
-  String get restartNow => 'Restart now';
+  String get startBackend => 'Start Backend';
 
   @override
   String get cancel => 'Cancel';

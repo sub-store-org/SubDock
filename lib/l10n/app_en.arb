@@ -41,7 +41,7 @@
       "previous": {}
     }
   },
-  "backendRestartRequired": "Backend restart required",
+  "backendUpdatedStart": "Backend updated. Press Start Backend to resume.",
   "backendTransitioning": "Waiting for Backend to reach a stable state.",
   "backendStoppedForUpdates": "Backend is stopped. Component changes are available.",
   "stopBackend": "Stop Backend",
@@ -126,7 +126,7 @@
   "confirmNonLoopback": "The Backend has no authentication; a non-loopback address lets other devices on the network reach every API. Save anyway?",
   "configSavedNoRestart": "SubDock configuration saved; the service will not restart automatically.",
   "savedRestartToApply": "Saved; takes effect after the Backend restarts.",
-  "restartNow": "Restart now",
+  "startBackend": "Start Backend",
   "cancel": "Cancel",
   "continueAction": "Continue",
   "componentUpdatedTo": "Updated to {version}",

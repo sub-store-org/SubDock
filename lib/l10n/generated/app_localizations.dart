@@ -308,11 +308,11 @@ abstract class AppLocalizations {
   /// **'确认从 {current} 回滚到 {previous}？'**
   String confirmComponentRollback(Object current, Object previous);
 
-  /// No description provided for @backendRestartRequired.
+  /// No description provided for @backendUpdatedStart.
   ///
   /// In zh, this message translates to:
-  /// **'需要重启 Backend'**
-  String get backendRestartRequired;
+  /// **'Backend 已更新，点击「启动 Backend」恢复运行。'**
+  String get backendUpdatedStart;
 
   /// No description provided for @backendTransitioning.
   ///
@@ -818,11 +818,11 @@ abstract class AppLocalizations {
   /// **'已保存；重启 Backend 后生效。'**
   String get savedRestartToApply;
 
-  /// No description provided for @restartNow.
+  /// No description provided for @startBackend.
   ///
   /// In zh, this message translates to:
-  /// **'立即重启'**
-  String get restartNow;
+  /// **'启动 Backend'**
+  String get startBackend;
 
   /// No description provided for @cancel.
   ///

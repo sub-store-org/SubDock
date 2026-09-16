@@ -41,7 +41,7 @@
       "previous": {}
     }
   },
-  "backendRestartRequired": "需要重启 Backend",
+  "backendUpdatedStart": "Backend 已更新，点击「启动 Backend」恢复运行。",
   "backendTransitioning": "正在等待 Backend 进入稳定状态。",
   "backendStoppedForUpdates": "Backend 已停止，可以更改组件。",
   "stopBackend": "停止 Backend",
@@ -126,7 +126,7 @@
   "confirmNonLoopback": "Backend 没有鉴权；非回环地址会让同一网络中的设备访问全部 API。是否继续保存？",
   "configSavedNoRestart": "SubDock 配置已保存；不会自动重启服务。",
   "savedRestartToApply": "已保存；重启 Backend 后生效。",
-  "restartNow": "立即重启",
+  "startBackend": "启动 Backend",
   "cancel": "取消",
   "continueAction": "继续",
   "componentUpdatedTo": "已更新到 {version}",

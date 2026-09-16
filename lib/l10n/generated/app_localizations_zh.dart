@@ -119,7 +119,7 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
-  String get backendRestartRequired => '需要重启 Backend';
+  String get backendUpdatedStart => 'Backend 已更新，点击「启动 Backend」恢复运行。';
 
   @override
   String get backendTransitioning => '正在等待 Backend 进入稳定状态。';
@@ -389,7 +389,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get savedRestartToApply => '已保存；重启 Backend 后生效。';
 
   @override
-  String get restartNow => '立即重启';
+  String get startBackend => '启动 Backend';
 
   @override
   String get cancel => '取消';

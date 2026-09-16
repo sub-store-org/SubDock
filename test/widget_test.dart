@@ -1510,7 +1510,7 @@ void main() {
     expect(runtime.restarts, 0);
     expect(find.textContaining('Current version: 1.1.0'), findsOneWidget);
     expect(
-      find.byKey(const ValueKey('component-restart-now-frontend')),
+      find.byKey(const ValueKey('component-start-now-frontend')),
       findsOneWidget,
     );
     expect(
@@ -1518,14 +1518,15 @@ void main() {
       findsNothing,
     );
     final restart = find.byKey(
-      const ValueKey('component-restart-now-frontend'),
+      const ValueKey('component-start-now-frontend'),
     );
     await tester.ensureVisible(restart);
     await tester.tap(restart);
     await _pumpRealIo(tester);
-    expect(runtime.restarts, 1);
+    expect(runtime.starts, 1);
+    expect(runtime.restarts, 0);
     expect(
-      find.byKey(const ValueKey('component-restart-now-frontend')),
+      find.byKey(const ValueKey('component-start-now-frontend')),
       findsNothing,
     );
     expect(updates.updateCalls, hasLength(1));
@@ -1615,13 +1616,13 @@ void main() {
     expect(updates.rollbackCalls, [ComponentKind.backend]);
     expect(find.textContaining('Current version: 1.0.0'), findsOneWidget);
     expect(
-      find.byKey(const ValueKey('component-restart-now-backend')),
+      find.byKey(const ValueKey('component-start-now-backend')),
       findsOneWidget,
     );
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('restart failure keeps restart-required action', (tester) async {
+  testWidgets('start failure keeps the start-required action', (tester) async {
     late Directory temp;
     addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
     final directories = await tester.runAsync(() async {
@@ -1629,7 +1630,7 @@ void main() {
       return RuntimeDirectories.fromBaseDirectory(temp);
     });
     final runtime = _FakeBackendRuntime()
-      ..restartError = StateError('restart failed');
+      ..startError = StateError('start failed');
     final updates = _FakeComponentUpdateOperations()
       ..statuses[ComponentKind.frontend] = const ComponentVersionStatus(
         current: '1.0.0',
@@ -1666,15 +1667,15 @@ void main() {
     );
     await _pumpRealIo(tester);
     await tester.tap(
-      find.byKey(const ValueKey('component-restart-now-frontend')),
+      find.byKey(const ValueKey('component-start-now-frontend')),
     );
     await _pumpRealIo(tester);
-    expect(runtime.restarts, 0);
+    expect(runtime.starts, 0);
     expect(
-      find.byKey(const ValueKey('component-restart-now-frontend')),
+      find.byKey(const ValueKey('component-start-now-frontend')),
       findsOneWidget,
     );
-    expect(find.textContaining('restart failed'), findsOneWidget);
+    expect(find.textContaining('start failed'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -1729,7 +1730,7 @@ void main() {
     expect(find.textContaining('Current version: 1.0.0'), findsOneWidget);
     expect(find.textContaining('update failed'), findsOneWidget);
     expect(
-      find.byKey(const ValueKey('component-restart-now-frontend')),
+      find.byKey(const ValueKey('component-start-now-frontend')),
       findsNothing,
     );
     expect(runtime.restarts, 0);
@@ -1788,7 +1789,7 @@ void main() {
     expect(find.textContaining('Previous version: 1.0.0'), findsOneWidget);
     expect(find.textContaining('rollback failed'), findsOneWidget);
     expect(
-      find.byKey(const ValueKey('component-restart-now-backend')),
+      find.byKey(const ValueKey('component-start-now-backend')),
       findsNothing,
     );
     expect(runtime.restarts, 0);
@@ -3877,6 +3878,7 @@ class _FakeBackendRuntime extends BackendRuntime {
   var stops = 0;
   var restarts = 0;
   Object? restartError;
+  Object? startError;
 
   void emitLog(RuntimeLog log) => _logs.add(log);
 
@@ -3933,6 +3935,7 @@ class _FakeBackendRuntime extends BackendRuntime {
 
   @override
   Future<void> start() async {
+    if (startError != null) throw startError!;
     starts++;
     _states.add(
       RuntimeState(status: RuntimeStatus.running, changedAt: DateTime.now()),
