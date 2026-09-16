@@ -36,7 +36,7 @@ Future<bool> _launchExternalUri(Uri uri) =>
 
 enum _AppPage { overview, manage, logs, updates, settings }
 
-enum _SettingsSection { home, subDockConfig, backendConfig, advancedEnv, about }
+enum _SettingsSection { home, backendConfig, advancedEnv, about }
 
 enum _NullableBoolDraft { inherit, enabled, disabled }
 
@@ -2255,56 +2255,348 @@ class _LogsPageState extends State<_LogsPage> {
     await Clipboard.setData(ClipboardData(text: buffer.toString()));
   }
 
+  Future<void> _showFilters(AppLocalizations l10n) async {
+    await showDialog<void>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(l10n.logFilters),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(l10n.logSources),
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    for (final source in ['Backend', 'HTTP-META'])
+                      FilterChip(
+                        key: ValueKey('logs-source-$source'),
+                        label: Text(source),
+                        selected: _sources.contains(source),
+                        onSelected: (_) {
+                          _toggleSource(source);
+                          setDialogState(() {});
+                        },
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Text(l10n.logLevels),
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    for (final level in _LogLevel.values)
+                      FilterChip(
+                        key: ValueKey('logs-level-${level.name}'),
+                        label: Text(_levelLabel(l10n, level)),
+                        selected: _levels.contains(level),
+                        onSelected: (_) {
+                          _toggleLevel(level);
+                          setDialogState(() {});
+                        },
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<LogSort>(
+                  key: const ValueKey('logs-mobile-sort'),
+                  initialValue: widget.sort,
+                  decoration: InputDecoration(labelText: l10n.logSort),
+                  items: [
+                    DropdownMenuItem(
+                      value: LogSort.newestFirst,
+                      child: Text(l10n.logNewest),
+                    ),
+                    DropdownMenuItem(
+                      value: LogSort.newestLast,
+                      child: Text(l10n.logOldest),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) {
+                      unawaited(widget.onSortChanged(value));
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(l10n.back),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _logTime(RuntimeLog log) {
+    final local = log.timestamp.toLocal();
+    return '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}:${local.second.toString().padLeft(2, '0')}';
+  }
+
+  Widget _buildSearchField(AppLocalizations l10n) => TextField(
+    controller: _query,
+    key: const ValueKey('logs-search'),
+    onChanged: (_) {
+      setState(() {});
+      if (_selectedRun != null) {
+        unawaited(_loadHistoryPage(_selectedRun!, page: 0));
+      }
+    },
+    decoration: InputDecoration(
+      hintText: l10n.logSearch,
+      prefixIcon: const Icon(Icons.search),
+    ),
+  );
+
+  Widget _logRow(
+    BuildContext context,
+    _ClassifiedLog item,
+    AppLocalizations l10n,
+    AppTypography typography,
+  ) {
+    final compact = MediaQuery.sizeOf(context).width < navigationBreakpoint;
+    final level = _levelLabel(l10n, item.level);
+    final copy = IconButton(
+      tooltip: l10n.copyLog,
+      icon: const Icon(Icons.copy, size: 18),
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints.tightFor(width: 40, height: 40),
+      onPressed: () => unawaited(_copy(l10n, [item])),
+    );
+    final message = SelectableText(
+      item.log.message,
+      key: const ValueKey('log-row-message'),
+      style: typography.bodySmall.copyWith(fontFamily: 'monospace'),
+    );
+    if (compact) {
+      return Container(
+        key: const ValueKey('logs-mobile-row'),
+        padding: EdgeInsets.symmetric(
+          horizontal: typography.spacingSm,
+          vertical: typography.spacingS,
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 72,
+              child: Column(
+                key: const ValueKey('logs-mobile-meta'),
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _logTime(item.log),
+                    style: typography.bodySmall.copyWith(
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                  SizedBox(height: typography.spacingXs),
+                  Text(
+                    level,
+                    style: typography.bodySmall.copyWith(
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            SizedBox(width: typography.spacingSm),
+            Expanded(
+              child: Column(
+                key: const ValueKey('logs-mobile-content'),
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          item.source,
+                          style: typography.bodySmall.copyWith(
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                      ),
+                      copy,
+                    ],
+                  ),
+                  SizedBox(height: typography.spacingXs),
+                  message,
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    return Container(
+      key: const ValueKey('logs-desktop-row'),
+      padding: EdgeInsets.symmetric(
+        horizontal: typography.spacingSm,
+        vertical: typography.spacingS,
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 76,
+            child: Text(
+              _logTime(item.log),
+              style: typography.bodySmall.copyWith(fontFamily: 'monospace'),
+            ),
+          ),
+          SizedBox(
+            width: 96,
+            child: Text(
+              item.source,
+              style: typography.bodySmall.copyWith(fontFamily: 'monospace'),
+            ),
+          ),
+          SizedBox(
+            width: 72,
+            child: Text(
+              level,
+              style: typography.bodySmall.copyWith(fontFamily: 'monospace'),
+            ),
+          ),
+          Expanded(child: message),
+          copy,
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final typography = Theme.of(context).extension<AppTypography>()!;
     final visible = _visible;
+    final compact = MediaQuery.sizeOf(context).width < navigationBreakpoint;
+    final bodyPadding = compact
+        ? EdgeInsets.only(
+            top: typography.spacingSm,
+            left: typography.spacingSm,
+            right: typography.spacingSm,
+            bottom: typography.spacingLg,
+          )
+        : EdgeInsets.all(typography.spacingLg);
+    final filterCount = _sources.length + _levels.length;
     return Padding(
-      padding: EdgeInsets.all(typography.spacingLg),
+      key: const ValueKey('logs-body'),
+      padding: bodyPadding,
       child: _SurfacePanel(
         key: const ValueKey('logs-surface'),
         padding: EdgeInsets.zero,
+        radius: typography.radiusLg,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Padding(
-              padding: EdgeInsets.fromLTRB(
-                typography.spacingSm,
-                typography.spacingSm,
-                typography.spacingSm,
-                0,
-              ),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: SegmentedButton<_LogsMode>(
-                  segments: [
-                    ButtonSegment(
-                      value: _LogsMode.current,
-                      label: Text(l10n.current),
-                    ),
-                    ButtonSegment(
-                      value: _LogsMode.history,
-                      label: Text(l10n.history),
-                    ),
-                  ],
-                  selected: {_mode},
-                  onSelectionChanged: (value) {
-                    final next = value.first;
-                    if (next == _mode) return;
-                    setState(() {
-                      _mode = next;
-                      _historyGeneration++;
-                      _selectedRun = null;
-                      _historyLogs = const [];
-                      _historyDetailLoading = false;
-                      _historyDetailError = null;
-                    });
-                    if (next == _LogsMode.history) {
-                      unawaited(_loadHistoryRuns());
-                    }
-                  },
+              padding: EdgeInsets.all(typography.spacingSm),
+              child: Column(
+                key: ValueKey(
+                  compact ? 'logs-mobile-toolbar' : 'logs-desktop-toolbar',
                 ),
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: SegmentedButton<_LogsMode>(
+                      segments: [
+                        ButtonSegment(
+                          value: _LogsMode.current,
+                          label: Text(l10n.current),
+                        ),
+                        ButtonSegment(
+                          value: _LogsMode.history,
+                          label: Text(l10n.history),
+                        ),
+                      ],
+                      selected: {_mode},
+                      onSelectionChanged: (value) {
+                        final next = value.first;
+                        if (next == _mode) return;
+                        setState(() {
+                          _mode = next;
+                          _historyGeneration++;
+                          _selectedRun = null;
+                          _historyLogs = const [];
+                          _historyDetailLoading = false;
+                          _historyDetailError = null;
+                        });
+                        if (next == _LogsMode.history) {
+                          unawaited(_loadHistoryRuns());
+                        }
+                      },
+                    ),
+                  ),
+                  SizedBox(height: typography.spacingSm),
+                  if (compact)
+                    Row(
+                      children: [
+                        Expanded(child: _buildSearchField(l10n)),
+                        SizedBox(width: typography.spacingSm),
+                        OutlinedButton(
+                          key: const ValueKey('logs-mobile-filter'),
+                          onPressed: () => unawaited(_showFilters(l10n)),
+                          child: Text('${l10n.logFilters} · $filterCount'),
+                        ),
+                      ],
+                    )
+                  else
+                    Row(
+                      children: [
+                        Expanded(child: _buildSearchField(l10n)),
+                        SizedBox(width: typography.spacingSm),
+                        OutlinedButton(
+                          key: const ValueKey('logs-source-filter'),
+                          onPressed: () => unawaited(_showFilters(l10n)),
+                          child: Text(l10n.logFilters),
+                        ),
+                        SizedBox(width: typography.spacingSm),
+                        DropdownButtonHideUnderline(
+                          child: DropdownButton<LogSort>(
+                            key: const ValueKey('logs-sort-selector'),
+                            value: widget.sort,
+                            items: [
+                              DropdownMenuItem(
+                                value: LogSort.newestFirst,
+                                child: Text(l10n.logNewest),
+                              ),
+                              DropdownMenuItem(
+                                value: LogSort.newestLast,
+                                child: Text(l10n.logOldest),
+                              ),
+                            ],
+                            onChanged: (value) {
+                              if (value != null) {
+                                unawaited(widget.onSortChanged(value));
+                              }
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      key: const ValueKey('logs-copy-filtered'),
+                      onPressed: visible.isEmpty
+                          ? null
+                          : () => unawaited(
+                              _selectedRun == null
+                                  ? _copy(l10n, visible)
+                                  : _copyFilteredHistory(l10n),
+                            ),
+                      child: Text(l10n.copyFilteredLogs),
+                    ),
+                  ),
+                ],
               ),
             ),
             if (_mode == _LogsMode.history && _selectedRun == null)
@@ -2325,82 +2617,6 @@ class _LogsPageState extends State<_LogsPage> {
                     child: Text(l10n.back),
                   ),
                 ),
-              Padding(
-                padding: EdgeInsets.all(typography.spacingSm),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    TextField(
-                      controller: _query,
-                      onChanged: (_) {
-                        setState(() {});
-                        if (_selectedRun != null) {
-                          unawaited(_loadHistoryPage(_selectedRun!, page: 0));
-                        }
-                      },
-                      decoration: InputDecoration(
-                        hintText: l10n.logSearch,
-                        prefixIcon: const Icon(Icons.search),
-                      ),
-                    ),
-                    SizedBox(height: typography.spacingS),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Wrap(
-                        spacing: typography.spacingS,
-                        runSpacing: typography.spacingS,
-                        children: [
-                          for (final source in ['Backend', 'HTTP-META'])
-                            FilterChip(
-                              key: ValueKey('logs-source-$source'),
-                              label: Text(source),
-                              selected: _sources.contains(source),
-                              onSelected: (_) => _toggleSource(source),
-                            ),
-                          for (final level in _LogLevel.values)
-                            FilterChip(
-                              key: ValueKey('logs-level-${level.name}'),
-                              label: Text(_levelLabel(l10n, level)),
-                              selected: _levels.contains(level),
-                              onSelected: (_) => _toggleLevel(level),
-                            ),
-                        ],
-                      ),
-                    ),
-                    SizedBox(height: typography.spacingS),
-                    Row(
-                      children: [
-                        SegmentedButton<LogSort>(
-                          segments: [
-                            ButtonSegment(
-                              value: LogSort.newestFirst,
-                              label: Text(l10n.logNewest),
-                            ),
-                            ButtonSegment(
-                              value: LogSort.newestLast,
-                              label: Text(l10n.logOldest),
-                            ),
-                          ],
-                          selected: {widget.sort},
-                          onSelectionChanged: (value) =>
-                              unawaited(widget.onSortChanged(value.first)),
-                        ),
-                        const Spacer(),
-                        TextButton(
-                          onPressed: visible.isEmpty
-                              ? null
-                              : () => unawaited(
-                                  _selectedRun == null
-                                      ? _copy(l10n, visible)
-                                      : _copyFilteredHistory(l10n),
-                                ),
-                          child: Text(l10n.copyFilteredLogs),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
               const Divider(height: 1),
               Expanded(
                 child: _historyDetailLoading
@@ -2429,30 +2645,7 @@ class _LogsPageState extends State<_LogsPage> {
                               horizontal: typography.spacingSm,
                               vertical: typography.spacingS,
                             ),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(
-                                  child: SelectableText(
-                                    _formatLog(item, l10n),
-                                    style: typography.bodySmall.copyWith(
-                                      fontFamily: 'monospace',
-                                    ),
-                                  ),
-                                ),
-                                IconButton(
-                                  tooltip: l10n.copyLog,
-                                  icon: const Icon(Icons.copy, size: 18),
-                                  padding: EdgeInsets.zero,
-                                  constraints: const BoxConstraints.tightFor(
-                                    width: 48,
-                                    height: 48,
-                                  ),
-                                  onPressed: () =>
-                                      unawaited(_copy(l10n, [item])),
-                                ),
-                              ],
-                            ),
+                            child: _logRow(context, item, l10n, typography),
                           );
                         },
                       ),
@@ -3094,6 +3287,69 @@ class _SettingsPageState extends State<_SettingsPage> {
     final messenger = ScaffoldMessenger.of(context);
     final colors = Theme.of(context).extension<AppColors>()!;
     final typography = Theme.of(context).extension<AppTypography>()!;
+    Widget settingRow({
+      Key? key,
+      required String title,
+      required String subtitle,
+      required Widget control,
+    }) => LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = MediaQuery.sizeOf(context).width < navigationBreakpoint;
+        final details = Column(
+          key: key,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: typography.titleMedium),
+            SizedBox(height: typography.spacingXs),
+            Text(subtitle, style: typography.bodySmall),
+          ],
+        );
+        return Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: typography.spacingMd,
+            vertical: typography.spacingSm,
+          ),
+          child: Flex(
+            direction: compact ? Axis.vertical : Axis.horizontal,
+            crossAxisAlignment: compact
+                ? CrossAxisAlignment.stretch
+                : CrossAxisAlignment.center,
+            children: [
+              Expanded(flex: compact ? 0 : 1, child: details),
+              SizedBox(width: compact ? double.infinity : 280, child: control),
+            ],
+          ),
+        );
+      },
+    );
+    Widget divider() => const Divider(height: 1);
+    Widget sectionCard({
+      required Key key,
+      required String title,
+      required List<Widget> rows,
+    }) => _SurfacePanel(
+      key: key,
+      padding: EdgeInsets.zero,
+      radius: typography.radiusLg,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: EdgeInsets.fromLTRB(
+              typography.spacingMd,
+              typography.spacingMd,
+              typography.spacingMd,
+              typography.spacingXs,
+            ),
+            child: Text(title, style: typography.titleMedium),
+          ),
+          for (var i = 0; i < rows.length; i++) ...[
+            if (i > 0) divider(),
+            rows[i],
+          ],
+        ],
+      ),
+    );
     final content = ListView(
       key: const ValueKey('settings-list'),
       padding: EdgeInsets.all(typography.spacingLg),
@@ -3115,295 +3371,227 @@ class _SettingsPageState extends State<_SettingsPage> {
                     ),
                   ),
                 if (_section == _SettingsSection.home) ...[
-                  _SurfacePanel(
+                  sectionCard(
                     key: const ValueKey('settings-appearance'),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          l10n.appearanceHeading,
-                          style: typography.titleMedium,
+                    title: l10n.appearanceLanguageHeading,
+                    rows: [
+                      settingRow(
+                        key: const ValueKey('settings-theme-row'),
+                        title: l10n.themeHeading,
+                        subtitle: l10n.themeSubtitle,
+                        control: SegmentedButton<ThemeMode>(
+                          key: const ValueKey('settings-theme-mode'),
+                          segments: [
+                            ButtonSegment(
+                              value: ThemeMode.system,
+                              icon: const Icon(Icons.brightness_auto),
+                              label: Text(l10n.themeFollowSystem),
+                            ),
+                            ButtonSegment(
+                              value: ThemeMode.light,
+                              icon: const Icon(Icons.light_mode),
+                              label: Text(l10n.themeLight),
+                            ),
+                            ButtonSegment(
+                              value: ThemeMode.dark,
+                              icon: const Icon(Icons.dark_mode),
+                              label: Text(l10n.themeDark),
+                            ),
+                          ],
+                          selected: {_generalThemeMode},
+                          onSelectionChanged: (selection) {
+                            setState(() {
+                              _generalThemeMode = selection.first;
+                              _generalRevision++;
+                            });
+                            unawaited(widget.onPreviewTheme(selection.first));
+                          },
                         ),
-                        if (_generalDirty)
-                          Text(
-                            l10n.unsaved,
-                            style: TextStyle(color: colors.error),
-                          ),
-                        SizedBox(height: typography.spacingSm),
-                        LayoutBuilder(
-                          builder: (context, constraints) {
-                            final twoColumns = constraints.maxWidth >= 720;
-                            final itemWidth = twoColumns
-                                ? (constraints.maxWidth -
-                                          typography.spacingMd) /
-                                      2
-                                : constraints.maxWidth;
-
-                            Widget settingItem({
-                              required String title,
-                              required String subtitle,
-                              required Widget control,
-                            }) => SizedBox(
-                              width: itemWidth,
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(title, style: typography.titleMedium),
-                                  SizedBox(height: typography.spacingXs),
-                                  Text(subtitle, style: typography.bodySmall),
-                                  SizedBox(height: typography.spacingSm),
-                                  control,
-                                ],
+                      ),
+                      settingRow(
+                        key: const ValueKey('settings-language-row'),
+                        title: l10n.languageHeading,
+                        subtitle: l10n.languageSubtitle,
+                        control: DropdownButton<String>(
+                          key: const ValueKey('settings-language'),
+                          isExpanded: true,
+                          value: _generalLocale ?? 'system',
+                          items: [
+                            DropdownMenuItem(
+                              value: 'system',
+                              child: Text(l10n.languageFollowSystem),
+                            ),
+                            for (final language
+                                in LocalePreferenceStore.supported)
+                              DropdownMenuItem(
+                                value: language,
+                                child: Text(_languageLabel(language)),
                               ),
-                            );
-
-                            return Wrap(
-                              spacing: typography.spacingMd,
-                              runSpacing: typography.spacingMd,
-                              children: [
-                                settingItem(
-                                  title: l10n.themeHeading,
-                                  subtitle: l10n.themeSubtitle,
-                                  control: SegmentedButton<ThemeMode>(
-                                    key: const ValueKey('settings-theme-mode'),
-                                    segments: [
-                                      ButtonSegment(
-                                        value: ThemeMode.system,
-                                        icon: const Icon(Icons.brightness_auto),
-                                        label: Text(l10n.themeFollowSystem),
-                                      ),
-                                      ButtonSegment(
-                                        value: ThemeMode.light,
-                                        icon: const Icon(Icons.light_mode),
-                                        label: Text(l10n.themeLight),
-                                      ),
-                                      ButtonSegment(
-                                        value: ThemeMode.dark,
-                                        icon: const Icon(Icons.dark_mode),
-                                        label: Text(l10n.themeDark),
-                                      ),
-                                    ],
-                                    selected: {_generalThemeMode},
-                                    onSelectionChanged: (selection) {
-                                      setState(() {
-                                        _generalThemeMode = selection.first;
-                                        _generalRevision++;
-                                      });
-                                      unawaited(
-                                        widget.onPreviewTheme(selection.first),
-                                      );
-                                    },
-                                  ),
-                                ),
-                                settingItem(
-                                  title: l10n.languageHeading,
-                                  subtitle: l10n.languageSubtitle,
-                                  control: DropdownButton<String>(
-                                    key: const ValueKey('settings-language'),
-                                    isExpanded: true,
-                                    value: _generalLocale ?? 'system',
-                                    items: [
-                                      DropdownMenuItem(
-                                        value: 'system',
-                                        child: Text(l10n.languageFollowSystem),
-                                      ),
-                                      for (final language
-                                          in LocalePreferenceStore.supported)
-                                        DropdownMenuItem(
-                                          value: language,
-                                          child: Text(_languageLabel(language)),
-                                        ),
-                                    ],
-                                    onChanged: (value) {
-                                      final locale =
-                                          value == null || value == 'system'
-                                          ? null
-                                          : value;
-                                      setState(() {
-                                        _generalLocale = locale;
-                                        _generalRevision++;
-                                      });
-                                      unawaited(
-                                        widget.onPreviewLocale(
-                                          locale == null
-                                              ? null
-                                              : Locale(locale),
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                ),
-                                settingItem(
-                                  title: l10n.closeBehaviorHeading,
-                                  subtitle: l10n.closeBehaviorSubtitle,
-                                  control: DropdownButton<CloseBehavior>(
-                                    key: const ValueKey(
-                                      'settings-close-behavior',
-                                    ),
-                                    isExpanded: true,
-                                    value: _generalCloseBehavior,
-                                    items: [
-                                      DropdownMenuItem(
-                                        value: CloseBehavior.exitApp,
-                                        child: Text(l10n.exitApp),
-                                      ),
-                                      DropdownMenuItem(
-                                        value: CloseBehavior.closeToTray,
-                                        child: Text(l10n.closeToTray),
-                                      ),
-                                    ],
-                                    onChanged: (value) {
-                                      if (value != null) {
-                                        setState(() {
-                                          _generalCloseBehavior = value;
-                                          _generalRevision++;
-                                        });
-                                      }
-                                    },
-                                  ),
-                                ),
-                                settingItem(
-                                  title: l10n.recentLogs,
-                                  subtitle: l10n.recentLogsSubtitle,
-                                  control: TextField(
-                                    key: const ValueKey(
-                                      'settings-recent-log-limit',
-                                    ),
-                                    controller: _recentLogLimit,
-                                    keyboardType: TextInputType.number,
-                                    decoration: const InputDecoration(),
-                                    onChanged: (_) =>
-                                        setState(() => _generalRevision++),
-                                  ),
-                                ),
-                              ],
+                          ],
+                          onChanged: (value) {
+                            final locale = value == null || value == 'system'
+                                ? null
+                                : value;
+                            setState(() {
+                              _generalLocale = locale;
+                              _generalRevision++;
+                            });
+                            unawaited(
+                              widget.onPreviewLocale(
+                                locale == null ? null : Locale(locale),
+                              ),
                             );
                           },
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                   SizedBox(height: typography.spacingLg),
-                  LayoutBuilder(
-                    builder: (context, constraints) {
-                      final width = constraints.maxWidth >= 720
-                          ? (constraints.maxWidth - typography.spacingMd) / 2
-                          : constraints.maxWidth;
-                      return Wrap(
-                        key: const ValueKey('settings-section-grid'),
-                        spacing: typography.spacingMd,
-                        runSpacing: typography.spacingMd,
-                        children: [
-                          SizedBox(
-                            width: width,
-                            child: _SettingsSectionTile(
-                              icon: Icons.tune,
-                              key: const ValueKey(
-                                'settings-card-subdock-config',
-                              ),
-                              title: l10n.subdockConfigHeading,
-                              subtitle: _configurationDirty
-                                  ? '${l10n.enableHttpMetaSubtitle} (${l10n.unsaved})'
-                                  : l10n.enableHttpMetaSubtitle,
-                              onTap: () => unawaited(
-                                _openSection(_SettingsSection.subDockConfig),
-                              ),
-                            ),
-                          ),
-                          SizedBox(
-                            width: width,
-                            child: _SettingsSectionTile(
-                              icon: Icons.dns_outlined,
-                              key: const ValueKey(
-                                'settings-card-backend-config',
-                              ),
-                              title: l10n.backendConfigHeading,
-                              subtitle: _backendDirty
-                                  ? '${l10n.apiFieldsSummary} (${l10n.unsaved})'
-                                  : l10n.apiFieldsSummary,
-                              onTap: () => unawaited(
-                                _openSection(_SettingsSection.backendConfig),
-                              ),
-                            ),
-                          ),
-                          SizedBox(
-                            width: width,
-                            child: _SettingsSectionTile(
-                              icon: Icons.terminal,
-                              title: l10n.advancedRawEnv,
-                              subtitle: _dirty
-                                  ? '${l10n.advancedRawEnvSubtitle} (${l10n.unsaved})'
-                                  : l10n.advancedRawEnvSubtitle,
-                              onTap: () => unawaited(
-                                _openSection(_SettingsSection.advancedEnv),
-                              ),
-                            ),
-                          ),
-                          SizedBox(
-                            width: width,
-                            child: _SettingsSectionTile(
-                              icon: Icons.info_outline,
-                              key: const ValueKey('settings-card-about'),
-                              title: l10n.aboutSubDock,
-                              subtitle: l10n.aboutSubDockSubtitle,
-                              onTap: () => unawaited(
-                                _openSection(_SettingsSection.about),
-                              ),
-                            ),
-                          ),
-                        ],
-                      );
-                    },
-                  ),
-                ],
-                SizedBox(height: typography.spacingLg),
-                if (_section == _SettingsSection.subDockConfig) ...[
-                  _SurfacePanel(
-                    key: const ValueKey('settings-subdock-config'),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          l10n.subdockConfigHeading,
-                          style: typography.titleMedium,
-                        ),
-                        if (widget.configurationError != null) ...[
-                          Text(
-                            l10n.configurationInvalid(
-                              _localizedConfigError(
-                                l10n,
-                                widget.configurationError!,
-                              ),
-                            ),
-                            style: TextStyle(color: colors.error),
-                          ),
-                          SizedBox(height: typography.spacingS),
-                          OutlinedButton(
-                            onPressed: _configurationDirty
-                                ? null
-                                : () =>
-                                      unawaited(widget.onResetConfiguration()),
-                            child: Text(l10n.resetSubdockConfig),
-                          ),
-                        ],
-                        SwitchListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(l10n.enableHttpMeta),
-                          subtitle: Text(l10n.enableHttpMetaSubtitle),
+                  sectionCard(
+                    key: const ValueKey('settings-runtime'),
+                    title: l10n.runtimeHeading,
+                    rows: [
+                      settingRow(
+                        key: const ValueKey('settings-http-meta'),
+                        title: l10n.enableHttpMeta,
+                        subtitle: _configurationDirty
+                            ? '${l10n.enableHttpMetaSubtitle} (${l10n.unsaved})'
+                            : l10n.enableHttpMetaSubtitle,
+                        control: Switch(
                           value: _httpMetaEnabled,
                           onChanged: (value) => _updateConfiguration(
                             _configuration.httpMeta.copyWith(enabled: value),
                           ),
                         ),
-                        if (configurationIssue != null)
-                          Text(
+                      ),
+                      if (widget.configurationError != null)
+                        Padding(
+                          padding: EdgeInsets.all(typography.spacingMd),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  l10n.configurationInvalid(
+                                    _localizedConfigError(
+                                      l10n,
+                                      widget.configurationError!,
+                                    ),
+                                  ),
+                                  style: TextStyle(color: colors.error),
+                                ),
+                              ),
+                              OutlinedButton(
+                                onPressed: _configurationDirty
+                                    ? null
+                                    : () => unawaited(
+                                        widget.onResetConfiguration(),
+                                      ),
+                                child: Text(l10n.resetSubdockConfig),
+                              ),
+                            ],
+                          ),
+                        ),
+                      if (configurationIssue != null)
+                        Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: typography.spacingMd,
+                            vertical: typography.spacingSm,
+                          ),
+                          child: Text(
                             configurationIssue,
                             style: TextStyle(color: colors.error),
                           ),
-                      ],
-                    ),
+                        ),
+                      settingRow(
+                        key: const ValueKey('settings-backend-config-row'),
+                        title: l10n.backendConfigHeading,
+                        subtitle: _backendDirty
+                            ? '${l10n.apiFieldsSummary} (${l10n.unsaved})'
+                            : l10n.apiFieldsSummary,
+                        control: OutlinedButton.icon(
+                          key: const ValueKey('settings-card-backend-config'),
+                          onPressed: () => unawaited(
+                            _openSection(_SettingsSection.backendConfig),
+                          ),
+                          icon: const Icon(Icons.dns_outlined),
+                          label: Text(l10n.open),
+                        ),
+                      ),
+                      settingRow(
+                        key: const ValueKey('settings-advanced-env-row'),
+                        title: l10n.advancedRawEnv,
+                        subtitle: _dirty
+                            ? '${l10n.advancedRawEnvSubtitle} (${l10n.unsaved})'
+                            : l10n.advancedRawEnvSubtitle,
+                        control: OutlinedButton.icon(
+                          key: const ValueKey('settings-card-advanced-env'),
+                          onPressed: () => unawaited(
+                            _openSection(_SettingsSection.advancedEnv),
+                          ),
+                          icon: const Icon(Icons.terminal),
+                          label: Text(l10n.open),
+                        ),
+                      ),
+                      settingRow(
+                        key: const ValueKey('settings-recent-logs-row'),
+                        title: l10n.recentLogs,
+                        subtitle: l10n.recentLogsSubtitle,
+                        control: TextField(
+                          key: const ValueKey('settings-recent-log-limit'),
+                          controller: _recentLogLimit,
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(),
+                          onChanged: (_) => setState(() => _generalRevision++),
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: typography.spacingLg),
+                  sectionCard(
+                    key: const ValueKey('settings-desktop-behavior'),
+                    title: l10n.desktopBehaviorHeading,
+                    rows: [
+                      settingRow(
+                        key: const ValueKey('settings-close-behavior-row'),
+                        title: l10n.closeBehaviorHeading,
+                        subtitle: l10n.closeBehaviorSubtitle,
+                        control: DropdownButton<CloseBehavior>(
+                          key: const ValueKey('settings-close-behavior'),
+                          isExpanded: true,
+                          value: _generalCloseBehavior,
+                          items: [
+                            DropdownMenuItem(
+                              value: CloseBehavior.exitApp,
+                              child: Text(l10n.exitApp),
+                            ),
+                            DropdownMenuItem(
+                              value: CloseBehavior.closeToTray,
+                              child: Text(l10n.closeToTray),
+                            ),
+                          ],
+                          onChanged: (value) {
+                            if (value != null) {
+                              setState(() {
+                                _generalCloseBehavior = value;
+                                _generalRevision++;
+                              });
+                            }
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: typography.spacingLg),
+                  _SettingsSectionTile(
+                    icon: Icons.info_outline,
+                    key: const ValueKey('settings-card-about'),
+                    title: l10n.aboutSubDock,
+                    subtitle: l10n.aboutSubDockSubtitle,
+                    onTap: () =>
+                        unawaited(_openSection(_SettingsSection.about)),
                   ),
                 ],
+                SizedBox(height: typography.spacingLg),
                 SizedBox(height: typography.spacingLg),
                 if (_section == _SettingsSection.backendConfig) ...[
                   _SurfacePanel(
@@ -3581,9 +3769,17 @@ class _SettingsPageState extends State<_SettingsPage> {
                 alignment: Alignment.centerRight,
                 child: FilledButton(
                   key: const ValueKey('settings-save-all'),
-                  onPressed: _generalDirty && _parsedRecentLogLimit != null
+                  onPressed:
+                      (_configurationDirty ||
+                          (_generalDirty && _parsedRecentLogLimit != null))
                       ? () async {
-                          if (await _saveGeneral() && mounted) {
+                          var generalSaved = true;
+                          if (_generalDirty) {
+                            generalSaved = await _saveGeneral();
+                          }
+                          if (generalSaved && _configurationDirty) {
+                            await _saveConfiguration();
+                          } else if (generalSaved && mounted) {
                             messenger.showSnackBar(
                               SnackBar(content: Text(l10n.saved)),
                             );
@@ -3595,8 +3791,7 @@ class _SettingsPageState extends State<_SettingsPage> {
               ),
             ),
           ),
-        if (_section == _SettingsSection.subDockConfig ||
-            _section == _SettingsSection.backendConfig ||
+        if (_section == _SettingsSection.backendConfig ||
             _section == _SettingsSection.advancedEnv)
           SafeArea(
             top: false,
@@ -3607,8 +3802,6 @@ class _SettingsPageState extends State<_SettingsPage> {
                 child: FilledButton(
                   key: const ValueKey('settings-child-save'),
                   onPressed: switch (_section) {
-                    _SettingsSection.subDockConfig =>
-                      _configurationDirty ? _saveConfiguration : null,
                     _SettingsSection.backendConfig =>
                       _backendDirty &&
                               _backendIssue == null &&

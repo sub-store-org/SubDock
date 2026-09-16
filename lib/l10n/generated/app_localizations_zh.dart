@@ -295,6 +295,18 @@ class AppLocalizationsZh extends AppLocalizations {
   String get logSearch => '搜索日志消息';
 
   @override
+  String get logFilters => '筛选';
+
+  @override
+  String get logSources => '来源';
+
+  @override
+  String get logLevels => '级别';
+
+  @override
+  String get logSort => '排序';
+
+  @override
   String get logNewest => '最新在前';
 
   @override
@@ -484,6 +496,18 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get appearanceHeading => '外观';
+
+  @override
+  String get appearanceLanguageHeading => '外观与语言';
+
+  @override
+  String get runtimeHeading => '运行';
+
+  @override
+  String get desktopBehaviorHeading => '桌面行为';
+
+  @override
+  String get open => '打开';
 
   @override
   String get themeHeading => '主题';

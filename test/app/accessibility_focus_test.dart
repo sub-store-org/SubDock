@@ -70,24 +70,18 @@ void main() {
         of: find.text('Current'),
         matching: find.byType(TextButton),
       );
-      final backendSource = find.byKey(const ValueKey('logs-source-Backend'));
-      final warningLevel = find.byKey(const ValueKey('logs-level-warning'));
-      final newestFirst = find.ancestor(
-        of: find.text('Newest first'),
-        matching: find.byType(TextButton),
-      );
+      final sourceFilter = find.byKey(const ValueKey('logs-source-filter'));
+      final newestFirst = find.byKey(const ValueKey('logs-sort-selector'));
 
       expect(currentMode, findsOneWidget);
-      expect(backendSource, findsOneWidget);
-      expect(warningLevel, findsOneWidget);
+      expect(sourceFilter, findsOneWidget);
       expect(newestFirst, findsOneWidget);
 
       FocusManager.instance.primaryFocus?.unfocus();
       await tester.pump();
 
       await _tabUntilFocused(tester, currentMode);
-      await _tabUntilFocused(tester, backendSource);
-      await _tabUntilFocused(tester, warningLevel);
+      await _tabUntilFocused(tester, sourceFilter);
       await _tabUntilFocused(tester, newestFirst);
 
       await tester.tap(find.byKey(const ValueKey('nav-item-settings')));

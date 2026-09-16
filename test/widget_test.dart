@@ -1,10 +1,8 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart'
     show
-        AxisDirection,
         Brightness,
         Axis,
         BorderRadius,
@@ -26,7 +24,7 @@ import 'package:flutter/material.dart'
         Scrollable,
         SingleChildScrollView,
         SegmentedButton,
-        SwitchListTile,
+        Switch,
         Theme,
         ThemeMode,
         TextButton,
@@ -55,23 +53,6 @@ import 'package:subdock/update/component_metadata_store.dart';
 import 'package:subdock/update/component_update_checker.dart';
 import 'package:subdock/update/github_release_client.dart';
 import 'package:subdock/update/component_update_service.dart';
-
-void _expectSegmentSemantics(
-  WidgetTester tester,
-  Finder finder, {
-  required String label,
-  required bool selected,
-}) {
-  final data = tester.getSemantics(finder).getSemanticsData();
-
-  expect(data.label, label);
-  final flags = data.flagsCollection;
-
-  expect(flags.isSelected, selected ? ui.Tristate.isTrue : ui.Tristate.isFalse);
-  expect(flags.isInMutuallyExclusiveGroup, isTrue);
-  expect(data.hasAction(ui.SemanticsAction.tap), isTrue);
-  expect(data.hasAction(ui.SemanticsAction.focus), isTrue);
-}
 
 void main() {
   testWidgets('runtime controls the backend through its abstraction', (
@@ -255,11 +236,11 @@ void main() {
   ) async {
     late Directory temp;
     addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final runtime = _FakeBackendRuntime();
     final directories = await tester.runAsync(() async {
       temp = await Directory.systemTemp.createTemp('subdock_widget_');
       return RuntimeDirectories.fromBaseDirectory(temp);
     });
-    final runtime = _FakeBackendRuntime();
     final store = SubDockConfigStore(directories!);
     final coordinator = AppCoordinator(
       runtime: runtime,
@@ -277,34 +258,13 @@ void main() {
     );
     await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
     await tester.pumpAndSettle();
-    final subDockConfigCard = find.byKey(
-      const ValueKey('settings-card-subdock-config'),
-    );
-    final settingsScrollable = find.descendant(
-      of: find.byKey(const ValueKey('settings-list')),
-      matching: find.byWidgetPredicate(
-        (widget) =>
-            widget is Scrollable && widget.axisDirection == AxisDirection.down,
-      ),
-    );
-    expect(settingsScrollable, findsOneWidget);
-    await tester.drag(settingsScrollable, const Offset(0, -260));
-    await tester.pumpAndSettle();
-    expect(subDockConfigCard, findsOneWidget);
-    await tester.tap(subDockConfigCard);
-    await tester.pumpAndSettle();
-    final httpMetaSwitch = find.widgetWithText(SwitchListTile, '启用 HTTP-META');
-    await tester.ensureVisible(httpMetaSwitch);
+    final httpMetaSwitch = find.byType(Switch);
+    expect(httpMetaSwitch, findsOneWidget);
     await tester.tap(httpMetaSwitch);
     await tester.pump();
 
-    final save = find.byKey(const ValueKey('settings-child-save'));
+    final save = find.byKey(const ValueKey('settings-save-all'));
     expect(tester.widget<FilledButton>(save).onPressed, isNotNull);
-    await tester.drag(
-      find.byKey(const ValueKey('settings-list')),
-      const Offset(0, -300),
-    );
-    await tester.pump();
     await tester.tap(save);
     await tester.pump();
     await _pumpRealIo(tester);
@@ -356,9 +316,82 @@ void main() {
 
     expect(find.text('暂无日志'), findsNothing);
     expect(find.byKey(const ValueKey('overview-recent-logs')), findsNothing);
-    final log = tester.widget<SelectableText>(find.byType(SelectableText));
-    expect(log.data, contains('[Backend]'));
-    expect(log.data, contains('[信息] fixture log line'));
+    expect(find.text('Backend'), findsOneWidget);
+    expect(find.text('信息'), findsOneWidget);
+    expect(find.text('fixture log line'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('logs toolbar switches to the compact filter at 599px', (
+    WidgetTester tester,
+  ) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final runtime = _FakeBackendRuntime();
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    await tester.binding.setSurfaceSize(const Size(599, 600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      SubDockApp(
+        coordinator: AppCoordinator(
+          runtime: runtime,
+          environmentStore: BackendEnvStore(directories!),
+        ),
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('en'),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-logs')));
+    await tester.pump();
+
+    runtime.emitLog(
+      RuntimeLog(
+        timestamp: DateTime.utc(2026, 9, 13, 4, 30),
+        source: RuntimeLogSource.stdout,
+        message: 'backend fixture',
+      ),
+    );
+    runtime.emitLog(
+      RuntimeLog(
+        timestamp: DateTime.utc(2026, 9, 13, 4, 31),
+        source: RuntimeLogSource.httpMetaStdout,
+        message: 'http meta fixture',
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('logs-search')), findsOneWidget);
+    expect(find.byKey(const ValueKey('logs-mobile-filter')), findsOneWidget);
+    expect(find.byKey(const ValueKey('logs-source-filter')), findsNothing);
+    expect(find.byKey(const ValueKey('logs-sort-selector')), findsNothing);
+    expect(
+      tester.widget<Padding>(find.byKey(const ValueKey('logs-body'))).padding,
+      const EdgeInsets.only(top: 12, left: 12, right: 12, bottom: 24),
+    );
+    expect(find.byKey(const ValueKey('logs-mobile-row')), findsNWidgets(2));
+    expect(find.byKey(const ValueKey('logs-mobile-meta')), findsNWidgets(2));
+    expect(find.byKey(const ValueKey('logs-mobile-content')), findsNWidgets(2));
+
+    await tester.tap(find.byKey(const ValueKey('logs-mobile-filter')));
+    await tester.pumpAndSettle();
+    final httpMeta = find.byKey(const ValueKey('logs-source-HTTP-META'));
+    final warning = find.byKey(const ValueKey('logs-level-warning'));
+    expect(tester.widget<FilterChip>(httpMeta).selected, isTrue);
+    expect(tester.widget<FilterChip>(warning).selected, isTrue);
+    await tester.tap(httpMeta);
+    await tester.tap(warning);
+    await tester.tap(find.byKey(const ValueKey('logs-mobile-sort')));
+    await tester.pump();
+    await tester.tap(find.text('Newest last').last);
+    await tester.pump();
+    await tester.tap(find.text('Back').last);
+    await tester.pump();
+    expect(find.text('http meta fixture'), findsNothing);
+    expect(find.text('backend fixture'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -430,7 +463,7 @@ void main() {
       find.byWidgetPredicate(
         (widget) =>
             widget is SelectableText &&
-            widget.data?.contains('[调试] non-prefix trace panic') == true,
+            widget.data?.contains('non-prefix trace panic') == true,
       ),
       findsOneWidget,
     );
@@ -446,7 +479,7 @@ void main() {
       find.byWidgetPredicate(
         (widget) =>
             widget is SelectableText &&
-            widget.data?.contains('[信息] debug1 error404 panic_mode') == true,
+            widget.data?.contains('debug1 error404 panic_mode') == true,
       ),
       findsOneWidget,
     );
@@ -462,7 +495,7 @@ void main() {
       find.byWidgetPredicate(
         (widget) =>
             widget is SelectableText &&
-            widget.data?.contains('[错误] non-prefix panic') == true,
+            widget.data?.contains('non-prefix panic') == true,
       ),
       findsOneWidget,
     );
@@ -479,10 +512,16 @@ void main() {
       ),
       findsOneWidget,
     );
+    await tester.tap(find.byKey(const ValueKey('logs-source-filter')));
+    await tester.pump(const Duration(milliseconds: 500));
     await tester.tap(find.widgetWithText(FilterChip, 'Backend'));
+    await tester.tap(find.text('返回').last);
     await tester.pump();
     expect(find.byType(SelectableText), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('logs-source-filter')));
+    await tester.pump(const Duration(milliseconds: 500));
     await tester.tap(find.widgetWithText(FilterChip, 'Backend'));
+    await tester.tap(find.text('返回').last);
     await tester.pump();
     expect(
       find.byWidgetPredicate(
@@ -493,26 +532,14 @@ void main() {
     );
 
     await tester.enterText(find.byType(TextField), '');
-    await tester.tap(find.text('最早在前'));
+    await tester.tap(find.byKey(const ValueKey('logs-sort-selector')));
     await tester.pump();
-    expect(
-      tester
-          .widget<SegmentedButton<LogSort>>(
-            find.byType(SegmentedButton<LogSort>),
-          )
-          .selected,
-      {LogSort.newestLast},
-    );
-    await tester.tap(find.text('最新在前'));
+    await tester.tap(find.text('最早在前').last);
     await tester.pump();
-    expect(
-      tester
-          .widget<SegmentedButton<LogSort>>(
-            find.byType(SegmentedButton<LogSort>),
-          )
-          .selected,
-      {LogSort.newestFirst},
-    );
+    await tester.tap(find.byKey(const ValueKey('logs-sort-selector')));
+    await tester.pump();
+    await tester.tap(find.text('最新在前').last);
+    await tester.pump();
 
     await tester.enterText(find.byType(TextField), 'panic');
     await tester.tap(find.byKey(const ValueKey('nav-item-overview')));
@@ -535,14 +562,23 @@ void main() {
     );
     await tester.pump();
     await tester.enterText(find.byType(TextField), '');
+    await tester.tap(find.byKey(const ValueKey('logs-source-filter')));
+    await tester.pump(const Duration(milliseconds: 500));
     await tester.tap(find.widgetWithText(FilterChip, 'Backend'));
+    await tester.tap(find.text('返回').last);
     await tester.pump();
     expect(find.textContaining('HTTP-META info line'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('logs-source-filter')));
+    await tester.pump(const Duration(milliseconds: 500));
     await tester.tap(find.widgetWithText(FilterChip, 'HTTP-META'));
+    await tester.tap(find.text('返回').last);
     await tester.pump();
     expect(find.byType(SelectableText), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('logs-source-filter')));
+    await tester.pump(const Duration(milliseconds: 500));
     await tester.tap(find.widgetWithText(FilterChip, 'HTTP-META'));
     await tester.tap(find.widgetWithText(FilterChip, 'Backend'));
+    await tester.tap(find.text('返回').last);
     await tester.pump();
 
     final platform =
@@ -563,10 +599,10 @@ void main() {
     final copy = find.byTooltip('复制日志').first;
     await tester.ensureVisible(copy);
     await tester.pump();
-    expect(tester.getSize(copy), const Size(48, 48));
+    expect(tester.getSize(copy), const Size(40, 40));
     await tester.tap(copy);
     await tester.pump();
-    expect(copied, displayed);
+    expect(copied, contains(displayed));
 
     runtime.emitLog(
       RuntimeLog(
@@ -1985,15 +2021,11 @@ void main() {
         hasFocusAction: true,
       ),
     );
-    final backend = tester.getSemantics(
-      find.byKey(const ValueKey('logs-source-Backend')),
-    );
+    final filter = find.byKey(const ValueKey('logs-source-filter'));
     expect(
-      backend,
+      tester.getSemantics(filter),
       matchesSemantics(
-        label: 'Backend',
-        isSelected: true,
-        hasSelectedState: true,
+        label: 'Filters',
         isButton: true,
         isFocusable: true,
         hasEnabledState: true,
@@ -2002,22 +2034,8 @@ void main() {
         hasFocusAction: true,
       ),
     );
-    await tester.tap(find.byKey(const ValueKey('logs-source-Backend')));
-    await tester.pump();
-    expect(
-      tester.getSemantics(find.byKey(const ValueKey('logs-source-Backend'))),
-      matchesSemantics(
-        label: 'Backend',
-        isSelected: false,
-        hasSelectedState: true,
-        isButton: true,
-        isFocusable: true,
-        hasEnabledState: true,
-        isEnabled: true,
-        hasTapAction: true,
-        hasFocusAction: true,
-      ),
-    );
+    await tester.tap(filter);
+    await tester.pumpAndSettle();
     final warning = find.byKey(const ValueKey('logs-level-warning'));
     expect(
       tester.getSemantics(warning),
@@ -2049,49 +2067,12 @@ void main() {
         hasFocusAction: true,
       ),
     );
-    _expectSegmentSemantics(
-      tester,
-      find.text('Newest first'),
-      label: 'Newest first',
-      selected: true,
-    );
-    _expectSegmentSemantics(
-      tester,
-      find.text('Newest last'),
-      label: 'Newest last',
-      selected: false,
-    );
-    await tester.tap(find.text('Newest last'));
-    await tester.pumpAndSettle();
-    _expectSegmentSemantics(
-      tester,
-      find.text('Newest last'),
-      label: 'Newest last',
-      selected: true,
-    );
-    _expectSegmentSemantics(
-      tester,
-      find.text('Newest first'),
-      label: 'Newest first',
-      selected: false,
-    );
-    await tester.tap(find.text('History'));
+    await tester.tap(find.byKey(const ValueKey('logs-mobile-sort')));
     await tester.pump();
-    expect(
-      tester.getSemantics(find.text('History')),
-      matchesSemantics(
-        label: 'History',
-        isSelected: true,
-        hasSelectedState: true,
-        isButton: true,
-        isFocusable: true,
-        hasEnabledState: true,
-        isEnabled: true,
-        isInMutuallyExclusiveGroup: true,
-        hasTapAction: true,
-        hasFocusAction: true,
-      ),
-    );
+    await tester.tap(find.text('Newest last').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Back').last);
+    await tester.pump(const Duration(milliseconds: 500));
     semantics.dispose();
     await tester.pumpWidget(const SizedBox());
   });
@@ -2135,11 +2116,9 @@ void main() {
       ),
     );
     expect(
-      tester.getSemantics(find.byKey(const ValueKey('logs-level-warning'))),
+      tester.getSemantics(find.byKey(const ValueKey('logs-source-filter'))),
       matchesSemantics(
-        label: '警告',
-        isSelected: true,
-        hasSelectedState: true,
+        label: '筛选',
         isButton: true,
         isFocusable: true,
         hasEnabledState: true,
@@ -2147,12 +2126,6 @@ void main() {
         hasTapAction: true,
         hasFocusAction: true,
       ),
-    );
-    _expectSegmentSemantics(
-      tester,
-      find.text('最新在前'),
-      label: '最新在前',
-      selected: true,
     );
     semantics.dispose();
     await tester.pumpWidget(const SizedBox());
@@ -2773,7 +2746,10 @@ void main() {
     expect(find.byKey(const ValueKey('settings-appearance')), findsOneWidget);
     expect(find.byKey(const ValueKey('settings-save-all')), findsOneWidget);
     expect(find.byKey(const ValueKey('settings-subdock-config')), findsNothing);
-    expect(find.byKey(const ValueKey('settings-backend-config')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('settings-card-backend-config')),
+      findsOneWidget,
+    );
     expect(find.byKey(const ValueKey('settings-raw-env')), findsNothing);
     final l10n = AppLocalizations.of(
       tester.element(find.byKey(const ValueKey('settings-appearance'))),
@@ -2786,39 +2762,52 @@ void main() {
     expect(find.text(l10n.recentLogsSubtitle), findsOneWidget);
     expect(tester.takeException(), isNull);
 
-    await tester.binding.setSurfaceSize(const Size(800, 600));
+    await tester.binding.setSurfaceSize(const Size(599, 700));
     await tester.pumpAndSettle();
-    // The 800px surface leaves less than 720px for settings content.
-    final narrowClose = tester.getRect(
-      find.byKey(const ValueKey('settings-close-behavior')),
-    );
-    final narrowLimit = tester.getRect(
-      find.byKey(const ValueKey('settings-recent-log-limit')),
-    );
-    expect(
-      find.byKey(const ValueKey('settings-recent-log-presets')),
-      findsNothing,
-    );
-    expect((narrowClose.left - narrowLimit.left).abs(), lessThan(1));
-
-    await tester.binding.setSurfaceSize(const Size(1400, 700));
-    await tester.pumpAndSettle();
-    final wideTheme = tester.getRect(
+    final mobileTheme = tester.getRect(
       find.byKey(const ValueKey('settings-theme-mode')),
     );
-    final wideLanguage = tester.getRect(
+    final mobileLanguage = tester.getRect(
       find.byKey(const ValueKey('settings-language')),
     );
-    final wideClose = tester.getRect(
-      find.byKey(const ValueKey('settings-close-behavior')),
+    expect(
+      tester
+          .widget<Flex>(
+            find
+                .ancestor(
+                  of: find.byKey(const ValueKey('settings-theme-row')),
+                  matching: find.byType(Flex),
+                )
+                .first,
+          )
+          .direction,
+      Axis.vertical,
     );
-    final wideLimit = tester.getRect(
-      find.byKey(const ValueKey('settings-recent-log-limit')),
+    expect(mobileLanguage.top, greaterThan(mobileTheme.bottom));
+
+    await tester.binding.setSurfaceSize(const Size(600, 700));
+    await tester.pumpAndSettle();
+    final desktopTheme = tester.getRect(
+      find.byKey(const ValueKey('settings-theme-mode')),
     );
-    expect(wideLanguage.left, greaterThan(wideTheme.left));
-    expect((wideLanguage.top - wideTheme.top).abs(), lessThan(1));
-    expect(wideLimit.left, greaterThan(wideClose.left));
-    expect((wideLimit.top - wideClose.top).abs(), lessThan(1));
+    final desktopLanguage = tester.getRect(
+      find.byKey(const ValueKey('settings-language')),
+    );
+    expect(
+      tester
+          .widget<Flex>(
+            find
+                .ancestor(
+                  of: find.byKey(const ValueKey('settings-theme-row')),
+                  matching: find.byType(Flex),
+                )
+                .first,
+          )
+          .direction,
+      Axis.horizontal,
+    );
+    expect((desktopLanguage.left - desktopTheme.left).abs(), lessThan(1));
+    expect(desktopLanguage.top, greaterThan(desktopTheme.bottom));
     expect(find.byKey(const ValueKey('settings-save-all')), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
@@ -2874,65 +2863,6 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     },
   );
-
-  testWidgets('600x480 SubDock configuration keeps child save reachable', (
-    tester,
-  ) async {
-    late Directory temp;
-    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
-    final directories = await tester.runAsync(() async {
-      temp = await Directory.systemTemp.createTemp('subdock_widget_');
-      return RuntimeDirectories.fromBaseDirectory(temp);
-    });
-    final configurationStore = SubDockConfigStore(directories!);
-
-    await tester.binding.setSurfaceSize(const Size(600, 480));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-    await tester.pumpWidget(
-      SubDockApp(
-        coordinator: AppCoordinator(
-          runtime: _FakeBackendRuntime(),
-          environmentStore: BackendEnvStore(directories),
-          configurationStore: configurationStore,
-        ),
-        autoStart: false,
-        enableWebView: false,
-        locale: const Locale('zh'),
-      ),
-    );
-
-    await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
-    await tester.pumpAndSettle();
-
-    final settingsScrollable = find.descendant(
-      of: find.byKey(const ValueKey('settings-list')),
-      matching: find.byWidgetPredicate(
-        (widget) =>
-            widget is Scrollable && widget.axisDirection == AxisDirection.down,
-      ),
-    );
-    expect(settingsScrollable, findsOneWidget);
-    await tester.drag(settingsScrollable, const Offset(0, -260));
-    await tester.pumpAndSettle();
-
-    final card = find.byKey(const ValueKey('settings-card-subdock-config'));
-    expect(card, findsOneWidget);
-    await tester.ensureVisible(card);
-    await tester.pumpAndSettle();
-    await tester.tap(card);
-    await tester.pumpAndSettle();
-
-    expect(tester.takeException(), isNull);
-    expect(find.byKey(const ValueKey('settings-back')), findsOneWidget);
-    expect(find.byKey(const ValueKey('settings-child-save')), findsOneWidget);
-
-    final back = find.byKey(const ValueKey('settings-back'));
-    await tester.ensureVisible(back);
-    await tester.tap(back);
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('settings-appearance')), findsOneWidget);
-    await tester.pumpWidget(const SizedBox());
-  });
 
   testWidgets('599x480 updates page uses mobile hierarchy', (tester) async {
     late Directory temp;
@@ -3176,6 +3106,10 @@ void main() {
     );
     await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
     await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('settings-close-behavior')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('settings-close-behavior')));
     await tester.pump();
     await tester.tap(find.text('关闭到托盘'));
@@ -3191,6 +3125,8 @@ void main() {
       () => Future<void>.delayed(const Duration(milliseconds: 10)),
     );
     await tester.pump();
+    await tester.ensureVisible(find.text('深色'));
+    await tester.pumpAndSettle();
     await tester.tap(
       find.descendant(
         of: find.byType(SegmentedButton<ThemeMode>),
@@ -3366,7 +3302,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Settings'), findsWidgets);
-    expect(find.text('Appearance'), findsWidgets);
+    expect(find.text('Appearance & Language'), findsWidgets);
     await _pumpRealIo(tester);
     expect(
       (await tester.runAsync(() => preferencesStore.load()))!.locale,

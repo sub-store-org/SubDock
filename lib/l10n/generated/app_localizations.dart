@@ -632,6 +632,30 @@ abstract class AppLocalizations {
   /// **'搜索日志消息'**
   String get logSearch;
 
+  /// No description provided for @logFilters.
+  ///
+  /// In zh, this message translates to:
+  /// **'筛选'**
+  String get logFilters;
+
+  /// No description provided for @logSources.
+  ///
+  /// In zh, this message translates to:
+  /// **'来源'**
+  String get logSources;
+
+  /// No description provided for @logLevels.
+  ///
+  /// In zh, this message translates to:
+  /// **'级别'**
+  String get logLevels;
+
+  /// No description provided for @logSort.
+  ///
+  /// In zh, this message translates to:
+  /// **'排序'**
+  String get logSort;
+
   /// No description provided for @logNewest.
   ///
   /// In zh, this message translates to:
@@ -983,6 +1007,30 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'外观'**
   String get appearanceHeading;
+
+  /// No description provided for @appearanceLanguageHeading.
+  ///
+  /// In zh, this message translates to:
+  /// **'外观与语言'**
+  String get appearanceLanguageHeading;
+
+  /// No description provided for @runtimeHeading.
+  ///
+  /// In zh, this message translates to:
+  /// **'运行'**
+  String get runtimeHeading;
+
+  /// No description provided for @desktopBehaviorHeading.
+  ///
+  /// In zh, this message translates to:
+  /// **'桌面行为'**
+  String get desktopBehaviorHeading;
+
+  /// No description provided for @open.
+  ///
+  /// In zh, this message translates to:
+  /// **'打开'**
+  String get open;
 
   /// No description provided for @themeHeading.
   ///

@@ -302,6 +302,18 @@ class AppLocalizationsEn extends AppLocalizations {
   String get logSearch => 'Search log messages';
 
   @override
+  String get logFilters => 'Filters';
+
+  @override
+  String get logSources => 'Sources';
+
+  @override
+  String get logLevels => 'Levels';
+
+  @override
+  String get logSort => 'Sort';
+
+  @override
   String get logNewest => 'Newest first';
 
   @override
@@ -496,6 +508,18 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get appearanceHeading => 'Appearance';
+
+  @override
+  String get appearanceLanguageHeading => 'Appearance & Language';
+
+  @override
+  String get runtimeHeading => 'Runtime';
+
+  @override
+  String get desktopBehaviorHeading => 'Desktop Behavior';
+
+  @override
+  String get open => 'Open';
 
   @override
   String get themeHeading => 'Theme';
