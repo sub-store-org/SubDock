@@ -152,6 +152,7 @@ void main() {
       runtime = await _createRuntime(temp, httpMetaPort: httpMetaPort);
 
       await runtime.start();
+      expect(runtime.currentState.httpMetaMihomoVersion, 'fixture-mihomo');
       await runtime.stop();
 
       final runs = await runtime.logStore.listRuns();

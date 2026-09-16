@@ -1247,6 +1247,7 @@ void main() {
       httpMetaStatus: HttpMetaStatus.running,
       httpMetaPort: 9876,
       httpMetaVersion: '1.3.0',
+      httpMetaMihomoVersion: 'v1.19.30',
     );
     await _pumpRealIo(tester);
     await tester.tap(find.byKey(const ValueKey('nav-item-updates')));
@@ -1269,7 +1270,7 @@ void main() {
     expect(
       find.descendant(
         of: find.byKey(const ValueKey('updates-packaged-mihomo')),
-        matching: find.text('-'),
+        matching: find.text('v1.19.30'),
       ),
       findsOneWidget,
     );
@@ -3879,6 +3880,7 @@ class _FakeBackendRuntime extends BackendRuntime {
     HttpMetaStatus httpMetaStatus = HttpMetaStatus.disabled,
     int? httpMetaPort,
     String? httpMetaVersion,
+    String? httpMetaMihomoVersion,
   }) => _states.add(
     RuntimeState(
       status: status,
@@ -3886,6 +3888,7 @@ class _FakeBackendRuntime extends BackendRuntime {
       httpMetaStatus: httpMetaStatus,
       httpMetaPort: httpMetaPort,
       httpMetaVersion: httpMetaVersion,
+      httpMetaMihomoVersion: httpMetaMihomoVersion,
     ),
   );
 

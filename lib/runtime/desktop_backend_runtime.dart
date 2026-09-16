@@ -85,6 +85,7 @@ class DesktopBackendRuntime implements BackendRuntime {
   int? _httpMetaPort;
   String? _httpMetaVersion;
   String? _httpMetaMessage;
+  String? _httpMetaMihomoVersion;
 
   @override
   RuntimeState get currentState => _currentState;
@@ -348,6 +349,8 @@ class DesktopBackendRuntime implements BackendRuntime {
     if (!_httpMetaEnabled) {
       _httpMetaStatus = HttpMetaStatus.disabled;
       _httpMetaMessage = null;
+      _httpMetaVersion = null;
+      _httpMetaMihomoVersion = null;
       return;
     }
     _httpMetaStatus = HttpMetaStatus.starting;
@@ -388,11 +391,13 @@ class DesktopBackendRuntime implements BackendRuntime {
       }
       _httpMetaStatus = HttpMetaStatus.running;
       _httpMetaVersion = resources.version;
+      _httpMetaMihomoVersion = resources.mihomoVersion;
       _httpMetaMessage = null;
     } catch (error) {
       _httpMetaStatus = HttpMetaStatus.unavailable;
       _httpMetaMessage = '$error';
       _httpMetaVersion = null;
+      _httpMetaMihomoVersion = null;
       // HTTP-META is an optional helper; Backend startup continues.
     }
   }
@@ -748,6 +753,7 @@ class DesktopBackendRuntime implements BackendRuntime {
       httpMetaStatus: _httpMetaStatus,
       httpMetaPort: _httpMetaPort,
       httpMetaVersion: _httpMetaVersion,
+      httpMetaMihomoVersion: _httpMetaMihomoVersion,
       httpMetaMessage: _httpMetaMessage,
     );
     if (!_states.isClosed) _states.add(_currentState);

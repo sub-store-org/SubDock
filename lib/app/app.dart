@@ -4308,7 +4308,7 @@ class _UpdatesPageState extends State<_UpdatesPage> {
                     key: const ValueKey('updates-packaged-mihomo'),
                     width: width,
                     name: l10n.mihomo,
-                    version: '-',
+                    version: widget.state.httpMetaMihomoVersion ?? '-',
                     badge: l10n.httpMetaResource,
                   ),
                   _PackagedResourceTile(

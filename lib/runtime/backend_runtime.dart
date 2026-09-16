@@ -40,6 +40,7 @@ class RuntimeState {
     this.httpMetaPort,
     this.httpMetaVersion,
     this.httpMetaMessage,
+    this.httpMetaMihomoVersion,
   });
 
   final RuntimeStatus status;
@@ -49,6 +50,7 @@ class RuntimeState {
   final int? httpMetaPort;
   final String? httpMetaVersion;
   final String? httpMetaMessage;
+  final String? httpMetaMihomoVersion;
 }
 
 enum HttpMetaStatus {
