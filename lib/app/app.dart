@@ -405,7 +405,7 @@ class _SubDockAppState extends State<SubDockApp> {
         color: colors.surfaceLow,
         elevation: 0,
         shape: RoundedRectangleBorder(
-          borderRadius: radius,
+          borderRadius: BorderRadius.circular(typography.radiusLg),
           side: BorderSide(color: colors.divider),
         ),
       ),
@@ -582,22 +582,11 @@ class _SubDockAppState extends State<SubDockApp> {
                     children: [
                       Expanded(child: pageWithViewport),
                       if (!(_page == _AppPage.settings && _settingsChild))
-                        NavigationBar(
+                        _MobileNavigationBar(
                           selectedIndex: _page.index,
+                          destinations: destinations,
                           onDestinationSelected: (index) =>
                               unawaited(_selectPage(_AppPage.values[index])),
-                          destinations: destinations
-                              .map(
-                                (destination) => NavigationDestination(
-                                  key: ValueKey(
-                                    'nav-item-${_AppPage.values[destinations.indexOf(destination)].name}',
-                                  ),
-                                  icon: destination.icon,
-                                  selectedIcon: destination.selectedIcon,
-                                  label: destination.label,
-                                ),
-                              )
-                              .toList(growable: false),
                         ),
                     ],
                   );
@@ -642,68 +631,173 @@ class _DesktopSidebar extends StatelessWidget {
     final typography = Theme.of(context).extension<AppTypography>()!;
     return SizedBox(
       width: 140,
-      child: ListView.builder(
-        padding: EdgeInsets.all(typography.spacingSm),
-        itemCount: destinations.length,
-        itemBuilder: (context, index) {
-          final destination = destinations[index];
-          final selected = index == selectedIndex;
-          return Padding(
-            padding: EdgeInsets.only(bottom: typography.spacingXs),
-            child: Material(
-              color: selected ? colors.surfaceHigh : Colors.transparent,
-              borderRadius: BorderRadius.circular(typography.radiusLg),
-              child: Semantics(
-                key: Key('nav-item-${_AppPage.values[index].name}'),
-                button: true,
-                selected: selected,
-                label: destination.label,
-                onTap: () => onDestinationSelected(index),
-                excludeSemantics: true,
-                child: InkWell(
-                  excludeFromSemantics: true,
-                  borderRadius: BorderRadius.circular(typography.radiusLg),
+      child: DecoratedBox(
+        decoration: BoxDecoration(color: colors.surfaceLow),
+        child: ListView.builder(
+          padding: EdgeInsets.symmetric(
+            vertical: typography.spacingSm,
+            horizontal: typography.spacingS,
+          ),
+          itemCount: destinations.length,
+          itemBuilder: (context, index) {
+            final destination = destinations[index];
+            final selected = index == selectedIndex;
+            return Padding(
+              padding: EdgeInsets.only(bottom: typography.spacingXs),
+              child: Material(
+                color: selected ? colors.surfaceHigh : Colors.transparent,
+                borderRadius: BorderRadius.circular(typography.radiusLg),
+                child: Semantics(
+                  key: Key('nav-item-${_AppPage.values[index].name}'),
+                  button: true,
+                  selected: selected,
+                  label: destination.label,
                   onTap: () => onDestinationSelected(index),
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(
-                      vertical: typography.spacingSm,
-                    ),
-                    child: Row(
-                      children: [
-                        IconTheme(
-                          data: IconThemeData(
-                            color: selected ? colors.accent : colors.onSurface,
-                          ),
-                          child: selected
-                              ? destination.selectedIcon
-                              : destination.icon,
-                        ),
-                        SizedBox(width: typography.spacingXs),
-                        Expanded(
-                          child: DefaultTextStyle(
-                            style: typography.labelSmall.copyWith(
+                  excludeSemantics: true,
+                  child: InkWell(
+                    excludeFromSemantics: true,
+                    borderRadius: BorderRadius.circular(typography.radiusLg),
+                    onTap: () => onDestinationSelected(index),
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: typography.spacingS,
+                        vertical: typography.spacingSm,
+                      ),
+                      child: Row(
+                        children: [
+                          IconTheme(
+                            data: IconThemeData(
                               color: selected
                                   ? colors.accent
                                   : colors.onSurface,
                             ),
-                            child: Text(
-                              destination.label,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                            child: selected
+                                ? destination.selectedIcon
+                                : destination.icon,
+                          ),
+                          SizedBox(width: typography.spacingS),
+                          Expanded(
+                            child: DefaultTextStyle(
+                              style: typography.bodyMedium.copyWith(
+                                color: selected
+                                    ? colors.accent
+                                    : colors.onSurface,
+                              ),
+                              child: Text(
+                                destination.label,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
-          );
-        },
+            );
+          },
+        ),
       ),
     );
   }
+}
+
+class _MobileNavigationBar extends StatelessWidget {
+  const _MobileNavigationBar({
+    required this.selectedIndex,
+    required this.destinations,
+    required this.onDestinationSelected,
+  });
+
+  final int selectedIndex;
+  final List<_ShellDestination> destinations;
+  final ValueChanged<int> onDestinationSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<AppColors>()!;
+    final typography = Theme.of(context).extension<AppTypography>()!;
+    return SizedBox(
+      key: const ValueKey('mobile-navigation'),
+      height: 68,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: colors.surfaceLow,
+          border: Border(top: BorderSide(color: colors.divider)),
+        ),
+        child: Row(
+          children: [
+            for (var index = 0; index < destinations.length; index++)
+              Expanded(
+                child: _MobileNavigationDestination(
+                  navigationKey: ValueKey(
+                    'nav-item-${_AppPage.values[index].name}',
+                  ),
+                  destination: destinations[index],
+                  selected: index == selectedIndex,
+                  onTap: () => onDestinationSelected(index),
+                  typography: typography,
+                  colors: colors,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MobileNavigationDestination extends StatelessWidget {
+  const _MobileNavigationDestination({
+    required this.navigationKey,
+    required this.destination,
+    required this.selected,
+    required this.onTap,
+    required this.typography,
+    required this.colors,
+  });
+
+  final Key navigationKey;
+  final _ShellDestination destination;
+  final bool selected;
+  final VoidCallback onTap;
+  final AppTypography typography;
+  final AppColors colors;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    key: navigationKey,
+    button: true,
+    selected: selected,
+    label: destination.label,
+    onTap: onTap,
+    excludeSemantics: true,
+    child: InkWell(
+      onTap: onTap,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          IconTheme(
+            data: IconThemeData(
+              color: selected ? colors.accent : colors.onSurface,
+            ),
+            child: selected ? destination.selectedIcon : destination.icon,
+          ),
+          SizedBox(height: typography.spacingXs),
+          Text(
+            destination.label,
+            style: typography.labelSmall.copyWith(
+              color: selected ? colors.accent : colors.onSurface,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 class _DesktopChrome extends StatelessWidget {
@@ -736,10 +830,10 @@ class _DesktopChrome extends StatelessWidget {
     final typography = Theme.of(context).extension<AppTypography>()!;
     return SizedBox(
       key: const Key('desktop-chrome'),
-      height: 40,
+      height: 44,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: colors.surfaceLowest,
+          color: colors.surfaceLow,
           border: Border(bottom: BorderSide(color: colors.divider)),
         ),
         child: Row(
@@ -819,22 +913,29 @@ class _PageHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).extension<AppColors>()!;
     final typography = Theme.of(context).extension<AppTypography>()!;
+    final compact = MediaQuery.sizeOf(context).width < navigationBreakpoint;
     return Semantics(
       header: true,
       child: Container(
         key: const Key('page-title'),
-        width: double.infinity,
+        height: compact ? 56 : 64,
         padding: EdgeInsets.symmetric(
-          horizontal: typography.spacingLg,
-          vertical: typography.spacingMd,
+          horizontal: compact ? typography.spacingMd : typography.spacingLg,
         ),
         decoration: BoxDecoration(
-          color: colors.surfaceLowest,
+          color: compact ? colors.surfaceLow : colors.surfaceLowest,
           border: Border(bottom: BorderSide(color: colors.divider)),
         ),
         child: Row(
           children: [
-            Expanded(child: Text(title, style: typography.titleLarge)),
+            Expanded(
+              child: Text(
+                title,
+                style: compact
+                    ? typography.titleLarge.copyWith(fontSize: 20)
+                    : typography.titleLarge,
+              ),
+            ),
             ?trailing,
           ],
         ),
@@ -1401,7 +1502,7 @@ class _SurfacePanel extends StatelessWidget {
     return Material(
       color: colors.surfaceLow,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(radius ?? typography.radiusMd),
+        borderRadius: BorderRadius.circular(radius ?? typography.radiusLg),
         side: BorderSide(color: borderColor ?? colors.divider),
       ),
       child: Padding(

@@ -16,8 +16,6 @@ import 'package:flutter/material.dart'
         Locale,
         ListTile,
         ListView,
-        NavigationBar,
-        NavigationDestination,
         OutlinedButton,
         Expanded,
         SelectableText,
@@ -105,8 +103,16 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
-    expect(find.byType(NavigationBar), findsOneWidget);
-    expect(find.byType(NavigationDestination), findsNWidgets(5));
+    expect(find.byKey(const ValueKey('mobile-navigation')), findsOneWidget);
+    for (final page in const [
+      'overview',
+      'manage',
+      'logs',
+      'updates',
+      'settings',
+    ]) {
+      expect(find.byKey(ValueKey('nav-item-$page')), findsOneWidget);
+    }
     expect(find.byKey(const ValueKey('desktop-sidebar')), findsNothing);
     expect(find.byKey(const ValueKey('desktop-chrome')), findsNothing);
     expect(
@@ -2622,17 +2628,13 @@ void main() {
         locale: const Locale('zh'),
       ),
     );
-    expect(find.byType(NavigationBar), findsOneWidget);
-    final mobileNavigation = tester.widget<NavigationBar>(
-      find.byType(NavigationBar),
-    );
+    expect(find.byKey(const ValueKey('mobile-navigation')), findsOneWidget);
     expect(
-      mobileNavigation.destinations.whereType<NavigationDestination>().map(
-        (destination) => destination.label,
-      ),
-      ['概览', '管理', '日志', '更新', '设置'],
+      tester.getSize(find.byKey(const ValueKey('mobile-navigation'))).height,
+      68,
     );
-    mobileNavigation.onDestinationSelected?.call(3);
+    expect(tester.getSize(find.byKey(const ValueKey('page-title'))).height, 56);
+    await tester.tap(find.byKey(const ValueKey('nav-item-updates')));
     await tester.pump();
     expect(
       tester
@@ -2647,7 +2649,16 @@ void main() {
       find.byKey(const ValueKey<String>('desktop-sidebar')),
       findsOneWidget,
     );
-    expect(find.byType(NavigationBar), findsNothing);
+    expect(find.byKey(const ValueKey('mobile-navigation')), findsNothing);
+    expect(
+      tester.getSize(find.byKey(const ValueKey('desktop-chrome'))).height,
+      44,
+    );
+    expect(
+      tester.getSize(find.byKey(const ValueKey('desktop-sidebar'))).width,
+      140,
+    );
+    expect(tester.getSize(find.byKey(const ValueKey('page-title'))).height, 64);
     await tester.pumpWidget(const SizedBox());
   });
 
