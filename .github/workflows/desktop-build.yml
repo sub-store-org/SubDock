@@ -14,6 +14,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version-file: .fvmrc
           cache: true
       - name: Install Linux packaging dependencies
         run: |
@@ -92,6 +93,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version-file: .fvmrc
           cache: true
       - name: Prepare latest stable runtime resources
         shell: bash
@@ -122,6 +124,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version-file: .fvmrc
           cache: true
       - uses: actions/setup-go@v7
         with:
