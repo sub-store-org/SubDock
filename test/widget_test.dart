@@ -2365,6 +2365,159 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
+  testWidgets('manage reports WebView initialization failures', (
+    WidgetTester tester,
+  ) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    final runtime = _FakeBackendRuntime();
+    final coordinator = AppCoordinator(
+      runtime: runtime,
+      environmentStore: BackendEnvStore(directories!),
+    );
+
+    await tester.pumpWidget(
+      SubDockApp(
+        coordinator: coordinator,
+        autoStart: false,
+        locale: const Locale('zh'),
+        webViewControllerFactory:
+            ({
+              required onNavigationRequest,
+              required onBlobMessage,
+              required bridgeScript,
+              onPageChanged,
+            }) => _testWebViewController(
+              initialize: () async {
+                throw StateError('initialization failed');
+              },
+              loadRequest: (_) async {},
+            ),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-manage')));
+    await tester.pump();
+    runtime.emitState(RuntimeStatus.running);
+    await _pumpRealIo(tester);
+
+    expect(
+      find.byKey(const ValueKey('manage-browser-toolbar')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('manage-webview-error')), findsOneWidget);
+    expect(find.byKey(const ValueKey('manage-webview-loading')), findsNothing);
+    expect(find.text('Bad state: initialization failed'), findsOneWidget);
+    expect(find.byKey(const ValueKey('fake-manage-webview')), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('manage reports WebView load failures', (
+    WidgetTester tester,
+  ) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    final runtime = _FakeBackendRuntime();
+    final coordinator = AppCoordinator(
+      runtime: runtime,
+      environmentStore: BackendEnvStore(directories!),
+    );
+
+    await tester.pumpWidget(
+      SubDockApp(
+        coordinator: coordinator,
+        autoStart: false,
+        locale: const Locale('zh'),
+        webViewControllerFactory:
+            ({
+              required onNavigationRequest,
+              required onBlobMessage,
+              required bridgeScript,
+              onPageChanged,
+            }) => _testWebViewController(
+              initialize: () async {},
+              loadRequest: (_) async {
+                throw StateError('load failed');
+              },
+            ),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-manage')));
+    await tester.pump();
+    runtime.emitState(RuntimeStatus.running);
+    await _pumpRealIo(tester);
+
+    expect(find.byKey(const ValueKey('manage-webview-error')), findsOneWidget);
+    expect(find.text('Bad state: load failed'), findsOneWidget);
+    expect(find.byKey(const ValueKey('manage-webview-loading')), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('manage shows loading until the first WebView page finishes', (
+    WidgetTester tester,
+  ) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    final runtime = _FakeBackendRuntime();
+    final coordinator = AppCoordinator(
+      runtime: runtime,
+      environmentStore: BackendEnvStore(directories!),
+    );
+    final initialized = Completer<void>();
+
+    await tester.pumpWidget(
+      SubDockApp(
+        coordinator: coordinator,
+        autoStart: false,
+        locale: const Locale('zh'),
+        webViewControllerFactory:
+            ({
+              required onNavigationRequest,
+              required onBlobMessage,
+              required bridgeScript,
+              onPageChanged,
+            }) => _testWebViewController(
+              initialize: () => initialized.future,
+              loadRequest: (_) async {},
+            ),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-manage')));
+    await tester.pump();
+    runtime.emitState(RuntimeStatus.running);
+    await _pumpRealIo(tester);
+
+    expect(
+      find.byKey(const ValueKey('manage-browser-toolbar')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('manage-webview-loading')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('fake-manage-webview')), findsNothing);
+
+    initialized.complete();
+    await _pumpRealIo(tester);
+    expect(
+      find.byKey(const ValueKey('manage-webview-loading')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('fake-manage-webview')), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('ready manage toolbar follows v5 browser hierarchy', (
     WidgetTester tester,
   ) async {
@@ -3582,6 +3735,21 @@ Future<void> _pumpRealIo(WidgetTester tester, {int turns = 40}) async {
     await tester.pump(const Duration(milliseconds: 20));
   }
 }
+
+EmbeddedWebViewController _testWebViewController({
+  required Future<void> Function() initialize,
+  required Future<void> Function(Uri uri) loadRequest,
+}) => EmbeddedWebViewController.testing(
+  initialize: initialize,
+  buildWidget: () => const SizedBox(key: ValueKey('fake-manage-webview')),
+  loadRequest: loadRequest,
+  reload: () async {},
+  currentUrl: () async => Uri.parse('http://127.0.0.1:3001/'),
+  canGoBack: () async => false,
+  goBack: () async {},
+  canGoForward: () async => false,
+  goForward: () async {},
+);
 
 class _DelayedDesktopPreferencesStore extends DesktopPreferencesStore {
   _DelayedDesktopPreferencesStore(super.directories);

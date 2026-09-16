@@ -90,11 +90,6 @@ class EmbeddedWebViewController {
                 _publishPage(onPageChanged, url);
                 await controller.runJavaScript(bridgeScript);
               },
-              onPageStarted: (url) => _publishPage(onPageChanged, url),
-              onUrlChange: (change) {
-                final url = change.url;
-                if (url != null) _publishPage(onPageChanged, url);
-              },
             ),
           );
           await controller.addJavaScriptChannel(
@@ -136,7 +131,6 @@ class EmbeddedWebViewController {
                   ? fallback.NavigationDecision.navigate
                   : fallback.NavigationDecision.prevent;
             },
-            onPageStarted: (url) => _publishPage(onPageChanged, url),
             onPageFinished: (url) => _publishPage(onPageChanged, url),
           ),
         );

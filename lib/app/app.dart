@@ -983,6 +983,9 @@ class _ManagePageState extends State<_ManagePage> {
   Uri? _currentUri;
   var _canGoBack = false;
   var _canGoForward = false;
+  var _webViewInitialized = false;
+  var _webViewLoading = false;
+  var _webViewLoaded = false;
   String? _webViewError;
   var _missingWebView2 = false;
 
@@ -1005,6 +1008,9 @@ class _ManagePageState extends State<_ManagePage> {
       _currentUri = null;
       _canGoBack = false;
       _canGoForward = false;
+      _webViewInitialized = false;
+      _webViewLoading = false;
+      _webViewLoaded = false;
       return;
     }
     unawaited(_ensureController());
@@ -1012,25 +1018,31 @@ class _ManagePageState extends State<_ManagePage> {
 
   Future<void> _ensureController() async {
     if (!_ready || _controller != null) return;
-    late final EmbeddedWebViewController controller;
-    final createController =
-        widget.webViewControllerFactory ?? EmbeddedWebViewController.create;
-    controller = createController(
-      onNavigationRequest: _onNavigationRequest,
-      onBlobMessage: (message) => unawaited(_saveBlob(message)),
-      bridgeScript: _blobDownloadBridge,
-      onPageChanged: (uri) => unawaited(_onPageChanged(controller, uri)),
-    );
-    setState(() {
-      _controller = controller;
-      _currentUri = widget.coordinator.webUiUri;
-      _canGoBack = false;
-      _canGoForward = false;
-      _webViewError = null;
-      _missingWebView2 = false;
-    });
     try {
+      late final EmbeddedWebViewController controller;
+      final createController =
+          widget.webViewControllerFactory ?? EmbeddedWebViewController.create;
+      controller = createController(
+        onNavigationRequest: _onNavigationRequest,
+        onBlobMessage: (message) => unawaited(_saveBlob(message)),
+        bridgeScript: _blobDownloadBridge,
+        onPageChanged: (uri) => unawaited(_onPageChanged(controller, uri)),
+      );
+      if (!mounted || !_ready) return;
+      setState(() {
+        _controller = controller;
+        _currentUri = widget.coordinator.webUiUri;
+        _canGoBack = false;
+        _canGoForward = false;
+        _webViewInitialized = false;
+        _webViewLoading = true;
+        _webViewLoaded = false;
+        _webViewError = null;
+        _missingWebView2 = false;
+      });
       await controller.initialize();
+      if (!mounted || !identical(_controller, controller)) return;
+      setState(() => _webViewInitialized = true);
       await controller.loadRequest(widget.coordinator.webUiUri);
     } catch (error) {
       if (mounted) {
@@ -1038,6 +1050,8 @@ class _ManagePageState extends State<_ManagePage> {
         setState(() {
           _missingWebView2 = _isMissingWebView2(error);
           _webViewError = _missingWebView2 ? l10n.webView2Missing : '$error';
+          _webViewLoading = false;
+          _webViewLoaded = false;
         });
       }
     }
@@ -1048,7 +1062,11 @@ class _ManagePageState extends State<_ManagePage> {
     Uri uri,
   ) async {
     if (!mounted || !identical(_controller, controller)) return;
-    setState(() => _currentUri = uri);
+    setState(() {
+      _currentUri = uri;
+      _webViewLoading = false;
+      _webViewLoaded = true;
+    });
     try {
       final canGoBack = await controller.canGoBack();
       final canGoForward = await controller.canGoForward();
@@ -1301,7 +1319,7 @@ class _ManagePageState extends State<_ManagePage> {
         ),
       );
     }
-    if (!_ready || _controller == null) {
+    if (!_ready) {
       final issues = widget.coordinator.environmentIssues;
       final reason = issues.isNotEmpty
           ? _localizedIssue(l10n, issues.first)
@@ -1338,7 +1356,10 @@ class _ManagePageState extends State<_ManagePage> {
       );
     }
     final compact = MediaQuery.sizeOf(context).width < navigationBreakpoint;
-    final controller = _controller!;
+    final controller = _controller;
+    final webView = controller == null || !_webViewInitialized
+        ? null
+        : controller.build();
     return Padding(
       padding: compact ? EdgeInsets.zero : EdgeInsets.all(typography.spacingMd),
       child: DecoratedBox(
@@ -1441,39 +1462,89 @@ class _ManagePageState extends State<_ManagePage> {
                         ),
                       ),
                     ),
-                    Expanded(child: controller.build()),
+                    Expanded(
+                      child: _webViewError != null
+                          ? _manageWebViewState(
+                              key: const ValueKey('manage-webview-error'),
+                              icon: Icons.web_asset_off_outlined,
+                              message: _webViewError!,
+                              action: FilledButton(
+                                onPressed: widget.onRecover,
+                                child: Text(
+                                  widget.coordinator.canOpenWebUi
+                                      ? l10n.viewOverview
+                                      : l10n.fixConfiguration,
+                                ),
+                              ),
+                            )
+                          : !_webViewLoading &&
+                                _webViewLoaded &&
+                                webView != null
+                          ? webView
+                          : Stack(
+                              children: [
+                                if (webView != null)
+                                  Positioned.fill(child: webView),
+                                _manageWebViewState(
+                                  key: const ValueKey('manage-webview-loading'),
+                                  icon: Icons.hourglass_top,
+                                  message: l10n.processing,
+                                ),
+                              ],
+                            ),
+                    ),
                   ],
                 ),
               ),
-              if (_webViewError != null)
-                Align(
-                  alignment: Alignment.topCenter,
-                  child: Padding(
-                    padding: EdgeInsets.all(typography.spacingSm),
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 720),
-                      child: _SurfacePanel(
-                        key: const ValueKey('manage-webview-error'),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              _webViewError!,
-                              style: TextStyle(color: colors.error),
-                            ),
-                            if (_missingWebView2)
-                              TextButton(
-                                onPressed: () =>
-                                    unawaited(_openWebView2Download()),
-                                child: Text(l10n.openWebView2DownloadPage),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _manageWebViewState({
+    required Key key,
+    required IconData icon,
+    required String message,
+    Widget? action,
+  }) {
+    final colors = Theme.of(context).extension<AppColors>()!;
+    final typography = Theme.of(context).extension<AppTypography>()!;
+    return Center(
+      child: Padding(
+        padding: EdgeInsets.all(typography.spacingLg),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 720),
+          child: _SurfacePanel(
+            key: key,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 40, color: colors.onSurface),
+                SizedBox(height: typography.spacingSm),
+                Text(
+                  message,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: _webViewError == null
+                        ? colors.onSurface
+                        : colors.error,
                   ),
                 ),
-            ],
+                if (_missingWebView2)
+                  TextButton(
+                    onPressed: () => unawaited(_openWebView2Download()),
+                    child: Text(
+                      AppLocalizations.of(context)!.openWebView2DownloadPage,
+                    ),
+                  ),
+                if (action != null) ...[
+                  SizedBox(height: typography.spacingSm),
+                  action,
+                ],
+              ],
+            ),
           ),
         ),
       ),
