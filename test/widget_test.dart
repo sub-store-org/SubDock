@@ -3137,6 +3137,15 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(find.byKey(const ValueKey('settings-back')), findsOneWidget);
       expect(find.byKey(const ValueKey('settings-child-save')), findsOneWidget);
+      for (final key in [
+        'settings-backend-host-row',
+        'settings-backend-port-row',
+        'settings-backend-merge-row',
+        'settings-backend-path-row',
+        'settings-backend-cors-row',
+      ]) {
+        expect(find.byKey(ValueKey(key)), findsOneWidget);
+      }
 
       final settingsBack = find.byKey(const ValueKey('settings-back'));
       expect(settingsBack, findsOneWidget);
@@ -3145,6 +3154,23 @@ void main() {
       await tester.tap(settingsBack);
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('settings-appearance')), findsOneWidget);
+      final advancedEnv = find.byKey(
+        const ValueKey('settings-card-advanced-env'),
+      );
+      await tester.ensureVisible(advancedEnv);
+      await tester.pumpAndSettle();
+      await tester.tap(advancedEnv);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('settings-raw-env')), findsOneWidget);
+      final expansion = find.byKey(
+        const ValueKey('settings-raw-env-expansion'),
+      );
+      await tester.tap(expansion);
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('settings-raw-env-editor')),
+        findsOneWidget,
+      );
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
     },

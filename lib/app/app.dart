@@ -2896,13 +2896,29 @@ class _SettingsSectionTile extends StatelessWidget {
         side: BorderSide(color: colors.divider),
       ),
       clipBehavior: Clip.antiAlias,
-      child: ListTile(
-        contentPadding: EdgeInsets.all(typography.spacingMd),
-        leading: Icon(icon, color: colors.accent),
-        title: Text(title, style: typography.titleMedium),
-        subtitle: Text(subtitle, style: typography.bodySmall),
-        trailing: const Icon(Icons.chevron_right),
+      child: InkWell(
         onTap: onTap,
+        child: Padding(
+          padding: EdgeInsets.all(typography.spacingMd),
+          child: Row(
+            children: [
+              Icon(icon, color: colors.accent),
+              SizedBox(width: typography.spacingMd),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: typography.titleMedium),
+                    SizedBox(height: typography.spacingXs),
+                    Text(subtitle, style: typography.bodySmall),
+                  ],
+                ),
+              ),
+              SizedBox(width: typography.spacingSm),
+              const Icon(Icons.chevron_right),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -3489,6 +3505,37 @@ class _SettingsPageState extends State<_SettingsPage> {
       },
     );
     Widget divider() => const Divider(height: 1);
+    Widget configRow({
+      Key? key,
+      required String label,
+      required Widget control,
+    }) => LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 580;
+        final labelWidget = Text(label, style: typography.bodyMedium);
+        return Padding(
+          key: key,
+          padding: EdgeInsets.symmetric(
+            horizontal: typography.spacingMd,
+            vertical: typography.spacingSm,
+          ),
+          child: Flex(
+            direction: compact ? Axis.vertical : Axis.horizontal,
+            crossAxisAlignment: compact
+                ? CrossAxisAlignment.stretch
+                : CrossAxisAlignment.center,
+            children: [
+              if (compact) ...[
+                labelWidget,
+                SizedBox(height: typography.spacingXs),
+              ] else
+                SizedBox(width: 220, child: labelWidget),
+              if (compact) control else Expanded(child: control),
+            ],
+          ),
+        );
+      },
+    );
     Widget sectionCard({
       required Key key,
       required String title,
@@ -3762,101 +3809,129 @@ class _SettingsPageState extends State<_SettingsPage> {
                 if (_section == _SettingsSection.backendConfig) ...[
                   _SurfacePanel(
                     key: const ValueKey('settings-backend-config'),
+                    padding: EdgeInsets.zero,
                     child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        Text(
-                          l10n.backendConfigHeading,
-                          style: typography.titleMedium,
+                        Padding(
+                          padding: EdgeInsets.fromLTRB(
+                            typography.spacingMd,
+                            typography.spacingMd,
+                            typography.spacingMd,
+                            typography.spacingXs,
+                          ),
+                          child: Text(
+                            l10n.backendConfigHeading,
+                            style: typography.titleMedium,
+                          ),
                         ),
                         if (_backendIssue != null)
-                          Text(
-                            _backendIssue!,
-                            style: TextStyle(color: colors.error),
+                          Padding(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: typography.spacingMd,
+                              vertical: typography.spacingXs,
+                            ),
+                            child: Text(
+                              _backendIssue!,
+                              style: TextStyle(color: colors.error),
+                            ),
                           ),
-                        TextField(
-                          controller: _host,
-                          decoration: InputDecoration(labelText: l10n.apiHost),
-                          onChanged: (value) => _updateBackend(
-                            _backendDraft.copyWith(
-                              apiHost: value.trim().isEmpty ? null : value,
+                        configRow(
+                          key: const ValueKey('settings-backend-host-row'),
+                          label: l10n.apiHost,
+                          control: TextField(
+                            controller: _host,
+                            decoration: const InputDecoration(),
+                            onChanged: (value) => _updateBackend(
+                              _backendDraft.copyWith(
+                                apiHost: value.trim().isEmpty ? null : value,
+                              ),
                             ),
                           ),
                         ),
-                        SizedBox(height: typography.spacingMd),
-                        TextField(
-                          controller: _port,
-                          keyboardType: TextInputType.number,
-                          decoration: InputDecoration(
-                            labelText: l10n.apiPort,
-                            errorText:
-                                _port.text.trim().isNotEmpty &&
-                                    _backendIssue != null
-                                ? _backendIssue
-                                : null,
-                          ),
-                          onChanged: (value) => _updateBackend(
-                            _backendDraft.copyWith(
-                              apiPort: int.tryParse(value.trim()),
+                        divider(),
+                        configRow(
+                          key: const ValueKey('settings-backend-port-row'),
+                          label: l10n.apiPort,
+                          control: TextField(
+                            controller: _port,
+                            keyboardType: TextInputType.number,
+                            decoration: InputDecoration(
+                              errorText:
+                                  _port.text.trim().isNotEmpty &&
+                                      _backendIssue != null
+                                  ? _backendIssue
+                                  : null,
+                            ),
+                            onChanged: (value) => _updateBackend(
+                              _backendDraft.copyWith(
+                                apiPort: int.tryParse(value.trim()),
+                              ),
                             ),
                           ),
                         ),
-                        SizedBox(height: typography.spacingMd),
-                        DropdownButtonFormField<_NullableBoolDraft>(
-                          key: ValueKey('settings-merge-mode-$_mergeDraft'),
-                          initialValue: _mergeDraft,
-                          decoration: InputDecoration(
-                            labelText: l10n.mergeMode,
-                          ),
-                          items: [
-                            DropdownMenuItem(
-                              value: _NullableBoolDraft.inherit,
-                              child: Text(l10n.inherit),
-                            ),
-                            DropdownMenuItem(
-                              value: _NullableBoolDraft.enabled,
-                              child: Text(l10n.enabled),
-                            ),
-                            DropdownMenuItem(
-                              value: _NullableBoolDraft.disabled,
-                              child: Text(l10n.disabled),
-                            ),
-                          ],
-                          onChanged: (value) {
-                            if (value == null) return;
-                            setState(() {
-                              _mergeDraft = value;
-                              _backendDraft = _backendDraft.copyWith(
-                                merge: _mergeValue,
-                              );
-                            });
-                          },
-                        ),
-                        SizedBox(height: typography.spacingMd),
-                        TextField(
-                          controller: _path,
-                          decoration: InputDecoration(
-                            labelText: l10n.frontendBackendPath,
-                          ),
-                          onChanged: (value) => _updateBackend(
-                            _backendDraft.copyWith(
-                              frontendBackendPath: value.trim().isEmpty
-                                  ? null
-                                  : value,
-                            ),
+                        divider(),
+                        configRow(
+                          key: const ValueKey('settings-backend-merge-row'),
+                          label: l10n.mergeMode,
+                          control: DropdownButtonFormField<_NullableBoolDraft>(
+                            key: ValueKey('settings-merge-mode-$_mergeDraft'),
+                            initialValue: _mergeDraft,
+                            decoration: const InputDecoration(),
+                            items: [
+                              DropdownMenuItem(
+                                value: _NullableBoolDraft.inherit,
+                                child: Text(l10n.inherit),
+                              ),
+                              DropdownMenuItem(
+                                value: _NullableBoolDraft.enabled,
+                                child: Text(l10n.enabled),
+                              ),
+                              DropdownMenuItem(
+                                value: _NullableBoolDraft.disabled,
+                                child: Text(l10n.disabled),
+                              ),
+                            ],
+                            onChanged: (value) {
+                              if (value == null) return;
+                              setState(() {
+                                _mergeDraft = value;
+                                _backendDraft = _backendDraft.copyWith(
+                                  merge: _mergeValue,
+                                );
+                              });
+                            },
                           ),
                         ),
-                        SizedBox(height: typography.spacingMd),
-                        TextField(
-                          controller: _cors,
-                          decoration: InputDecoration(
-                            labelText: l10n.corsAllowedOrigins,
+                        divider(),
+                        configRow(
+                          key: const ValueKey('settings-backend-path-row'),
+                          label: l10n.frontendBackendPath,
+                          control: TextField(
+                            controller: _path,
+                            decoration: const InputDecoration(),
+                            onChanged: (value) => _updateBackend(
+                              _backendDraft.copyWith(
+                                frontendBackendPath: value.trim().isEmpty
+                                    ? null
+                                    : value,
+                              ),
+                            ),
                           ),
-                          onChanged: (value) => _updateBackend(
-                            _backendDraft.copyWith(
-                              corsAllowedOrigins: value.trim().isEmpty
-                                  ? null
-                                  : value,
+                        ),
+                        divider(),
+                        configRow(
+                          key: const ValueKey('settings-backend-cors-row'),
+                          label: l10n.corsAllowedOrigins,
+                          control: TextField(
+                            controller: _cors,
+                            decoration: const InputDecoration(),
+                            onChanged: (value) => _updateBackend(
+                              _backendDraft.copyWith(
+                                corsAllowedOrigins: value.trim().isEmpty
+                                    ? null
+                                    : value,
+                              ),
                             ),
                           ),
                         ),
@@ -3877,6 +3952,19 @@ class _SettingsPageState extends State<_SettingsPage> {
                         ),
                         ExpansionTile(
                           key: const ValueKey('settings-raw-env-expansion'),
+                          tilePadding: EdgeInsets.symmetric(
+                            horizontal: typography.spacingMd,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(
+                              typography.radiusMd,
+                            ),
+                          ),
+                          collapsedShape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(
+                              typography.radiusMd,
+                            ),
+                          ),
                           title: Text(l10n.advancedRawEnv),
                           subtitle: Text(l10n.advancedRawEnvSubtitle),
                           initiallyExpanded: false,
@@ -4673,6 +4761,13 @@ class _AboutPageState extends State<_AboutPage> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final info = _info;
+    final typography = Theme.of(context).extension<AppTypography>()!;
+    final colors = Theme.of(context).extension<AppColors>()!;
+    Widget metadataRow({required Key key, required String value}) => Padding(
+      key: key,
+      padding: EdgeInsets.symmetric(vertical: typography.spacingSm),
+      child: Text(value, style: typography.bodyMedium),
+    );
     return _SurfacePanel(
       child: info == null
           ? (_error == null
@@ -4683,33 +4778,39 @@ class _AboutPageState extends State<_AboutPage> {
           : Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  l10n.aboutSubDock,
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                Text(
-                  '${l10n.aboutVersion}: ${info.version}',
+                Text(l10n.aboutSubDock, style: typography.titleLarge),
+                SizedBox(height: typography.spacingSm),
+                metadataRow(
                   key: const ValueKey('about-version'),
+                  value: '${l10n.aboutVersion}: ${info.version}',
                 ),
-                Text(
-                  '${l10n.aboutBuildNumber}: ${info.buildNumber.isEmpty ? '-' : info.buildNumber}',
+                Divider(color: colors.divider, height: 1),
+                metadataRow(
                   key: const ValueKey('about-build-number'),
+                  value:
+                      '${l10n.aboutBuildNumber}: ${info.buildNumber.isEmpty ? '-' : info.buildNumber}',
                 ),
-                Text(
-                  '${l10n.aboutLicense}: $subDockLicenseId',
+                Divider(color: colors.divider, height: 1),
+                metadataRow(
                   key: const ValueKey('about-license'),
+                  value: '${l10n.aboutLicense}: $subDockLicenseId',
                 ),
-                Text(
-                  '${l10n.aboutProjectHomepage}: $subDockProjectHomepage',
+                Divider(color: colors.divider, height: 1),
+                metadataRow(
                   key: const ValueKey('about-homepage'),
+                  value:
+                      '${l10n.aboutProjectHomepage}: $subDockProjectHomepage',
                 ),
-                Text(
-                  '${l10n.aboutOperatingSystem}: ${info.operatingSystem}',
+                Divider(color: colors.divider, height: 1),
+                metadataRow(
                   key: const ValueKey('about-os'),
+                  value:
+                      '${l10n.aboutOperatingSystem}: ${info.operatingSystem}',
                 ),
-                Text(
-                  '${l10n.aboutArchitecture}: ${info.architecture}',
+                Divider(color: colors.divider, height: 1),
+                metadataRow(
                   key: const ValueKey('about-architecture'),
+                  value: '${l10n.aboutArchitecture}: ${info.architecture}',
                 ),
               ],
             ),
