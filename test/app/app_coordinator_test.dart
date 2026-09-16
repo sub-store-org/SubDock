@@ -141,6 +141,81 @@ void main() {
     expect(coordinator.webUiUri.queryParameters, isEmpty);
   });
 
+  test('first load generates a random persisted backend path', () async {
+    final temp = await Directory.systemTemp.createTemp('subdock_coordinator_');
+    addTearDown(() => temp.delete(recursive: true));
+    final directories = await RuntimeDirectories.fromBaseDirectory(temp);
+    final store = SubDockConfigStore(directories);
+    final coordinator = AppCoordinator(
+      runtime: _FakeRuntime(),
+      environmentStore: BackendEnvStore(directories),
+      configurationStore: store,
+    );
+
+    await coordinator.loadEnvironment();
+
+    expect(coordinator.configuration.backend.frontendBackendPath, isNotNull);
+    final persisted = await store.load();
+    expect(
+      persisted.backend.frontendBackendPath,
+      coordinator.configuration.backend.frontendBackendPath,
+    );
+    final path = coordinator.configuration.backend.frontendBackendPath!;
+    expect(path.startsWith('/'), isTrue);
+    expect(path.length, inInclusiveRange(21, 25));
+    expect(RegExp(r'^/[A-Za-z0-9]+$').hasMatch(path), isTrue);
+  });
+
+  test('a generated backend path is stable across loads', () async {
+    final temp = await Directory.systemTemp.createTemp('subdock_coordinator_');
+    addTearDown(() => temp.delete(recursive: true));
+    final directories = await RuntimeDirectories.fromBaseDirectory(temp);
+    final store = SubDockConfigStore(directories);
+    final first = AppCoordinator(
+      runtime: _FakeRuntime(),
+      environmentStore: BackendEnvStore(directories),
+      configurationStore: store,
+    );
+    await first.loadEnvironment();
+    final path = first.configuration.backend.frontendBackendPath!;
+
+    final second = AppCoordinator(
+      runtime: _FakeRuntime(),
+      environmentStore: BackendEnvStore(directories),
+      configurationStore: store,
+    );
+    await second.loadEnvironment();
+
+    expect(second.configuration.backend.frontendBackendPath, path);
+  });
+
+  test('an explicit backend path is left untouched', () async {
+    final temp = await Directory.systemTemp.createTemp('subdock_coordinator_');
+    addTearDown(() => temp.delete(recursive: true));
+    final directories = await RuntimeDirectories.fromBaseDirectory(temp);
+    final store = SubDockConfigStore(directories);
+    final coordinator = AppCoordinator(
+      runtime: _FakeRuntime(),
+      environmentStore: BackendEnvStore(directories),
+      configurationStore: store,
+    );
+    await coordinator.loadEnvironment();
+    await coordinator.saveConfiguration(
+      const SubDockConfig(
+        backend: SubDockBackendConfig(frontendBackendPath: '/manual'),
+      ),
+    );
+
+    final reload = AppCoordinator(
+      runtime: _FakeRuntime(),
+      environmentStore: BackendEnvStore(directories),
+      configurationStore: store,
+    );
+    await reload.loadEnvironment();
+
+    expect(reload.configuration.backend.frontendBackendPath, '/manual');
+  });
+
   test(
     'refuses backend start when update recovery could not complete',
     () async {

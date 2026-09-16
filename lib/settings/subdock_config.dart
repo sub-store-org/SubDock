@@ -1,5 +1,6 @@
 import 'dart:collection';
 import 'dart:io';
+import 'dart:math';
 
 import 'backend_env.dart';
 import 'config_error.dart';
@@ -184,6 +185,23 @@ class SubDockHttpMetaConfig {
   int get hashCode => Object.hash(enabled, host, port);
 }
 
+/// 生成随机的 `SUB_STORE_FRONTEND_BACKEND_PATH`：`/` + 20–24 位 `[a-zA-Z0-9]`。
+///
+/// 对齐 Sub-Store-Module 的 `gen_backend_path`（`lib.sh`）：长度 20–24，
+/// 字符集 `a-zA-Z0-9`，首字符固定 `/`。用于首次配置时给后端入口随机路径，
+/// 避免默认 `/` 暴露后端 API。
+String randomBackendPath([Random? random]) {
+  const alphabet =
+      'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  final source = random ?? Random.secure();
+  final length = 20 + source.nextInt(5);
+  final buffer = StringBuffer('/');
+  for (var i = 0; i < length; i++) {
+    buffer.write(alphabet[source.nextInt(alphabet.length)]);
+  }
+  return buffer.toString();
+}
+
 class EffectiveRuntimeConfig {
   const EffectiveRuntimeConfig._({
     required this.environment,
@@ -210,7 +228,9 @@ class EffectiveRuntimeConfig {
     );
     environment.putIfAbsent(BackendEnvPolicy.port, () => '3001');
     environment.putIfAbsent(BackendEnvPolicy.merge, () => 'true');
-    environment.putIfAbsent(BackendEnvPolicy.frontendBackendPath, () => '/');
+    // 后端路径不会再以 `/` 兜底：首次配置由 `randomBackendPath` 生成并
+    // 持久化进 config（见 AppCoordinator._initializeBackendPath）。此处若
+    // 缺失，由 `canOpenWebUi` / 校验层处理，而不是静默暴露根路径。
     environment.putIfAbsent(
       BackendEnvPolicy.corsAllowedOrigins,
       () =>

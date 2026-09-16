@@ -87,6 +87,8 @@ class AppCoordinator {
       _configurationError = error;
       rethrow;
     }
+    final firstRunConfiguration = await _initializeBackendPath(configuration);
+    configuration = firstRunConfiguration;
     final issues = BackendEnvPolicy.validate(document);
     if (issues.isNotEmpty) {
       _environment = document;
@@ -96,6 +98,24 @@ class AppCoordinator {
     _environment = document;
     _configuration = configuration;
   });
+
+  /// 首次配置时生成默认后端路径并持久化。
+  ///
+  /// UI 显示的 `frontendBackendPath` 应来自 config：当 config 尚未设置该字段
+  /// 且 config store 可用时，生成随机路径（`randomBackendPath`）写入 config，
+  /// 之后 `EffectiveRuntimeConfig.resolve` 从 config 取值，运行时不再用 `/` 兜底。
+  Future<SubDockConfig> _initializeBackendPath(SubDockConfig configuration) async {
+    final store = configurationStore;
+    if (store == null) return configuration;
+    if (configuration.backend.frontendBackendPath != null) return configuration;
+    final initialized = configuration.copyWith(
+      backend: configuration.backend.copyWith(
+        frontendBackendPath: randomBackendPath(),
+      ),
+    );
+    await store.save(initialized);
+    return initialized;
+  }
 
   Future<void> saveEnvironment(BackendEnvDocument document) =>
       _serialize(() async {

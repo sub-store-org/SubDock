@@ -99,7 +99,12 @@ void main() {
       expect(effective.environment['SUB_STORE_BACKEND_API_HOST'], '0.0.0.0');
       expect(effective.environment['SUB_STORE_BACKEND_API_PORT'], '4000');
       expect(effective.environment['SUB_STORE_BACKEND_MERGE'], 'false');
-      expect(effective.environment['SUB_STORE_FRONTEND_BACKEND_PATH'], '/');
+      // 后端路径不再由 resolve 以 `/` 兜底：首次配置由 coordinator 生成随
+      // 机路径并持久化进 config，此处未显式配置时不注入默认值。
+      expect(
+        effective.environment.containsKey('SUB_STORE_FRONTEND_BACKEND_PATH'),
+        isFalse,
+      );
       expect(
         effective.environment['SUB_STORE_CORS_ALLOWED_ORIGINS'],
         'http://0.0.0.0:4000',

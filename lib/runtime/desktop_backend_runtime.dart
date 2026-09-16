@@ -771,7 +771,6 @@ class DesktopBackendRuntime implements BackendRuntime {
     );
     environment['SUB_STORE_BACKEND_API_PORT'] = '$port';
     environment.putIfAbsent('SUB_STORE_BACKEND_MERGE', () => 'true');
-    environment.putIfAbsent('SUB_STORE_FRONTEND_BACKEND_PATH', () => '/');
     environment.putIfAbsent(
       'SUB_STORE_CORS_ALLOWED_ORIGINS',
       () => endpoint.origin,
