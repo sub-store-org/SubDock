@@ -11,6 +11,8 @@ class DesktopPreferences {
     required this.closeBehavior,
     required this.recentLogLimit,
     required this.logSort,
+    this.launchAtLogin = false,
+    this.startHiddenToTray = false,
   });
 
   static const defaults = DesktopPreferences(
@@ -28,6 +30,8 @@ class DesktopPreferences {
   final CloseBehavior closeBehavior;
   final int recentLogLimit;
   final LogSort logSort;
+  final bool launchAtLogin;
+  final bool startHiddenToTray;
 
   factory DesktopPreferences.fromJson(Object? json) {
     if (json is! Map) {
@@ -39,12 +43,16 @@ class DesktopPreferences {
     final close = json['closeBehavior'];
     final limit = json['recentLogLimit'];
     final sort = json['logSort'];
+    final launch = json['launchAtLogin'];
+    final hidden = json['startHiddenToTray'];
     if (schema != schemaVersion ||
         theme is! String ||
         locale != null && locale is! String ||
         close is! String ||
         limit is! int ||
-        sort is! String) {
+        sort is! String ||
+        launch != null && launch is! bool ||
+        hidden != null && hidden is! bool) {
       throw const FormatException('invalid desktop preferences');
     }
     if (locale != null && locale != 'zh' && locale != 'en') {
@@ -59,6 +67,8 @@ class DesktopPreferences {
       closeBehavior: _closeBehavior(close),
       recentLogLimit: limit,
       logSort: _logSort(sort),
+      launchAtLogin: launch as bool? ?? false,
+      startHiddenToTray: hidden as bool? ?? false,
     );
   }
 
@@ -69,6 +79,8 @@ class DesktopPreferences {
     'closeBehavior': closeBehavior.name,
     'recentLogLimit': recentLogLimit,
     'logSort': logSort.name,
+    'launchAtLogin': launchAtLogin,
+    'startHiddenToTray': startHiddenToTray,
   };
 
   DesktopPreferences copyWith({
@@ -77,12 +89,16 @@ class DesktopPreferences {
     CloseBehavior? closeBehavior,
     int? recentLogLimit,
     LogSort? logSort,
+    bool? launchAtLogin,
+    bool? startHiddenToTray,
   }) => DesktopPreferences(
     themeMode: themeMode ?? this.themeMode,
     locale: identical(locale, _unset) ? this.locale : locale as String?,
     closeBehavior: closeBehavior ?? this.closeBehavior,
     recentLogLimit: recentLogLimit ?? this.recentLogLimit,
     logSort: logSort ?? this.logSort,
+    launchAtLogin: launchAtLogin ?? this.launchAtLogin,
+    startHiddenToTray: startHiddenToTray ?? this.startHiddenToTray,
   );
 
   @override
@@ -92,11 +108,20 @@ class DesktopPreferences {
       other.locale == locale &&
       other.closeBehavior == closeBehavior &&
       other.recentLogLimit == recentLogLimit &&
-      other.logSort == logSort;
+      other.logSort == logSort &&
+      other.launchAtLogin == launchAtLogin &&
+      other.startHiddenToTray == startHiddenToTray;
 
   @override
-  int get hashCode =>
-      Object.hash(themeMode, locale, closeBehavior, recentLogLimit, logSort);
+  int get hashCode => Object.hash(
+    themeMode,
+    locale,
+    closeBehavior,
+    recentLogLimit,
+    logSort,
+    launchAtLogin,
+    startHiddenToTray,
+  );
 }
 
 class _Unset {

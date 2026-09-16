@@ -560,6 +560,20 @@ class AppLocalizationsEn extends AppLocalizations {
   String get closeToTray => 'Close to tray';
 
   @override
+  String get launchAtLoginHeading => 'Launch at login';
+
+  @override
+  String get launchAtLoginSubtitle =>
+      'Start SubDock automatically after you sign in.';
+
+  @override
+  String get startHiddenToTrayHeading => 'Start hidden to tray';
+
+  @override
+  String get startHiddenToTraySubtitle =>
+      'Start without showing the window, staying only in the system tray.';
+
+  @override
   String get recentLogs => 'Recent logs';
 
   @override

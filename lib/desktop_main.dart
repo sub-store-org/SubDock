@@ -13,6 +13,7 @@ import 'l10n/generated/app_localizations.dart';
 import 'runtime/desktop_backend_runtime.dart';
 import 'runtime/runtime_directories.dart';
 import 'runtime/runtime_log_store.dart';
+import 'settings/autostart.dart';
 import 'settings/backend_env_store.dart';
 import 'settings/config_error.dart';
 import 'settings/desktop_preferences_store.dart';
@@ -118,7 +119,13 @@ Future<void> main() async {
     },
   );
   await lifecycle.initialize();
-  await windowManager.waitUntilReadyToShow(desktopWindowOptions(), _showWindow);
+  // 启动时隐藏到托盘：窗口就绪但暂不显示，仅驻留托盘。
+  if (preferences.startHiddenToTray) {
+    await windowManager.waitUntilReadyToShow(desktopWindowOptions(), null);
+  } else {
+    await windowManager.waitUntilReadyToShow(desktopWindowOptions(), _showWindow);
+  }
+  final autostart = AutostartManager();
   runApp(
     SubDockApp(
       coordinator: coordinator,
@@ -130,6 +137,8 @@ Future<void> main() async {
       onClose: lifecycle.closeToTray,
       isMaximized: lifecycle.isMaximized,
       closeRequestGuard: closeRequestGuard,
+      onAutostartChanged: (enabled) =>
+          enabled ? autostart.enable() : autostart.disable(),
       onStartDragging: windowManager.startDragging,
       showCustomDesktopChrome: usesCustomDesktopChrome(),
       preferences: preferences,

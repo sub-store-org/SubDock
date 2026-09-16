@@ -1098,6 +1098,30 @@ abstract class AppLocalizations {
   /// **'关闭到托盘'**
   String get closeToTray;
 
+  /// No description provided for @launchAtLoginHeading.
+  ///
+  /// In zh, this message translates to:
+  /// **'开机自启'**
+  String get launchAtLoginHeading;
+
+  /// No description provided for @launchAtLoginSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'登录系统后自动启动 SubDock。'**
+  String get launchAtLoginSubtitle;
+
+  /// No description provided for @startHiddenToTrayHeading.
+  ///
+  /// In zh, this message translates to:
+  /// **'启动时隐藏到托盘'**
+  String get startHiddenToTrayHeading;
+
+  /// No description provided for @startHiddenToTraySubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'启动后不显示窗口，仅驻留系统托盘。'**
+  String get startHiddenToTraySubtitle;
+
   /// No description provided for @recentLogs.
   ///
   /// In zh, this message translates to:

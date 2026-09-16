@@ -385,7 +385,9 @@ void main() {
     );
     await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
     await tester.pumpAndSettle();
-    final httpMetaSwitch = find.byType(Switch);
+    // 设置首页有多个 Switch（HTTP-META 开关与桌面行为开关）；这里驱动
+    // HTTP-META enabled 开关（渲染顺序第一个）。
+    final httpMetaSwitch = find.byType(Switch).first;
     expect(httpMetaSwitch, findsOneWidget);
     await tester.tap(httpMetaSwitch);
     await tester.pump();

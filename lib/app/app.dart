@@ -74,6 +74,7 @@ class SubDockApp extends StatefulWidget {
     this.aboutInfoLoader,
     this.webViewControllerFactory,
     this.showCustomDesktopChrome = true,
+    this.onAutostartChanged,
   });
 
   final AppCoordinator coordinator;
@@ -97,6 +98,11 @@ class SubDockApp extends StatefulWidget {
 
   /// Initial locale override used when no saved preference selects a language.
   final Locale? locale;
+
+  /// Notified when the launch-at-login preference changes so the caller can
+  /// install or remove the autostart entry (declared here rather than inside
+  /// the settings page so the platform mechanism stays in the desktop entry).
+  final Future<void> Function(bool enabled)? onAutostartChanged;
   final Future<bool> Function(Uri uri)? onOpenExternalUri;
   final AboutInfoLoader? aboutInfoLoader;
   final EmbeddedWebViewController Function({
@@ -285,6 +291,14 @@ class _SubDockAppState extends State<SubDockApp> {
       } catch (error) {
         if (mounted) setState(() => _error = error);
         rethrow;
+      }
+      final autostart = widget.onAutostartChanged;
+      if (autostart != null && next.launchAtLogin != _savedPreferences.launchAtLogin) {
+        try {
+          await autostart(next.launchAtLogin);
+        } catch (error) {
+          if (mounted) setState(() => _error = error);
+        }
       }
       if (mounted) setState(() => _savedPreferences = next);
     });
@@ -2989,6 +3003,8 @@ class _SettingsPageState extends State<_SettingsPage> {
   late String? _generalLocale;
   late CloseBehavior _generalCloseBehavior;
   late int _generalRecentLogLimit;
+  bool _generalLaunchAtLogin = false;
+  bool _generalStartHiddenToTray = false;
   late final TextEditingController _recentLogLimit;
   late BackendEnvDocument _document;
   late SubDockConfig _configuration;
@@ -3080,6 +3096,8 @@ class _SettingsPageState extends State<_SettingsPage> {
       _generalThemeMode != widget.savedPreferences.themeMode ||
       _generalLocale != widget.savedPreferences.locale ||
       _generalCloseBehavior != widget.savedPreferences.closeBehavior ||
+      _generalLaunchAtLogin != widget.savedPreferences.launchAtLogin ||
+      _generalStartHiddenToTray != widget.savedPreferences.startHiddenToTray ||
       _recentLogLimit.text.trim() !=
           '${widget.savedPreferences.recentLogLimit}';
 
@@ -3129,6 +3147,8 @@ class _SettingsPageState extends State<_SettingsPage> {
     _generalLocale = preferences.locale;
     _generalCloseBehavior = preferences.closeBehavior;
     _generalRecentLogLimit = preferences.recentLogLimit;
+    _generalLaunchAtLogin = preferences.launchAtLogin;
+    _generalStartHiddenToTray = preferences.startHiddenToTray;
   }
 
   Future<T> _withPendingSave<T>(Future<T> Function() operation) async {
@@ -3160,6 +3180,8 @@ class _SettingsPageState extends State<_SettingsPage> {
     final themeMode = _generalThemeMode;
     final locale = _generalLocale;
     final closeBehavior = _generalCloseBehavior;
+    final launchAtLogin = _generalLaunchAtLogin;
+    final startHiddenToTray = _generalStartHiddenToTray;
     try {
       await widget.onSavePreferences(
         (current) => current.copyWith(
@@ -3167,6 +3189,8 @@ class _SettingsPageState extends State<_SettingsPage> {
           locale: locale,
           closeBehavior: closeBehavior,
           recentLogLimit: limit,
+          launchAtLogin: launchAtLogin,
+          startHiddenToTray: startHiddenToTray,
         ),
       );
     } on Object {
@@ -3177,6 +3201,8 @@ class _SettingsPageState extends State<_SettingsPage> {
         _generalThemeMode == themeMode &&
         _generalLocale == locale &&
         _generalCloseBehavior == closeBehavior &&
+        _generalLaunchAtLogin == launchAtLogin &&
+        _generalStartHiddenToTray == startHiddenToTray &&
         _recentLogLimit.text.trim() == '$limit') {
       setState(() => _generalRecentLogLimit = limit);
     }
@@ -3806,6 +3832,38 @@ class _SettingsPageState extends State<_SettingsPage> {
                                 _generalRevision++;
                               });
                             }
+                          },
+                        ),
+                      ),
+                      divider(),
+                      settingRow(
+                        key: const ValueKey('settings-launch-at-login-row'),
+                        title: l10n.launchAtLoginHeading,
+                        subtitle: l10n.launchAtLoginSubtitle,
+                        control: Switch(
+                          key: const ValueKey('settings-launch-at-login'),
+                          value: _generalLaunchAtLogin,
+                          onChanged: (value) {
+                            setState(() {
+                              _generalLaunchAtLogin = value;
+                              _generalRevision++;
+                            });
+                          },
+                        ),
+                      ),
+                      divider(),
+                      settingRow(
+                        key: const ValueKey('settings-start-hidden-row'),
+                        title: l10n.startHiddenToTrayHeading,
+                        subtitle: l10n.startHiddenToTraySubtitle,
+                        control: Switch(
+                          key: const ValueKey('settings-start-hidden'),
+                          value: _generalStartHiddenToTray,
+                          onChanged: (value) {
+                            setState(() {
+                              _generalStartHiddenToTray = value;
+                              _generalRevision++;
+                            });
                           },
                         ),
                       ),

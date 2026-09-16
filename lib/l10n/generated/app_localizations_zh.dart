@@ -543,6 +543,18 @@ class AppLocalizationsZh extends AppLocalizations {
   String get closeToTray => '关闭到托盘';
 
   @override
+  String get launchAtLoginHeading => '开机自启';
+
+  @override
+  String get launchAtLoginSubtitle => '登录系统后自动启动 SubDock。';
+
+  @override
+  String get startHiddenToTrayHeading => '启动时隐藏到托盘';
+
+  @override
+  String get startHiddenToTraySubtitle => '启动后不显示窗口，仅驻留系统托盘。';
+
+  @override
   String get recentLogs => '最近日志条数';
 
   @override
