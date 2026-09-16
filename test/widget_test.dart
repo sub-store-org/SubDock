@@ -40,7 +40,9 @@ import 'package:subdock/app/app.dart';
 import 'package:subdock/app/about_info.dart';
 import 'package:subdock/app/app_coordinator.dart';
 import 'package:subdock/app/embedded_webview.dart';
+import 'package:subdock/app/mobile_placeholder_runtime.dart';
 import 'package:subdock/l10n/generated/app_localizations.dart';
+import 'package:subdock/mobile_main.dart';
 import 'package:subdock/runtime/backend_runtime.dart';
 import 'package:subdock/runtime/runtime_directories.dart';
 import 'package:subdock/runtime/runtime_log_store.dart';
@@ -55,6 +57,124 @@ import 'package:subdock/update/github_release_client.dart';
 import 'package:subdock/update/component_update_service.dart';
 
 void main() {
+  test('mobile placeholder runtime stays stopped and silent', () async {
+    final runtime = MobilePlaceholderRuntime();
+
+    expect(runtime.currentState.status, RuntimeStatus.stopped);
+    expect(await runtime.logs.isEmpty, isTrue);
+    expect(await runtime.state.isEmpty, isTrue);
+    expect(await runtime.isHealthy(), isFalse);
+
+    await runtime.start();
+    await runtime.stop();
+    await runtime.restart();
+    await runtime.activateUserEnvironment(const {});
+    await runtime.dispose();
+
+    expect(runtime.currentState.status, RuntimeStatus.stopped);
+    await expectLater(runtime.info(), throwsStateError);
+  });
+
+  testWidgets('mobile entry renders the shared shell with placeholder data', (
+    WidgetTester tester,
+  ) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_mobile_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final app = (await tester.runAsync(
+      () => createMobileApp(directories: directories!),
+    ))!;
+    expect(app.coordinator.runtime, isA<MobilePlaceholderRuntime>());
+    expect(app.autoStart, isFalse);
+    expect(app.enableWebView, isFalse);
+    expect(app.showCustomDesktopChrome, isFalse);
+    expect(app.onMinimize, isNull);
+    expect(app.onToggleMaximize, isNull);
+    expect(app.onClose, isNull);
+    expect(app.isMaximized, isNull);
+    expect(app.closeRequestGuard, isNull);
+    expect(app.onStartDragging, isNull);
+
+    await tester.pumpWidget(app);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.byType(NavigationBar), findsOneWidget);
+    expect(find.byType(NavigationDestination), findsNWidgets(5));
+    expect(find.byKey(const ValueKey('desktop-sidebar')), findsNothing);
+    expect(find.byKey(const ValueKey('desktop-chrome')), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('overview-backend-hero')),
+        matching: find.text('-'),
+      ),
+      findsWidgets,
+    );
+    final overviewScrollable = find.descendant(
+      of: find.byKey(const ValueKey('page-overview')),
+      matching: find.byType(Scrollable),
+    );
+    await tester.drag(overviewScrollable, const Offset(0, -600));
+    await tester.pump();
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('overview-stat-start')),
+        matching: find.text('-'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('overview-stat-anomalies')),
+        matching: find.text('0'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('overview-stat-logs')),
+        matching: find.text('0'),
+      ),
+      findsOneWidget,
+    );
+
+    for (final page in const [
+      'overview',
+      'manage',
+      'logs',
+      'updates',
+      'settings',
+    ]) {
+      await tester.tap(find.byKey(ValueKey('nav-item-$page')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(tester.takeException(), isNull);
+      expect(
+        tester.widget<Offstage>(find.byKey(ValueKey('page-$page'))).offstage,
+        isFalse,
+      );
+      switch (page) {
+        case 'manage':
+          expect(find.byKey(const ValueKey('manage-recovery')), findsOneWidget);
+        case 'logs':
+          expect(find.byKey(const ValueKey('logs-surface')), findsOneWidget);
+        case 'updates':
+          expect(find.byKey(const ValueKey('updates-list')), findsOneWidget);
+        case 'settings':
+          expect(find.byKey(const ValueKey('settings-list')), findsOneWidget);
+        case 'overview':
+          break;
+      }
+    }
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('runtime controls the backend through its abstraction', (
     WidgetTester tester,
   ) async {
