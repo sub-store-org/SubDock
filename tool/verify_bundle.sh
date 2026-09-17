@@ -8,9 +8,10 @@ if test "$platform" = windows; then
   suffix=.exe
   # Windows loads the tray icon directly from the packaged .ico.
   tray_icon="$bundle_dir/data/tray_icon.ico"
+elif test "$platform" = macos; then
+  tray_icon="$bundle_dir/../Frameworks/App.framework/Resources/flutter_assets/assets/icon/app_icon_32.png"
 else
-  # Linux and macOS serve the tray icon from Flutter assets
-  # (assets/icon/app_icon_32.png, bundled into data/flutter_assets).
+  # Linux serves the tray icon from Flutter assets.
   tray_icon="$bundle_dir/data/flutter_assets/assets/icon/app_icon_32.png"
 fi
 

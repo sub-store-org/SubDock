@@ -1,0 +1,11 @@
+display_name: SubDock
+icon: macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_256.png
+generic_name: Sub-Store Desktop Manager
+categories:
+  - Network
+  - Utility
+keywords:
+  - Sub-Store
+  - proxy
+  - subscription
+startup_notify: true

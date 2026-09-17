@@ -25,6 +25,17 @@ jobs:
             libgtk-3-dev \
             libwebkit2gtk-4.1-dev \
             libayatana-appindicator3-dev
+      - name: Install packaging tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          dart pub global activate fastforge
+          install -d "$HOME/.local/bin"
+          curl -fsSL \
+            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage \
+            -o "$HOME/.local/bin/appimagetool"
+          chmod +x "$HOME/.local/bin/appimagetool"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Prepare latest stable runtime resources
         run: |
           tool/prepare_backend.sh
@@ -32,9 +43,10 @@ jobs:
           tool/prepare_runtime.sh linux-x64
           tool/prepare_http_meta.sh linux-x64
       - name: Package DEB, RPM, and AppImage
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: '1'
         run: |
-          dart pub global activate fastforge 0.6.12
-          fastforge package \
+          dart pub global run fastforge:main package \
             --platform linux \
             --targets deb,rpm,appimage \
             --hook-pre 'tool/verify_bundle.sh "$BUILD_OUTPUT_DIRECTORY"'
@@ -64,7 +76,8 @@ jobs:
           pacman -Syu --noconfirm \
             gtk3 \
             webkit2gtk-4.1 \
-            libayatana-appindicator
+            libayatana-appindicator \
+            libayatana-indicator
       - uses: actions/download-artifact@v8
         with:
           name: linux-bundle
@@ -106,7 +119,7 @@ jobs:
         shell: bash
         run: |
           choco install innosetup --no-progress --yes
-          dart pub global activate fastforge 0.6.12
+          dart pub global activate fastforge
           dart pub global run fastforge:main package \
             --platform windows \
             --targets exe \
@@ -143,12 +156,12 @@ jobs:
           TARGET_ARCH: arm64
         run: |
           npm install --global appdmg
-          dart pub global activate fastforge 0.6.12
-          fastforge package \
+          dart pub global activate fastforge
+          dart pub global run fastforge:main package \
             --platform macos \
             --targets dmg \
             --hook-pre '
-              tool/verify_bundle.sh "$BUILD_OUTPUT_DIRECTORY/SubDock.app/Contents/MacOS" &&
+              tool/verify_bundle.sh "$BUILD_OUTPUT_DIRECTORY/SubDock.app/Contents/MacOS" macos &&
               tool/thin_macos_bundle.sh "$BUILD_OUTPUT_DIRECTORY/SubDock.app" "$TARGET_ARCH"
             '
       - uses: actions/upload-artifact@v7

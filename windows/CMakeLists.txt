@@ -94,9 +94,7 @@ endforeach()
 set(BUILD_BUNDLE_DIR "$<TARGET_FILE_DIR:${BINARY_NAME}>")
 # Make the "install" step default, as it's required to run.
 set(CMAKE_VS_INCLUDE_INSTALL_TO_DEFAULT_BUILD 1)
-if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
-  set(CMAKE_INSTALL_PREFIX "${BUILD_BUNDLE_DIR}" CACHE PATH "..." FORCE)
-endif()
+set(CMAKE_INSTALL_PREFIX "${BUILD_BUNDLE_DIR}" CACHE PATH "..." FORCE)
 
 set(INSTALL_BUNDLE_DATA_DIR "${CMAKE_INSTALL_PREFIX}/data")
 set(INSTALL_BUNDLE_LIB_DIR "${CMAKE_INSTALL_PREFIX}")
@@ -130,6 +128,12 @@ install(FILES
   "${SUBDOCK_PROJECT_DIR}/windows/runner/resources/app_icon.ico"
   DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   RENAME "tray_icon.ico"
+  COMPONENT Runtime)
+
+install(FILES
+  "${SUBDOCK_PROJECT_DIR}/assets/icon/app_icon.png"
+  DESTINATION "${INSTALL_BUNDLE_DATA_DIR}/icon"
+  RENAME "app_icon.png"
   COMPONENT Runtime)
 
 install(FILES "${SUBDOCK_PROJECT_DIR}/LICENSE"

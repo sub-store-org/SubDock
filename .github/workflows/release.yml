@@ -72,11 +72,12 @@ jobs:
           done < <(find dist -type f \( \
             -name '*.deb' -o \
             -name '*.rpm' -o \
+            -name '*.AppImage' -o \
             -name '*.pkg.tar.zst' -o \
             -name '*.exe' -o \
             -name '*.dmg' \
           \) -print0)
-          for pattern in '*.deb' '*.rpm' '*.pkg.tar.zst' '*.exe' '*.dmg'; do
+          for pattern in '*.deb' '*.rpm' '*.AppImage' '*.pkg.tar.zst' '*.exe' '*.dmg'; do
             test -n "$(find dist -type f -name "$pattern" -print -quit)"
           done
           test "${#assets[@]}" -gt 0
