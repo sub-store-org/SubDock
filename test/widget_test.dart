@@ -13,9 +13,11 @@ import 'package:flutter/material.dart'
         Container,
         CrossAxisAlignment,
         DropdownButton,
+        ExpansionTile,
+        FilledButton,
         Flex,
         FilterChip,
-        FilledButton,
+        FontWeight,
         IconButton,
         Locale,
         Material,
@@ -39,7 +41,15 @@ import 'package:flutter/material.dart'
 import 'package:flutter/scheduler.dart' show AppLifecycleState;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart'
-    show EdgeInsets, GestureDetector, Offstage, Padding, SizedBox, ValueKey;
+    show
+        EdgeInsets,
+        EdgeInsetsGeometry,
+        GestureDetector,
+        Key,
+        Offstage,
+        Padding,
+        SizedBox,
+        ValueKey;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:subdock/app/app.dart';
 import 'package:subdock/app/about_info.dart';
@@ -3327,6 +3337,11 @@ void main() {
       runtime: _FakeBackendRuntime(),
       environmentStore: BackendEnvStore(directories!),
     );
+    final aboutLoader = AboutInfoLoader(
+      loadPackageMetadata: () async => (version: '1.0.0', buildNumber: '1'),
+      operatingSystem: () => 'linux',
+      architecture: () => 'x64',
+    );
 
     await tester.binding.setSurfaceSize(const Size(600, 480));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -3336,6 +3351,7 @@ void main() {
         autoStart: false,
         enableWebView: false,
         locale: const Locale('zh'),
+        aboutInfoLoader: aboutLoader,
       ),
     );
     await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
@@ -3358,6 +3374,174 @@ void main() {
     expect(find.text(l10n.languageSubtitle), findsOneWidget);
     expect(find.text(l10n.closeBehaviorSubtitle), findsOneWidget);
     expect(find.text(l10n.recentLogsSubtitle), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    // Section titles live above their cards (sketch `.section-title`),
+    // rendered once each in 14px/w600 rather than inside the card body, with
+    // a spacingSm gap down to the card.
+    const titleCardGap = 12;
+
+    void expectHeadingOutside(String heading) {
+      expect(find.text(heading), findsOneWidget);
+      final style = tester.widget<Text>(find.text(heading)).style!;
+      expect(style.fontSize, 14);
+      expect(style.fontWeight, FontWeight.w600);
+    }
+
+    void expectHeadingOutsideCard(String heading, Key cardKey) {
+      expectHeadingOutside(heading);
+      expect(
+        find.descendant(
+          of: find.byKey(cardKey),
+          matching: find.text(heading),
+        ),
+        findsNothing,
+      );
+    }
+
+    final homeSectionHeadings = [
+      l10n.appearanceLanguageHeading,
+      l10n.runtimeHeading,
+      l10n.desktopBehaviorHeading,
+    ];
+    const homeSectionCardKeys = [
+      'settings-appearance',
+      'settings-runtime',
+      'settings-desktop-behavior',
+    ];
+    for (var i = 0; i < homeSectionHeadings.length; i++) {
+      expectHeadingOutsideCard(
+        homeSectionHeadings[i],
+        ValueKey(homeSectionCardKeys[i]),
+      );
+    }
+
+    EdgeInsetsGeometry rowPadding(Key key) {
+      final widget = tester.widget(find.byKey(key));
+      if (widget is Padding) return widget.padding;
+      return tester.widget<Padding>(
+        find.ancestor(
+          of: find.byKey(key),
+          matching: find.byType(Padding),
+        ).first,
+      ).padding;
+    }
+
+    const uniformRowPadding = EdgeInsets.symmetric(
+      horizontal: 16,
+      vertical: 12,
+    );
+
+    // Rows keep one uniform layer of padding: 16h + 12v.
+    const rowKeys = [
+      'settings-theme-row',
+      'settings-language-row',
+      'settings-http-meta',
+      'settings-backend-config-row',
+      'settings-advanced-env-row',
+      'settings-close-behavior-row',
+    ];
+    for (final key in rowKeys) {
+      expect(rowPadding(ValueKey(key)), uniformRowPadding);
+    }
+
+    // No leading blank before a sub-page: home's trailing section is followed
+    // by a single 24px gap, then the About tile — sub-pages start from the
+    // same position.
+    final aboutTileTop = tester.getRect(
+      find.byKey(const ValueKey('settings-card-about')),
+    ).top;
+    final desktopCard = tester.getRect(
+      find.byKey(const ValueKey('settings-desktop-behavior')),
+    );
+    expect(aboutTileTop - desktopCard.bottom, 24);
+
+    // Backend Config sub-page: the heading is outside the card and rows are
+    // 16h + 12v.
+    //
+    // The settings list keeps its offset across sub-pages, so a target may sit
+    // above the viewport; ensureVisible scrolls whichever way is needed.
+    Future<void> openSubPage(Finder tile) async {
+      await tester.ensureVisible(tile);
+      await tester.pumpAndSettle();
+      await tester.tap(tile);
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> backToHome() async {
+      await tester.ensureVisible(find.byKey(const ValueKey('settings-back')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('settings-back')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('settings-appearance')), findsOneWidget);
+    }
+
+    await openSubPage(
+      find.byKey(const ValueKey('settings-card-backend-config')),
+    );
+    expectHeadingOutsideCard(
+      l10n.backendConfigHeading,
+      const ValueKey('settings-backend-config'),
+    );
+    expect(
+      tester.getRect(find.byKey(const ValueKey('settings-backend-config'))).top -
+          tester.getRect(find.text(l10n.backendConfigHeading)).bottom,
+      titleCardGap,
+    );
+    for (final key in [
+      'settings-backend-host-row',
+      'settings-backend-port-row',
+      'settings-backend-merge-row',
+      'settings-backend-path-row',
+      'settings-backend-cors-row',
+    ]) {
+      expect(rowPadding(ValueKey(key)), uniformRowPadding);
+    }
+    expect(find.byKey(const ValueKey('settings-save-all')), findsNothing);
+    await backToHome();
+
+    // Advanced ENV sub-page: the section title is outside the card and the
+    // ExpansionTile no longer repeats the same heading text.
+    await openSubPage(
+      find.byKey(const ValueKey('settings-card-advanced-env')),
+    );
+    expectHeadingOutsideCard(
+      l10n.advancedRawEnv,
+      const ValueKey('settings-raw-env'),
+    );
+    expect(
+      tester.getRect(find.byKey(const ValueKey('settings-raw-env'))).top -
+          tester.getRect(find.text(l10n.advancedRawEnv)).bottom,
+      titleCardGap,
+    );
+    final envExpansion = tester.widget<ExpansionTile>(
+      find.byKey(const ValueKey('settings-raw-env-expansion')),
+    );
+    final envTileTitle = envExpansion.title as Text;
+    expect(envTileTitle.data, l10n.advancedRawEnvSubtitle);
+    expect(envTileTitle.data, isNot(l10n.advancedRawEnv));
+    expect(envExpansion.subtitle, isNull);
+    expect(envExpansion.tilePadding, uniformRowPadding);
+    expect(envExpansion.childrenPadding, uniformRowPadding);
+    await backToHome();
+
+    // About sub-page: the heading is outside the card and metadata rows match
+    // the card's 16h + 12v padding.
+    await openSubPage(find.byKey(const ValueKey('settings-card-about')));
+    await _pumpRealIo(tester);
+    expectHeadingOutside(l10n.aboutSubDock);
+    expect(
+      tester
+          .getRect(find.byKey(const ValueKey('settings-about-card')))
+          .top -
+          tester.getRect(find.text(l10n.aboutSubDock)).bottom,
+      titleCardGap,
+    );
+    expect(
+      rowPadding(const ValueKey('about-version')),
+      uniformRowPadding,
+    );
+    await backToHome();
     expect(tester.takeException(), isNull);
 
     await tester.binding.setSurfaceSize(const Size(599, 700));

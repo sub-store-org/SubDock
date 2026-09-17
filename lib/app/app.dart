@@ -2976,6 +2976,26 @@ class _SettingsSectionTile extends StatelessWidget {
 
 enum _LeaveDecision { save, discard, cancel }
 
+/// Section title rendered above a settings card (sketch `.section-title`:
+/// 14px/600 with a `spacingSm` gap down to the card body).
+class _SettingsSectionTitle extends StatelessWidget {
+  const _SettingsSectionTitle({required this.title});
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    final typography = Theme.of(context).extension<AppTypography>()!;
+    return Padding(
+      padding: EdgeInsets.only(bottom: typography.spacingSm),
+      child: Text(
+        title,
+        style: typography.titleSmall.copyWith(fontWeight: FontWeight.w600),
+      ),
+    );
+  }
+}
+
 class _SettingsPage extends StatefulWidget {
   const _SettingsPage({
     super.key,
@@ -3602,28 +3622,26 @@ class _SettingsPageState extends State<_SettingsPage> {
       required Key key,
       required String title,
       required List<Widget> rows,
-    }) => _SurfacePanel(
-      key: key,
-      padding: EdgeInsets.zero,
-      radius: typography.radiusLg,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: EdgeInsets.fromLTRB(
-              typography.spacingMd,
-              typography.spacingMd,
-              typography.spacingMd,
-              typography.spacingXs,
-            ),
-            child: Text(title, style: typography.titleMedium),
+    }) => Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _SettingsSectionTitle(title: title),
+        _SurfacePanel(
+          key: key,
+          padding: EdgeInsets.zero,
+          radius: typography.radiusLg,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (var i = 0; i < rows.length; i++) ...[
+                if (i > 0) divider(),
+                rows[i],
+              ],
+            ],
           ),
-          for (var i = 0; i < rows.length; i++) ...[
-            if (i > 0) divider(),
-            rows[i],
-          ],
-        ],
-      ),
+        ),
+      ],
     );
     final content = ListView(
       key: const ValueKey('settings-list'),
@@ -3854,7 +3872,6 @@ class _SettingsPageState extends State<_SettingsPage> {
                           },
                         ),
                       ),
-                      divider(),
                       settingRow(
                         key: const ValueKey('settings-launch-at-login-row'),
                         title: l10n.launchAtLoginHeading,
@@ -3870,7 +3887,6 @@ class _SettingsPageState extends State<_SettingsPage> {
                           },
                         ),
                       ),
-                      divider(),
                       settingRow(
                         key: const ValueKey('settings-start-hidden-row'),
                         title: l10n.startHiddenToTrayHeading,
@@ -3899,26 +3915,14 @@ class _SettingsPageState extends State<_SettingsPage> {
                   ),
                 ],
                 SizedBox(height: typography.spacingLg),
-                SizedBox(height: typography.spacingLg),
                 if (_section == _SettingsSection.backendConfig) ...[
+                  _SettingsSectionTitle(title: l10n.backendConfigHeading),
                   _SurfacePanel(
                     key: const ValueKey('settings-backend-config'),
                     padding: EdgeInsets.zero,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        Padding(
-                          padding: EdgeInsets.fromLTRB(
-                            typography.spacingMd,
-                            typography.spacingMd,
-                            typography.spacingMd,
-                            typography.spacingXs,
-                          ),
-                          child: Text(
-                            l10n.backendConfigHeading,
-                            style: typography.titleMedium,
-                          ),
-                        ),
                         if (_backendIssue != null)
                           Padding(
                             padding: EdgeInsets.symmetric(
@@ -4034,20 +4038,39 @@ class _SettingsPageState extends State<_SettingsPage> {
                   ),
                 ],
                 SizedBox(height: typography.spacingLg),
-                if (_section == _SettingsSection.advancedEnv)
+                if (_section == _SettingsSection.advancedEnv) ...[
+                  _SettingsSectionTitle(title: l10n.advancedRawEnv),
                   _SurfacePanel(
                     key: const ValueKey('settings-raw-env'),
                     padding: EdgeInsets.zero,
                     child: Column(
                       children: [
-                        ListTile(
-                          leading: const Icon(Icons.warning_amber),
-                          title: Text(l10n.structuredEnvPrecedenceWarning),
+                        Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: typography.spacingMd,
+                            vertical: typography.spacingSm,
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.warning_amber,
+                                color: colors.error,
+                              ),
+                              SizedBox(width: typography.spacingSm),
+                              Expanded(
+                                child: Text(
+                                  l10n.structuredEnvPrecedenceWarning,
+                                  style: typography.bodySmall,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                         ExpansionTile(
                           key: const ValueKey('settings-raw-env-expansion'),
                           tilePadding: EdgeInsets.symmetric(
                             horizontal: typography.spacingMd,
+                            vertical: typography.spacingSm,
                           ),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(
@@ -4059,14 +4082,11 @@ class _SettingsPageState extends State<_SettingsPage> {
                               typography.radiusMd,
                             ),
                           ),
-                          title: Text(l10n.advancedRawEnv),
-                          subtitle: Text(l10n.advancedRawEnvSubtitle),
+                          title: Text(l10n.advancedRawEnvSubtitle),
                           initiallyExpanded: false,
-                          childrenPadding: EdgeInsets.fromLTRB(
-                            typography.spacingMd,
-                            0,
-                            typography.spacingMd,
-                            typography.spacingMd,
+                          childrenPadding: EdgeInsets.symmetric(
+                            horizontal: typography.spacingMd,
+                            vertical: typography.spacingSm,
                           ),
                           children: [
                             TextField(
@@ -4093,6 +4113,7 @@ class _SettingsPageState extends State<_SettingsPage> {
                       ],
                     ),
                   ),
+                ],
                 SizedBox(height: typography.spacingLg),
                 if (_section == _SettingsSection.about)
                   _AboutPage(
@@ -4883,55 +4904,72 @@ class _AboutPageState extends State<_AboutPage> {
     final colors = Theme.of(context).extension<AppColors>()!;
     Widget metadataRow({required Key key, required String value}) => Padding(
       key: key,
-      padding: EdgeInsets.symmetric(vertical: typography.spacingSm),
+      padding: EdgeInsets.symmetric(
+        horizontal: typography.spacingMd,
+        vertical: typography.spacingSm,
+      ),
       child: Text(value, style: typography.bodyMedium),
     );
-    return _SurfacePanel(
-      child: info == null
-          ? (_error == null
-                ? Text(l10n.aboutMetadataLoading)
-                : Text(
-                    '${l10n.aboutMetadataUnavailable}: ${_localizedError(l10n, _error)}',
-                  ))
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(l10n.aboutSubDock, style: typography.titleLarge),
-                SizedBox(height: typography.spacingSm),
-                metadataRow(
-                  key: const ValueKey('about-version'),
-                  value: '${l10n.aboutVersion}: ${info.version}',
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _SettingsSectionTitle(title: l10n.aboutSubDock),
+        _SurfacePanel(
+          key: const ValueKey('settings-about-card'),
+          padding: EdgeInsets.zero,
+          child: info == null
+              ? Padding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: typography.spacingMd,
+                    vertical: typography.spacingSm,
+                  ),
+                  child: _error == null
+                      ? Text(l10n.aboutMetadataLoading)
+                      : Text(
+                          '${l10n.aboutMetadataUnavailable}: ${_localizedError(l10n, _error)}',
+                        ),
+                )
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    metadataRow(
+                      key: const ValueKey('about-version'),
+                      value: '${l10n.aboutVersion}: ${info.version}',
+                    ),
+                    Divider(color: colors.divider, height: 1),
+                    metadataRow(
+                      key: const ValueKey('about-build-number'),
+                      value:
+                          '${l10n.aboutBuildNumber}: ${info.buildNumber.isEmpty ? '-' : info.buildNumber}',
+                    ),
+                    Divider(color: colors.divider, height: 1),
+                    metadataRow(
+                      key: const ValueKey('about-license'),
+                      value: '${l10n.aboutLicense}: $subDockLicenseId',
+                    ),
+                    Divider(color: colors.divider, height: 1),
+                    metadataRow(
+                      key: const ValueKey('about-homepage'),
+                      value:
+                          '${l10n.aboutProjectHomepage}: $subDockProjectHomepage',
+                    ),
+                    Divider(color: colors.divider, height: 1),
+                    metadataRow(
+                      key: const ValueKey('about-os'),
+                      value:
+                          '${l10n.aboutOperatingSystem}: ${info.operatingSystem}',
+                    ),
+                    Divider(color: colors.divider, height: 1),
+                    metadataRow(
+                      key: const ValueKey('about-architecture'),
+                      value: '${l10n.aboutArchitecture}: ${info.architecture}',
+                    ),
+                  ],
                 ),
-                Divider(color: colors.divider, height: 1),
-                metadataRow(
-                  key: const ValueKey('about-build-number'),
-                  value:
-                      '${l10n.aboutBuildNumber}: ${info.buildNumber.isEmpty ? '-' : info.buildNumber}',
-                ),
-                Divider(color: colors.divider, height: 1),
-                metadataRow(
-                  key: const ValueKey('about-license'),
-                  value: '${l10n.aboutLicense}: $subDockLicenseId',
-                ),
-                Divider(color: colors.divider, height: 1),
-                metadataRow(
-                  key: const ValueKey('about-homepage'),
-                  value:
-                      '${l10n.aboutProjectHomepage}: $subDockProjectHomepage',
-                ),
-                Divider(color: colors.divider, height: 1),
-                metadataRow(
-                  key: const ValueKey('about-os'),
-                  value:
-                      '${l10n.aboutOperatingSystem}: ${info.operatingSystem}',
-                ),
-                Divider(color: colors.divider, height: 1),
-                metadataRow(
-                  key: const ValueKey('about-architecture'),
-                  value: '${l10n.aboutArchitecture}: ${info.architecture}',
-                ),
-              ],
-            ),
+        ),
+      ],
     );
   }
 }
