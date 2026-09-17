@@ -7,7 +7,9 @@ import 'package:flutter/material.dart'
         Axis,
         BorderRadius,
         BoxDecoration,
+        Clip,
         ClipRRect,
+        Column,
         Container,
         DropdownButton,
         Flex,
@@ -15,10 +17,12 @@ import 'package:flutter/material.dart'
         FilledButton,
         IconButton,
         Locale,
+        Material,
         ListTile,
         ListView,
         OutlinedButton,
         Expanded,
+        RoundedRectangleBorder,
         SelectableText,
         Scrollable,
         SingleChildScrollView,
@@ -448,6 +452,129 @@ void main() {
     expect(find.text('Backend'), findsOneWidget);
     expect(find.text('信息'), findsOneWidget);
     expect(find.text('fixture log line'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('logs toolbar sits outside the log list card', (tester) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final runtime = _FakeBackendRuntime();
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    final coordinator = AppCoordinator(
+      runtime: runtime,
+      environmentStore: BackendEnvStore(directories!),
+    );
+    await tester.binding.setSurfaceSize(const Size(1000, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      SubDockApp(
+        coordinator: coordinator,
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('zh'),
+      ),
+    );
+    runtime.emitLog(
+      RuntimeLog(
+        timestamp: DateTime.utc(2026, 9, 13, 4, 30),
+        source: RuntimeLogSource.stdout,
+        message: 'fixture log line',
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-logs')));
+    await tester.pump();
+
+    final surface = find.byKey(const ValueKey('logs-surface'));
+    expect(surface, findsOneWidget);
+    final listCard = tester.widget<Material>(
+      find.descendant(of: surface, matching: find.byType(Material)).first,
+    );
+    final listRadius = (listCard.shape! as RoundedRectangleBorder).borderRadius;
+    expect(listRadius, BorderRadius.circular(12));
+    expect(listCard.clipBehavior, Clip.antiAlias);
+
+    // The toolbar is rendered above the list card, never inside it.
+    final toolbar = find.byKey(const ValueKey('logs-desktop-toolbar'));
+    expect(toolbar, findsOneWidget);
+    expect(
+      find.descendant(
+        of: surface,
+        matching: find.byKey(const ValueKey('logs-desktop-toolbar')),
+      ),
+      findsNothing,
+    );
+    final toolbarBlock = tester.widget<Column>(toolbar);
+    final toolbarPadding = tester.widget<Padding>(
+      find.ancestor(of: toolbar, matching: find.byType(Padding)).first,
+    );
+    expect(toolbarPadding.padding, const EdgeInsets.only(bottom: 8));
+    final toolbarTop = tester.getTopLeft(find.byWidget(toolbarBlock)).dy;
+    expect(toolbarTop, lessThan(tester.getTopLeft(surface).dy));
+
+    // Desktop rows keep a single layer of padding, owned by the list.
+    final row = find.byKey(const ValueKey('logs-desktop-row')).first;
+    expect(row, findsOneWidget);
+    final rowPadding = const EdgeInsets.symmetric(horizontal: 12, vertical: 8);
+    final rowPaddingFinder = find.ancestor(
+      of: row,
+      matching: find.byWidgetPredicate(
+        (widget) => widget is Padding && widget.padding == rowPadding,
+      ),
+    );
+    expect(rowPaddingFinder, findsOneWidget);
+    // The row itself carries no padding; the list owns the single layer.
+    expect(tester.widget<Container>(row).padding, isNull);
+
+    // Empty state stays centered inside the same list card.
+    runtime.emitLog(
+      RuntimeLog(
+        timestamp: DateTime.utc(2026, 9, 13, 4, 31),
+        source: RuntimeLogSource.httpMetaStdout,
+        message: 'http meta fixture',
+      ),
+    );
+    final searchField = find.byKey(const ValueKey('logs-search'));
+    await tester.enterText(searchField, 'no-match');
+    await tester.pump();
+    expect(
+      find.descendant(of: surface, matching: find.text('没有匹配的日志')),
+      findsOneWidget,
+    );
+
+    // Narrow screen: the same split stays in place in compact form.
+    await tester.enterText(searchField, '');
+    await tester.pump();
+    await tester.binding.setSurfaceSize(const Size(599, 600));
+    await tester.pump();
+    final compactToolbar = find.byKey(const ValueKey('logs-mobile-toolbar'));
+    expect(compactToolbar, findsOneWidget);
+    final compactSurface = find.byKey(const ValueKey('logs-surface'));
+    expect(compactSurface, findsOneWidget);
+    expect(
+      find.descendant(of: compactSurface, matching: compactToolbar),
+      findsNothing,
+    );
+    expect(
+      tester
+          .getTopLeft(find.byWidget(tester.widget<Column>(compactToolbar)))
+          .dy,
+      lessThan(tester.getTopLeft(compactSurface).dy),
+    );
+    expect(find.byKey(const ValueKey('logs-mobile-row')), findsNWidgets(2));
+    final mobileRow = find.byKey(const ValueKey('logs-mobile-row')).first;
+    expect(
+      find.ancestor(
+        of: mobileRow,
+        matching: find.byWidgetPredicate(
+          (widget) => widget is Padding && widget.padding == rowPadding,
+        ),
+      ),
+      findsOneWidget,
+    );
+    expect(tester.widget<Container>(mobileRow).padding, isNull);
     await tester.pumpWidget(const SizedBox());
   });
 

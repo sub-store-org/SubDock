@@ -1597,12 +1597,14 @@ class _SurfacePanel extends StatelessWidget {
     this.padding,
     this.radius,
     this.borderColor,
+    this.clipBehavior = Clip.hardEdge,
   });
 
   final Widget child;
   final EdgeInsetsGeometry? padding;
   final double? radius;
   final Color? borderColor;
+  final Clip clipBehavior;
 
   @override
   Widget build(BuildContext context) {
@@ -1614,6 +1616,7 @@ class _SurfacePanel extends StatelessWidget {
         borderRadius: BorderRadius.circular(radius ?? typography.radiusLg),
         side: BorderSide(color: borderColor ?? colors.divider),
       ),
+      clipBehavior: clipBehavior,
       child: Padding(
         padding: padding ?? EdgeInsets.all(typography.spacingMd),
         child: child,
@@ -2574,10 +2577,6 @@ class _LogsPageState extends State<_LogsPage> {
     if (compact) {
       return Container(
         key: const ValueKey('logs-mobile-row'),
-        padding: EdgeInsets.symmetric(
-          horizontal: typography.spacingSm,
-          vertical: typography.spacingS,
-        ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -2633,10 +2632,6 @@ class _LogsPageState extends State<_LogsPage> {
     }
     return Container(
       key: const ValueKey('logs-desktop-row'),
-      padding: EdgeInsets.symmetric(
-        horizontal: typography.spacingSm,
-        vertical: typography.spacingS,
-      ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -2686,198 +2681,219 @@ class _LogsPageState extends State<_LogsPage> {
     return Padding(
       key: const ValueKey('logs-body'),
       padding: bodyPadding,
-      child: _SurfacePanel(
-        key: const ValueKey('logs-surface'),
-        padding: EdgeInsets.zero,
-        radius: typography.radiusLg,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: EdgeInsets.all(typography.spacingSm),
-              child: Column(
-                key: ValueKey(
-                  compact ? 'logs-mobile-toolbar' : 'logs-desktop-toolbar',
-                ),
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: SegmentedButton<_LogsMode>(
-                      segments: [
-                        ButtonSegment(
-                          value: _LogsMode.current,
-                          label: Text(l10n.current),
-                        ),
-                        ButtonSegment(
-                          value: _LogsMode.history,
-                          label: Text(l10n.history),
-                        ),
-                      ],
-                      selected: {_mode},
-                      onSelectionChanged: (value) {
-                        final next = value.first;
-                        if (next == _mode) return;
-                        setState(() {
-                          _mode = next;
-                          _historyGeneration++;
-                          _selectedRun = null;
-                          _historyLogs = const [];
-                          _historyDetailLoading = false;
-                          _historyDetailError = null;
-                        });
-                        if (next == _LogsMode.history) {
-                          unawaited(_loadHistoryRuns());
-                        }
-                      },
-                    ),
-                  ),
-                  SizedBox(height: typography.spacingSm),
-                  if (compact)
-                    Row(
-                      children: [
-                        Expanded(child: _buildSearchField(l10n)),
-                        SizedBox(width: typography.spacingSm),
-                        OutlinedButton(
-                          key: const ValueKey('logs-mobile-filter'),
-                          onPressed: () => unawaited(_showFilters(l10n)),
-                          child: Text('${l10n.logFilters} · $filterCount'),
-                        ),
-                      ],
-                    )
-                  else
-                    Row(
-                      children: [
-                        Expanded(child: _buildSearchField(l10n)),
-                        SizedBox(width: typography.spacingSm),
-                        OutlinedButton(
-                          key: const ValueKey('logs-source-filter'),
-                          onPressed: () => unawaited(_showFilters(l10n)),
-                          child: Text(l10n.logFilters),
-                        ),
-                        SizedBox(width: typography.spacingSm),
-                        DropdownButtonHideUnderline(
-                          child: DropdownButton<LogSort>(
-                            key: const ValueKey('logs-sort-selector'),
-                            value: widget.sort,
-                            items: [
-                              DropdownMenuItem(
-                                value: LogSort.newestFirst,
-                                child: Text(l10n.logNewest),
-                              ),
-                              DropdownMenuItem(
-                                value: LogSort.newestLast,
-                                child: Text(l10n.logOldest),
-                              ),
-                            ],
-                            onChanged: (value) {
-                              if (value != null) {
-                                unawaited(widget.onSortChanged(value));
-                              }
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton(
-                      key: const ValueKey('logs-copy-filtered'),
-                      onPressed: visible.isEmpty
-                          ? null
-                          : () => unawaited(
-                              _selectedRun == null
-                                  ? _copy(l10n, visible)
-                                  : _copyFilteredHistory(l10n),
-                            ),
-                      child: Text(l10n.copyFilteredLogs),
-                    ),
-                  ),
-                ],
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: EdgeInsets.only(bottom: typography.spacingS),
+            child: Column(
+              key: ValueKey(
+                compact ? 'logs-mobile-toolbar' : 'logs-desktop-toolbar',
               ),
-            ),
-            if (_mode == _LogsMode.history && _selectedRun == null)
-              Expanded(child: _buildHistoryList(l10n))
-            else ...[
-              if (_selectedRun != null)
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
                 Align(
                   alignment: Alignment.centerLeft,
-                  child: TextButton(
-                    key: const ValueKey('history-back'),
-                    onPressed: () => setState(() {
-                      _historyGeneration++;
-                      _selectedRun = null;
-                      _historyLogs = const [];
-                      _historyDetailLoading = false;
-                      _historyDetailError = null;
-                    }),
-                    child: Text(l10n.back),
+                  child: SegmentedButton<_LogsMode>(
+                    segments: [
+                      ButtonSegment(
+                        value: _LogsMode.current,
+                        label: Text(l10n.current),
+                      ),
+                      ButtonSegment(
+                        value: _LogsMode.history,
+                        label: Text(l10n.history),
+                      ),
+                    ],
+                    selected: {_mode},
+                    onSelectionChanged: (value) {
+                      final next = value.first;
+                      if (next == _mode) return;
+                      setState(() {
+                        _mode = next;
+                        _historyGeneration++;
+                        _selectedRun = null;
+                        _historyLogs = const [];
+                        _historyDetailLoading = false;
+                        _historyDetailError = null;
+                      });
+                      if (next == _LogsMode.history) {
+                        unawaited(_loadHistoryRuns());
+                      }
+                    },
                   ),
                 ),
-              const Divider(height: 1),
-              Expanded(
-                child: _historyDetailLoading
-                    ? const Center(child: CircularProgressIndicator())
-                    : _selectedRun != null && _historyDetailError != null
-                    ? Center(child: Text(l10n.historyLoadError))
-                    : visible.isEmpty
-                    ? Center(
-                        child: Text(
-                          _selectedRun == null
-                              ? (widget.logs.isEmpty
-                                    ? l10n.noLogs
-                                    : l10n.noFilteredLogs)
-                              : (_selectedRun!.eventCount == 0
-                                    ? l10n.noLogs
-                                    : l10n.noFilteredLogs),
-                        ),
-                      )
-                    : ListView.separated(
-                        itemCount: visible.length,
-                        separatorBuilder: (_, _) => const Divider(height: 1),
-                        itemBuilder: (context, index) {
-                          final item = visible[index];
-                          return Padding(
-                            padding: EdgeInsets.symmetric(
-                              horizontal: typography.spacingSm,
-                              vertical: typography.spacingS,
-                            ),
-                            child: _logRow(context, item, l10n, typography),
-                          );
-                        },
+                SizedBox(height: typography.spacingSm),
+                if (compact)
+                  Row(
+                    children: [
+                      Expanded(child: _buildSearchField(l10n)),
+                      SizedBox(width: typography.spacingSm),
+                      OutlinedButton(
+                        key: const ValueKey('logs-mobile-filter'),
+                        onPressed: () => unawaited(_showFilters(l10n)),
+                        child: Text('${l10n.logFilters} · $filterCount'),
                       ),
+                    ],
+                  )
+                else
+                  Row(
+                    children: [
+                      Expanded(child: _buildSearchField(l10n)),
+                      SizedBox(width: typography.spacingSm),
+                      OutlinedButton(
+                        key: const ValueKey('logs-source-filter'),
+                        onPressed: () => unawaited(_showFilters(l10n)),
+                        child: Text(l10n.logFilters),
+                      ),
+                      SizedBox(width: typography.spacingSm),
+                      DropdownButtonHideUnderline(
+                        child: DropdownButton<LogSort>(
+                          key: const ValueKey('logs-sort-selector'),
+                          value: widget.sort,
+                          items: [
+                            DropdownMenuItem(
+                              value: LogSort.newestFirst,
+                              child: Text(l10n.logNewest),
+                            ),
+                            DropdownMenuItem(
+                              value: LogSort.newestLast,
+                              child: Text(l10n.logOldest),
+                            ),
+                          ],
+                          onChanged: (value) {
+                            if (value != null) {
+                              unawaited(widget.onSortChanged(value));
+                            }
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    key: const ValueKey('logs-copy-filtered'),
+                    onPressed: visible.isEmpty
+                        ? null
+                        : () => unawaited(
+                            _selectedRun == null
+                                ? _copy(l10n, visible)
+                                : _copyFilteredHistory(l10n),
+                          ),
+                    child: Text(l10n.copyFilteredLogs),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (_mode == _LogsMode.history && _selectedRun == null)
+            Expanded(
+              child: _SurfacePanel(
+                key: const ValueKey('logs-surface'),
+                padding: EdgeInsets.zero,
+                radius: typography.radiusLg,
+                clipBehavior: Clip.antiAlias,
+                child: _buildHistoryList(l10n),
               ),
-              if (_selectedRun != null)
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
+            )
+          else
+            Expanded(
+              child: _SurfacePanel(
+                key: const ValueKey('logs-surface'),
+                padding: EdgeInsets.zero,
+                radius: typography.radiusLg,
+                clipBehavior: Clip.antiAlias,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    TextButton(
-                      onPressed: _historyPage > 0
-                          ? () => unawaited(
-                              _loadHistoryPage(
-                                _selectedRun!,
-                                page: _historyPage - 1,
+                    if (_selectedRun != null)
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton(
+                          key: const ValueKey('history-back'),
+                          onPressed: () => setState(() {
+                            _historyGeneration++;
+                            _selectedRun = null;
+                            _historyLogs = const [];
+                            _historyDetailLoading = false;
+                            _historyDetailError = null;
+                          }),
+                          child: Text(l10n.back),
+                        ),
+                      ),
+                    const Divider(height: 1),
+                    Expanded(
+                      child: _historyDetailLoading
+                          ? const Center(child: CircularProgressIndicator())
+                          : _selectedRun != null && _historyDetailError != null
+                          ? Center(child: Text(l10n.historyLoadError))
+                          : visible.isEmpty
+                          ? Center(
+                              child: Text(
+                                _selectedRun == null
+                                    ? (widget.logs.isEmpty
+                                          ? l10n.noLogs
+                                          : l10n.noFilteredLogs)
+                                    : (_selectedRun!.eventCount == 0
+                                          ? l10n.noLogs
+                                          : l10n.noFilteredLogs),
                               ),
                             )
-                          : null,
-                      child: Text(l10n.previousPage),
+                          : ListView.separated(
+                              itemCount: visible.length,
+                              separatorBuilder: (_, _) =>
+                                  const Divider(height: 1),
+                              itemBuilder: (context, index) {
+                                final item = visible[index];
+                                return Padding(
+                                  padding: EdgeInsets.symmetric(
+                                    horizontal: typography.spacingSm,
+                                    vertical: typography.spacingS,
+                                  ),
+                                  child: _logRow(
+                                    context,
+                                    item,
+                                    l10n,
+                                    typography,
+                                  ),
+                                );
+                              },
+                            ),
                     ),
-                    TextButton(
-                      onPressed: _historyHasNext
-                          ? () => unawaited(
-                              _loadHistoryPage(
-                                _selectedRun!,
-                                page: _historyPage + 1,
-                              ),
-                            )
-                          : null,
-                      child: Text(l10n.nextPage),
-                    ),
+                    if (_selectedRun != null)
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          TextButton(
+                            onPressed: _historyPage > 0
+                                ? () => unawaited(
+                                    _loadHistoryPage(
+                                      _selectedRun!,
+                                      page: _historyPage - 1,
+                                    ),
+                                  )
+                                : null,
+                            child: Text(l10n.previousPage),
+                          ),
+                          TextButton(
+                            onPressed: _historyHasNext
+                                ? () => unawaited(
+                                    _loadHistoryPage(
+                                      _selectedRun!,
+                                      page: _historyPage + 1,
+                                    ),
+                                  )
+                                : null,
+                            child: Text(l10n.nextPage),
+                          ),
+                        ],
+                      ),
                   ],
                 ),
-            ],
-          ],
-        ),
+              ),
+            ),
+        ],
       ),
     );
   }
