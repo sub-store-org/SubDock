@@ -1847,34 +1847,21 @@ class _OverviewPage extends StatelessWidget {
         ],
       ),
     );
-    final httpMetaIdentity = ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 160),
-      child: Row(
-        children: [
-          Icon(Icons.circle, size: 10, color: httpMetaColor),
-          SizedBox(width: typography.spacingS),
-          Flexible(child: Text('HTTP-META', style: typography.titleMedium)),
-        ],
-      ),
+    final httpMetaIdentity = Row(
+      key: const ValueKey('overview-http-meta-hero-top'),
+      children: [
+        Icon(Icons.circle, size: 10, color: httpMetaColor),
+        SizedBox(width: typography.spacingS),
+        Flexible(child: Text('HTTP-META', style: typography.titleMedium)),
+      ],
     );
-    final httpMetaBadge = _OverviewBadge(text: l10n.httpMetaBundled);
     final httpMetaPanel = _SurfacePanel(
       key: const ValueKey('overview-http-meta-hero'),
       radius: typography.radiusLg,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Flex(
-            key: const ValueKey('overview-http-meta-hero-top'),
-            direction: compact ? Axis.vertical : Axis.horizontal,
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              compact ? httpMetaIdentity : Flexible(child: httpMetaIdentity),
-              if (compact) SizedBox(height: typography.spacingXs),
-              compact ? httpMetaBadge : Flexible(child: httpMetaBadge),
-            ],
-          ),
+          httpMetaIdentity,
           SizedBox(height: typography.spacingS),
           Wrap(
             spacing: typography.spacingMd,

@@ -10,6 +10,7 @@ import 'package:flutter/material.dart'
         Clip,
         ClipRRect,
         Column,
+        ConstrainedBox,
         Container,
         CrossAxisAlignment,
         DropdownButton,
@@ -17,6 +18,7 @@ import 'package:flutter/material.dart'
         FilledButton,
         Flex,
         FilterChip,
+        Flexible,
         FontWeight,
         IconButton,
         Locale,
@@ -1185,11 +1187,25 @@ void main() {
           .direction,
       Axis.vertical,
     );
-    // http-meta 状态行是响应式 Wrap（水平/窄屏都不溢出），非 Flex。
-    expect(
+    // http-meta 身份行是左对齐 Row（无徽章、无 Flexible 右列）。
+    final httpMetaTop = tester.widget<Row>(
       find.byKey(const ValueKey('overview-http-meta-hero-top')),
-      findsOneWidget,
     );
+    expect(httpMetaTop.children.length, 3);
+    // 徽章移除后无空 Flexible 占位残留：唯一 Flexible 承载标签文本。
+    for (final flexible in httpMetaTop.children.whereType<Flexible>()) {
+      expect(flexible.child, isA<Text>());
+    }
+    // 标签不再受 ConstrainedBox(maxWidth: 160) 约束。
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('overview-http-meta-hero-top')),
+        matching: find.byType(ConstrainedBox),
+      ),
+      findsNothing,
+    );
+    // 「随 SubDock 提供」徽章只在 Updates 页，Overview hero 无徽章。
+    expect(find.text('随 SubDock 提供'), findsNothing);
 
     await tester.scrollUntilVisible(
       find.byKey(const ValueKey('overview-stats')),
@@ -1230,13 +1246,15 @@ void main() {
           .direction,
       Axis.horizontal,
     );
+    // http-meta 身份行是左对齐 Row，不随断点改变方向。
     expect(
       tester
-          .widget<Flex>(
+          .widget<Row>(
             find.byKey(const ValueKey('overview-http-meta-hero-top')),
           )
-          .direction,
-      Axis.horizontal,
+          .children
+          .length,
+      3,
     );
     final heroGrid = tester.widget<Flex>(
       find.byKey(const ValueKey('overview-hero-grid')),
@@ -1272,6 +1290,21 @@ void main() {
 
     expect(find.byKey(const ValueKey('overview-backend-hero')), findsOneWidget);
     expect(find.text('fixture-backend'), findsOneWidget);
+    // 去徽章后 hero 仍显示标签与端口/状态 meta（R7）。
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('overview-http-meta-hero')),
+        matching: find.text('HTTP-META'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('overview-http-meta-hero')),
+        matching: find.textContaining('端口 9876'),
+      ),
+      findsOneWidget,
+    );
     // HTTP-META 版本不再在 Overview 显示（只显示健康状态）。
     expect(find.text('1.3.0'), findsNothing);
     expect(
@@ -1403,6 +1436,21 @@ void main() {
       find.descendant(
         of: find.byKey(const ValueKey('updates-packaged-http-meta')),
         matching: find.text('1.3.0'),
+      ),
+      findsOneWidget,
+    );
+    // HTTP-META tile 仍带「随 SubDock 提供」徽章与独立运行状态（R5、R7）。
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('updates-packaged-http-meta')),
+        matching: find.text('Ships with SubDock'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('updates-packaged-http-meta')),
+        matching: find.textContaining('Running on port'),
       ),
       findsOneWidget,
     );
