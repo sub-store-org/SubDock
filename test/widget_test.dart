@@ -21,11 +21,13 @@ import 'package:flutter/material.dart'
         Flexible,
         FontWeight,
         IconButton,
+        InputDecorator,
         Locale,
         Material,
         ListTile,
         ListView,
         OutlinedButton,
+        OutlineInputBorder,
         Row,
         Expanded,
         RoundedRectangleBorder,
@@ -528,6 +530,26 @@ void main() {
     final toolbarTop = tester.getTopLeft(find.byWidget(toolbarBlock)).dy;
     expect(toolbarTop, lessThan(tester.getTopLeft(surface).dy));
 
+    // Toolbar and list card share the page padding's edges: neither is
+    // indented inside the other.
+    final toolbarLeft = tester.getRect(find.byWidget(toolbarBlock)).left;
+    final listCardLeft = tester.getRect(surface).left;
+    expect((toolbarLeft - listCardLeft).abs(), lessThan(0.5));
+
+    // The search field is an inner control at the 8px radius token, not the
+    // 12px card radius. TextField.decoration is pre-theme-merge, so read the
+    // decoration the field actually renders.
+    final searchBorder = tester.widget<InputDecorator>(
+      find.descendant(
+        of: find.byKey(const ValueKey('logs-search')),
+        matching: find.byType(InputDecorator),
+      ),
+    ).decoration.enabledBorder as OutlineInputBorder;
+    expect(
+      searchBorder.borderRadius,
+      BorderRadius.circular(8),
+    );
+
     // Desktop rows keep a single layer of padding, owned by the list.
     final row = find.byKey(const ValueKey('logs-desktop-row')).first;
     expect(row, findsOneWidget);
@@ -662,6 +684,108 @@ void main() {
     await tester.pump();
     expect(find.text('http meta fixture'), findsNothing);
     expect(find.text('backend fixture'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('logs page geometry holds across the 599 to 600 breakpoint', (
+    WidgetTester tester,
+  ) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final runtime = _FakeBackendRuntime();
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    await tester.binding.setSurfaceSize(const Size(599, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      SubDockApp(
+        coordinator: AppCoordinator(
+          runtime: runtime,
+          environmentStore: BackendEnvStore(directories!),
+        ),
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('zh'),
+      ),
+    );
+    for (final message in const [
+      'mobile fixture',
+      'http meta fixture',
+      'desktop fixture',
+    ]) {
+      runtime.emitLog(
+        RuntimeLog(
+          timestamp: DateTime.utc(2026, 9, 13, 4, 30),
+          source: RuntimeLogSource.stdout,
+          message: message,
+        ),
+      );
+    }
+    await tester.tap(find.byKey(const ValueKey('nav-item-logs')));
+    await tester.pump();
+
+    // Both tiers split the toolbar from the list card, and the toolbar keeps
+    // the card's left and right edges.
+    void expectToolbarAlignedToCard() {
+      final toolbar = tester.widget<Column>(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget.key == const ValueKey('logs-desktop-toolbar') ||
+              widget.key == const ValueKey('logs-mobile-toolbar'),
+        ),
+      );
+      final toolbarRect = tester.getRect(find.byWidget(toolbar));
+      final surface = tester.getRect(
+        find.byKey(const ValueKey('logs-surface')),
+      );
+      expect((toolbarRect.left - surface.left).abs(), lessThan(0.5));
+      expect((toolbarRect.right - surface.right).abs(), lessThan(0.5));
+      expect(
+        (tester.getRect(find.byKey(const ValueKey('logs-search'))).left -
+                surface.left)
+            .abs(),
+        lessThan(0.5),
+      );
+      final listCard = tester.widget<Material>(
+        find.descendant(
+          of: find.byKey(const ValueKey('logs-surface')),
+          matching: find.byType(Material),
+        ).first,
+      );
+      expect(
+        (listCard.shape! as RoundedRectangleBorder).borderRadius,
+        BorderRadius.circular(12),
+      );
+    }
+
+    // 599px: the compact toolbar inside the mobile padding layer.
+    expect(find.byKey(const ValueKey('logs-mobile-toolbar')), findsOneWidget);
+    expect(
+      tester.widget<Padding>(find.byKey(const ValueKey('logs-body'))).padding,
+      const EdgeInsets.only(top: 12, left: 12, right: 12, bottom: 24),
+    );
+    expect(find.byKey(const ValueKey('logs-mobile-row')), findsNWidgets(3));
+    expectToolbarAlignedToCard();
+
+    // 600px: the desktop toolbar inside the uniform page padding layer, with
+    // the same edges and the same card radius.
+    await tester.binding.setSurfaceSize(const Size(600, 700));
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('logs-desktop-toolbar')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('logs-mobile-toolbar')), findsNothing);
+    expect(
+      tester.widget<Padding>(find.byKey(const ValueKey('logs-body'))).padding,
+      const EdgeInsets.all(24),
+    );
+    expect(find.byKey(const ValueKey('logs-desktop-row')), findsNWidgets(3));
+    expect(find.byKey(const ValueKey('logs-mobile-row')), findsNothing);
+    expectToolbarAlignedToCard();
+    expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -1558,6 +1682,20 @@ void main() {
     );
     expect(tileTop.elementAt(1), tileTop.first);
     expect(tileTop.elementAt(2), tileTop.first);
+
+    // 说明文字与 tile 共享外层卡片的单一左边缘，不被二次内缩。
+    final descriptionLeft = tester
+        .getRect(
+          find.descendant(
+            of: packagedSection,
+            matching: find.textContaining('not replaced independently'),
+          ),
+        )
+        .left;
+    final firstTileLeft = tester
+        .getTopLeft(find.byKey(const ValueKey('updates-packaged-http-meta')))
+        .dx;
+    expect((descriptionLeft - firstTileLeft).abs(), lessThan(0.5));
 
     // tile 圆角为 10px（R2 例外），不再用 8px。
     final tileCard = tester.widget<Material>(
@@ -3503,6 +3641,43 @@ void main() {
       find.byKey(const ValueKey('settings-desktop-behavior')),
     );
     expect(aboutTileTop - desktopCard.bottom, 24);
+
+    // Cards, section titles and the About tile all share the content column's
+    // single left edge — no element is indented inside the 960px container.
+    final homeEdges = <double>[];
+    for (final key in const [
+      'settings-appearance',
+      'settings-runtime',
+      'settings-desktop-behavior',
+      'settings-card-about',
+    ]) {
+      homeEdges.add(tester.getRect(find.byKey(ValueKey(key))).left);
+    }
+    for (final heading in homeSectionHeadings) {
+      homeEdges.add(tester.getRect(find.text(heading)).left);
+    }
+    for (final left in homeEdges) {
+      expect((left - homeEdges.first).abs(), lessThan(0.5));
+    }
+
+    // Outer section cards use the shared 12px card radius, distinct from the
+    // 8px control radius used inside them.
+    for (final key in const [
+      'settings-appearance',
+      'settings-runtime',
+      'settings-desktop-behavior',
+    ]) {
+      final card = tester.widget<Material>(
+        find.descendant(
+          of: find.byKey(ValueKey(key)),
+          matching: find.byType(Material),
+        ).first,
+      );
+      expect(
+        (card.shape! as RoundedRectangleBorder).borderRadius,
+        BorderRadius.circular(12),
+      );
+    }
 
     // Backend Config sub-page: the heading is outside the card and rows are
     // 16h + 12v.
