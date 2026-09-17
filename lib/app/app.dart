@@ -29,6 +29,9 @@ import 'embedded_webview.dart';
 import 'runtime_observations.dart';
 
 const navigationBreakpoint = 600.0;
+// R2 例外：Updates「随 SubDock 提供」资源 tile 与 Updates notice 的圆角固定
+// 10px，对齐草图 .bundle-item / .notice，不随共享 token 缩放。
+const double _updatesBundleRadius = 10;
 final _notMaximized = ValueNotifier<bool>(false);
 
 Future<bool> _launchExternalUri(Uri uri) =>
@@ -4243,6 +4246,40 @@ class _UpdatesPageState extends State<_UpdatesPage> {
         widget.state.status == RuntimeStatus.stopping;
     final stopped = widget.state.status == RuntimeStatus.stopped;
 
+    final packagedTiles = <Widget>[
+      _PackagedResourceTile(
+        key: const ValueKey('updates-packaged-http-meta'),
+        name: 'HTTP-META',
+        version: widget.state.httpMetaVersion ?? '-',
+        badge: l10n.httpMetaBundled,
+        detail: _httpMetaLabel(l10n),
+      ),
+      _PackagedResourceTile(
+        key: const ValueKey('updates-packaged-mihomo'),
+        name: l10n.mihomo,
+        version: widget.state.httpMetaMihomoVersion ?? '-',
+        badge: l10n.httpMetaResource,
+      ),
+      _PackagedResourceTile(
+        key: const ValueKey('updates-packaged-node'),
+        name: l10n.nodeJsRuntime,
+        version: widget.info?.nodeVersion ?? '-',
+        badge: l10n.httpMetaBundled,
+      ),
+    ];
+    final packagedTilesRow = <Widget>[
+      for (var index = 0; index < packagedTiles.length; index++) ...<Widget>[
+        if (index > 0) SizedBox(width: typography.spacingSm),
+        Expanded(child: packagedTiles[index]),
+      ],
+    ];
+    final packagedTilesColumn = <Widget>[
+      for (var index = 0; index < packagedTiles.length; index++) ...<Widget>[
+        if (index > 0) SizedBox(height: typography.spacingSm),
+        packagedTiles[index],
+      ],
+    ];
+
     return SingleChildScrollView(
       key: const ValueKey('updates-list'),
       padding: compact
@@ -4259,7 +4296,7 @@ class _UpdatesPageState extends State<_UpdatesPage> {
           if (!stopped) ...[
             _SurfacePanel(
               key: const ValueKey('updates-backend-notice'),
-              radius: typography.radiusLg,
+              radius: _updatesBundleRadius,
               borderColor: colors.warning,
               child: Flex(
                 key: const ValueKey('updates-backend-notice-layout'),
@@ -4344,44 +4381,36 @@ class _UpdatesPageState extends State<_UpdatesPage> {
           ),
           SizedBox(height: typography.spacingLg),
           Text(l10n.packagedWithSubDock, style: typography.titleMedium),
-          SizedBox(height: typography.spacingXs),
-          Text(l10n.packagedResourcesDescription, style: typography.bodySmall),
           SizedBox(height: typography.spacingSm),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final width = compact
-                  ? constraints.maxWidth
-                  : (constraints.maxWidth - typography.spacingSm * 2) / 3;
-              return Wrap(
-                key: const ValueKey('updates-packaged-grid'),
-                spacing: typography.spacingSm,
-                runSpacing: typography.spacingSm,
-                children: [
-                  _PackagedResourceTile(
-                    key: const ValueKey('updates-packaged-http-meta'),
-                    width: width,
-                    name: 'HTTP-META',
-                    version: widget.state.httpMetaVersion ?? '-',
-                    badge: l10n.httpMetaBundled,
-                    detail: _httpMetaLabel(l10n),
+          _SurfacePanel(
+            key: const ValueKey('updates-packaged-section'),
+            radius: typography.radiusLg,
+            padding: EdgeInsets.all(typography.spacingSm),
+            child: Column(
+              key: const ValueKey('updates-packaged-section-layout'),
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  l10n.packagedResourcesDescription,
+                  style: typography.bodySmall,
+                ),
+                SizedBox(height: typography.spacingSm),
+                if (compact)
+                  Column(
+                    key: const ValueKey('updates-packaged-grid'),
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: packagedTilesColumn,
+                  )
+                else
+                  IntrinsicHeight(
+                    child: Row(
+                      key: const ValueKey('updates-packaged-grid'),
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: packagedTilesRow,
+                    ),
                   ),
-                  _PackagedResourceTile(
-                    key: const ValueKey('updates-packaged-mihomo'),
-                    width: width,
-                    name: l10n.mihomo,
-                    version: widget.state.httpMetaMihomoVersion ?? '-',
-                    badge: l10n.httpMetaResource,
-                  ),
-                  _PackagedResourceTile(
-                    key: const ValueKey('updates-packaged-node'),
-                    width: width,
-                    name: l10n.nodeJsRuntime,
-                    version: widget.info?.nodeVersion ?? '-',
-                    badge: l10n.httpMetaBundled,
-                  ),
-                ],
-              );
-            },
+              ],
+            ),
           ),
         ],
       ),
@@ -4392,14 +4421,12 @@ class _UpdatesPageState extends State<_UpdatesPage> {
 class _PackagedResourceTile extends StatelessWidget {
   const _PackagedResourceTile({
     super.key,
-    required this.width,
     required this.name,
     required this.version,
     required this.badge,
     this.detail,
   });
 
-  final double width;
   final String name;
   final String version;
   final String badge;
@@ -4410,11 +4437,11 @@ class _PackagedResourceTile extends StatelessWidget {
     final colors = Theme.of(context).extension<AppColors>()!;
     final typography = Theme.of(context).extension<AppTypography>()!;
     return SizedBox(
-      width: width,
+      width: double.infinity,
       child: Material(
         color: colors.surfaceLowest,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(typography.radiusMd),
+          borderRadius: BorderRadius.circular(_updatesBundleRadius),
           side: BorderSide(color: colors.divider),
         ),
         child: Padding(

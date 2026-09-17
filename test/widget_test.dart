@@ -11,6 +11,7 @@ import 'package:flutter/material.dart'
         ClipRRect,
         Column,
         Container,
+        CrossAxisAlignment,
         DropdownButton,
         Flex,
         FilterChip,
@@ -21,6 +22,7 @@ import 'package:flutter/material.dart'
         ListTile,
         ListView,
         OutlinedButton,
+        Row,
         Expanded,
         RoundedRectangleBorder,
         SelectableText,
@@ -1415,6 +1417,101 @@ void main() {
       ),
       findsNothing,
     );
+
+    final packagedSection = find.byKey(const ValueKey('updates-packaged-section'));
+    expect(packagedSection, findsOneWidget);
+    // 「随 SubDock 提供」是外层卡片：12px 圆角。
+    final sectionRadius = tester.widget<Material>(
+      find.descendant(
+        of: packagedSection,
+        matching: find.byType(Material),
+      ).first,
+    ).shape! as RoundedRectangleBorder;
+    expect(
+      sectionRadius.borderRadius,
+      BorderRadius.circular(12),
+    );
+    // 卡片只有一层内边距：直接子是 section 内容列，不额外夹在 tile 之间。
+    final sectionPanelPadding = tester.widget<Padding>(
+      find.descendant(
+        of: packagedSection,
+        matching: find.byType(Padding),
+      ).first,
+    );
+    expect(
+      sectionPanelPadding.padding,
+      const EdgeInsets.all(12),
+    );
+    expect(
+      sectionPanelPadding.child,
+      isA<Column>().having(
+        (column) => column.key,
+        'key',
+        const ValueKey('updates-packaged-section-layout'),
+      ),
+    );
+    expect(
+      find.descendant(
+        of: packagedSection,
+        matching: find.textContaining('not replaced independently'),
+      ),
+      findsOneWidget,
+    );
+    // 三个 tile 桌面同一行、同宽、等高（HTTP-META 带说明行）。
+    final packagedGrid = tester.widget<Row>(
+      find.byKey(const ValueKey('updates-packaged-grid')),
+    );
+    expect(
+      packagedGrid.crossAxisAlignment,
+      CrossAxisAlignment.stretch,
+    );
+    const tileKeys = [
+      ValueKey('updates-packaged-http-meta'),
+      ValueKey('updates-packaged-mihomo'),
+      ValueKey('updates-packaged-node'),
+    ];
+    final tileSizes = <double>[];
+    for (final key in tileKeys) {
+      expect(
+        find.descendant(of: packagedSection, matching: find.byKey(key)),
+        findsOneWidget,
+      );
+      final topLeft = tester.getTopLeft(find.byKey(key));
+      final bottomLeft = tester.getBottomLeft(find.byKey(key));
+      expect(bottomLeft.dy, greaterThan(topLeft.dy));
+      tileSizes.add(tester.getSize(find.byKey(key)).height);
+    }
+    expect(tileSizes.length, 3);
+    expect(tileSizes.toSet().length, 1);
+    final httpMetaTile = tester.getSize(
+      find.byKey(const ValueKey('updates-packaged-http-meta')),
+    );
+    final mihomoTile = tester.getSize(find.byKey(const ValueKey('updates-packaged-mihomo')));
+    final nodeTile = tester.getSize(find.byKey(const ValueKey('updates-packaged-node')));
+    expect(mihomoTile.width, httpMetaTile.width);
+    expect(nodeTile.width, httpMetaTile.width);
+    final tileDx = tileKeys.map(
+      (key) => tester.getTopLeft(find.byKey(key)).dx,
+    );
+    expect(tileDx.elementAt(1), greaterThan(tileDx.first));
+    expect(tileDx.elementAt(2), greaterThan(tileDx.elementAt(1)));
+    final tileTop = tileKeys.map(
+      (key) => tester.getTopLeft(find.byKey(key)).dy,
+    );
+    expect(tileTop.elementAt(1), tileTop.first);
+    expect(tileTop.elementAt(2), tileTop.first);
+
+    // tile 圆角为 10px（R2 例外），不再用 8px。
+    final tileCard = tester.widget<Material>(
+      find.descendant(
+        of: find.byKey(const ValueKey('updates-packaged-http-meta')),
+        matching: find.byType(Material),
+      ),
+    );
+    expect(
+      (tileCard.shape! as RoundedRectangleBorder).borderRadius,
+      BorderRadius.circular(10),
+    );
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -1448,6 +1545,17 @@ void main() {
     expect(updates.checkCalls[ComponentKind.backend], 1);
     expect(updates.checkCalls[ComponentKind.frontend], 1);
     expect(find.byKey(const ValueKey('settings-child-save')), findsNothing);
+    // Updates notice 圆角为 10px（R2 第二个例外），不再用 12px。
+    final backendNotice = tester.widget<Material>(
+      find.descendant(
+        of: find.byKey(const ValueKey('updates-backend-notice')),
+        matching: find.byType(Material),
+      ).first,
+    );
+    expect(
+      (backendNotice.shape! as RoundedRectangleBorder).borderRadius,
+      BorderRadius.circular(10),
+    );
     expect(
       find.byKey(const ValueKey('component-update-local-status-backend')),
       findsOneWidget,
@@ -3445,6 +3553,45 @@ void main() {
       findsOneWidget,
     );
     expect(find.byKey(const ValueKey('updates-packaged-grid')), findsOneWidget);
+    // 窄屏三个 tile 单列，顺序 HTTP-META → Mihomo → Node。
+    final mobileGrid = tester.widget<Column>(
+      find.byKey(const ValueKey('updates-packaged-grid')),
+    );
+    expect(mobileGrid.crossAxisAlignment, CrossAxisAlignment.stretch);
+    final mobileTileWidths = <double>[];
+    final mobileTileLeft = <double>[];
+    var mobileTileTop = 0.0;
+    for (final key in const [
+      ValueKey('updates-packaged-http-meta'),
+      ValueKey('updates-packaged-mihomo'),
+      ValueKey('updates-packaged-node'),
+    ]) {
+      final size = tester.getSize(find.byKey(key));
+      final topLeft = tester.getTopLeft(find.byKey(key));
+      expect(topLeft.dy, greaterThan(mobileTileTop));
+      mobileTileTop = topLeft.dy;
+      mobileTileWidths.add(size.width);
+      mobileTileLeft.add(topLeft.dx);
+    }
+    expect(mobileTileWidths.elementAt(1), mobileTileWidths.first);
+    expect(mobileTileWidths.elementAt(2), mobileTileWidths.first);
+    // 单列：三个 tile 左对齐且宽度一致。
+    expect(mobileTileLeft.elementAt(1), mobileTileLeft.first);
+    expect(mobileTileLeft.elementAt(2), mobileTileLeft.first);
+    // 三个 tile 同属外层卡片。
+    for (final key in const [
+      ValueKey('updates-packaged-http-meta'),
+      ValueKey('updates-packaged-mihomo'),
+      ValueKey('updates-packaged-node'),
+    ]) {
+      expect(
+        find.ancestor(
+          of: find.byKey(key),
+          matching: find.byKey(const ValueKey('updates-packaged-section')),
+        ),
+        findsOneWidget,
+      );
+    }
     expect(
       find.byKey(const ValueKey('component-release-notes-frontend')),
       findsOneWidget,
