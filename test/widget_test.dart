@@ -521,10 +521,12 @@ void main() {
       findsNothing,
     );
     final toolbarBlock = tester.widget<Column>(toolbar);
-    final toolbarPadding = tester.widget<Padding>(
-      find.ancestor(of: toolbar, matching: find.byType(Padding)).first,
+    // 页面级 padding 在 logs-body 上（桌面 24，窄屏 12/12/12/24）；工具栏自身
+    // 下方的 8px 间距是 diff 引入的内部细节，直接断言它无法防回归。
+    final pagePadding = tester.widget<Padding>(
+      find.byKey(const ValueKey('logs-body')),
     );
-    expect(toolbarPadding.padding, const EdgeInsets.only(bottom: 8));
+    expect(pagePadding.padding, const EdgeInsets.all(24));
     final toolbarTop = tester.getTopLeft(find.byWidget(toolbarBlock)).dy;
     expect(toolbarTop, lessThan(tester.getTopLeft(surface).dy));
 
