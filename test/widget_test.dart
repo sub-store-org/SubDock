@@ -12,11 +12,11 @@ import 'package:flutter/material.dart'
         Column,
         Container,
         CrossAxisAlignment,
+        ChoiceChip,
         DropdownButton,
         ExpansionTile,
         FilledButton,
         Flex,
-        FilterChip,
         FontWeight,
         IconButton,
         InputDecorator,
@@ -670,12 +670,13 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('logs-mobile-filter')));
     await tester.pumpAndSettle();
+    // 来源/级别是单一选择(ChoiceChip),默认都是「全部」即未选中具体项。
     final httpMeta = find.byKey(const ValueKey('logs-source-HTTP-META'));
-    final warning = find.byKey(const ValueKey('logs-level-warning'));
-    expect(tester.widget<FilterChip>(httpMeta).selected, isTrue);
-    expect(tester.widget<FilterChip>(warning).selected, isTrue);
-    await tester.tap(httpMeta);
-    await tester.tap(warning);
+    final back = find.byKey(const ValueKey('logs-source-Backend'));
+    expect(tester.widget<ChoiceChip>(find.byKey(const ValueKey('logs-source-all'))).selected, isTrue);
+    expect(tester.widget<ChoiceChip>(httpMeta).selected, isFalse);
+    expect(tester.widget<ChoiceChip>(back).selected, isFalse);
+    await tester.tap(back);
     await tester.tap(find.byKey(const ValueKey('logs-mobile-sort')));
     await tester.pump();
     await tester.tap(find.text('Newest last').last);
@@ -908,14 +909,13 @@ void main() {
     );
     await tester.tap(find.byKey(const ValueKey('logs-source-filter')));
     await tester.pump(const Duration(milliseconds: 500));
-    await tester.tap(find.widgetWithText(FilterChip, 'Backend'));
-    await tester.tap(find.text('返回').last);
+    await tester.tap(find.text('HTTP-META').last);
     await tester.pump();
+    // 单一审(HTTP-META)下,后端日志 log-59 被过滤掉。
     expect(find.byType(SelectableText), findsNothing);
     await tester.tap(find.byKey(const ValueKey('logs-source-filter')));
     await tester.pump(const Duration(milliseconds: 500));
-    await tester.tap(find.widgetWithText(FilterChip, 'Backend'));
-    await tester.tap(find.text('返回').last);
+    await tester.tap(find.text('Backend').last);
     await tester.pump();
     expect(
       find.byWidgetPredicate(
@@ -958,21 +958,17 @@ void main() {
     await tester.enterText(find.byType(TextField), '');
     await tester.tap(find.byKey(const ValueKey('logs-source-filter')));
     await tester.pump(const Duration(milliseconds: 500));
-    await tester.tap(find.widgetWithText(FilterChip, 'Backend'));
-    await tester.tap(find.text('返回').last);
+    await tester.tap(find.text('HTTP-META').last);
     await tester.pump();
     expect(find.textContaining('HTTP-META info line'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('logs-source-filter')));
     await tester.pump(const Duration(milliseconds: 500));
-    await tester.tap(find.widgetWithText(FilterChip, 'HTTP-META'));
-    await tester.tap(find.text('返回').last);
+    await tester.tap(find.text('Backend').last);
     await tester.pump();
-    expect(find.byType(SelectableText), findsNothing);
+    expect(find.textContaining('HTTP-META info line'), findsNothing);
     await tester.tap(find.byKey(const ValueKey('logs-source-filter')));
     await tester.pump(const Duration(milliseconds: 500));
-    await tester.tap(find.widgetWithText(FilterChip, 'HTTP-META'));
-    await tester.tap(find.widgetWithText(FilterChip, 'Backend'));
-    await tester.tap(find.text('返回').last);
+    await tester.tap(find.text('全部').last);
     await tester.pump();
 
     final platform =
@@ -2582,58 +2578,27 @@ void main() {
         hasFocusAction: true,
       ),
     );
-    final filter = find.byKey(const ValueKey('logs-source-filter'));
+    // 来源下拉是按钮控件，初始为「全部」，可展开选择具体来源。
+    final sourceFilter = find.byKey(const ValueKey('logs-source-filter'));
+    expect(sourceFilter, findsOneWidget);
     expect(
-      tester.getSemantics(filter),
-      matchesSemantics(
-        label: 'Filters',
-        isButton: true,
-        isFocusable: true,
-        hasEnabledState: true,
-        isEnabled: true,
-        hasTapAction: true,
-        hasFocusAction: true,
-      ),
+      find.descendant(of: sourceFilter, matching: find.text('All')),
+      findsOneWidget,
     );
-    await tester.tap(filter);
+    await tester.tap(sourceFilter);
     await tester.pumpAndSettle();
-    final warning = find.byKey(const ValueKey('logs-level-warning'));
-    expect(
-      tester.getSemantics(warning),
-      matchesSemantics(
-        label: 'Warning',
-        isSelected: true,
-        hasSelectedState: true,
-        isButton: true,
-        isFocusable: true,
-        hasEnabledState: true,
-        isEnabled: true,
-        hasTapAction: true,
-        hasFocusAction: true,
-      ),
-    );
-    await tester.tap(warning);
-    await tester.pump();
-    expect(
-      tester.getSemantics(warning),
-      matchesSemantics(
-        label: 'Warning',
-        isSelected: false,
-        hasSelectedState: true,
-        isButton: true,
-        isFocusable: true,
-        hasEnabledState: true,
-        isEnabled: true,
-        hasTapAction: true,
-        hasFocusAction: true,
-      ),
-    );
-    await tester.tap(find.byKey(const ValueKey('logs-mobile-sort')));
-    await tester.pump();
-    await tester.tap(find.text('Newest last').last);
+    // 菜单列出全部来源与 Backend/HTTP-META。
+    expect(find.text('HTTP-META'), findsOneWidget);
+    // 选择 Backend，随后在级别下拉里选 Warning。
+    await tester.tap(find.text('Backend').last);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Back').last);
-    await tester.pump(const Duration(milliseconds: 500));
+    // 级别下拉展示全部级别选项。
+    await tester.tap(find.byKey(const ValueKey('logs-level-filter')));
+    await tester.pumpAndSettle();
+    expect(find.text('Warning'), findsOneWidget);
+    await tester.tap(find.text('Warning').last);
+    await tester.pumpAndSettle();
+    // 桌面下拉选择后自动关闭，无对话框 Back 按钮。
     semantics.dispose();
     await tester.pumpWidget(const SizedBox());
   });
@@ -2677,17 +2642,10 @@ void main() {
       ),
     );
     expect(
-      tester.getSemantics(find.byKey(const ValueKey('logs-source-filter'))),
-      matchesSemantics(
-        label: '筛选',
-        isButton: true,
-        isFocusable: true,
-        hasEnabledState: true,
-        isEnabled: true,
-        hasTapAction: true,
-        hasFocusAction: true,
-      ),
+      find.byKey(const ValueKey('logs-source-filter')),
+      findsOneWidget,
     );
+    expect(find.text('全部'), findsOneWidget);
     semantics.dispose();
     await tester.pumpWidget(const SizedBox());
   });

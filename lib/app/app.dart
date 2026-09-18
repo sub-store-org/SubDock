@@ -1593,6 +1593,76 @@ class _ManagePageState extends State<_ManagePage> {
   }
 }
 
+class _LogToolbarDropdown<T> extends StatelessWidget {
+  const _LogToolbarDropdown({
+    super.key,
+    required this.hint,
+    required this.options,
+    required this.value,
+    required this.itemLabel,
+    required this.onChanged,
+    this.includeAll = false,
+    this.allLabel,
+  });
+
+  final String hint;
+  final List<T> options;
+  final T? value;
+  final String Function(T item) itemLabel;
+  final ValueChanged<T?> onChanged;
+  final bool includeAll;
+  final String? allLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final typography = Theme.of(context).extension<AppTypography>()!;
+    final items = <DropdownMenuItem<T?>>[];
+    if (includeAll) {
+      items.add(
+        DropdownMenuItem<T?>(
+          value: null,
+          child: Text(allLabel ?? hint),
+        ),
+      );
+    }
+    for (final option in options) {
+      items.add(
+        DropdownMenuItem<T?>(
+          value: option,
+          child: Text(itemLabel(option), overflow: TextOverflow.ellipsis),
+        ),
+      );
+    }
+    return InputDecorator(
+          decoration: InputDecoration(
+            // 与搜索框(48px)等高:下拉框内部采用稍高的垂直内边距,触控高度不再局促。
+            contentPadding: EdgeInsets.symmetric(vertical: typography.spacingSm),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: Semantics(
+              label: hint,
+              button: true,
+              child: DropdownButton<T?>(
+                value: value,
+                isExpanded: true,
+                isDense: true,
+                hint: Text(
+                  value == null
+                      ? (allLabel ?? hint)
+                      : itemLabel(value as T),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                items: items,
+                onChanged: (v) {
+                  if (v != null || includeAll) onChanged(v);
+                },
+              ),
+            ),
+          ),
+        );
+  }
+}
+
 class _SurfacePanel extends StatelessWidget {
   const _SurfacePanel({
     super.key,
@@ -2179,8 +2249,9 @@ class _LogsPage extends StatefulWidget {
 class _LogsPageState extends State<_LogsPage> {
   final _query = TextEditingController();
   final _historyScroll = ScrollController();
-  var _sources = <String>{'Backend', 'HTTP-META'};
-  var _levels = Set<_LogLevel>.of(_LogLevel.values);
+  // 来源/级别用单一选择(null = 全部),配合桌面三个独立下拉框。
+  String? _source;
+  _LogLevel? _level;
   var _mode = _LogsMode.current;
   var _historyListLoading = false;
   Object? _historyListError;
@@ -2200,8 +2271,8 @@ class _LogsPageState extends State<_LogsPage> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.entryGeneration != widget.entryGeneration) {
       _query.clear();
-      _sources = {'Backend', 'HTTP-META'};
-      _levels = Set<_LogLevel>.of(_LogLevel.values);
+      _source = null;
+      _level = null;
       _mode = _LogsMode.current;
       _selectedRun = null;
       _historyGeneration++;
@@ -2413,23 +2484,19 @@ class _LogsPageState extends State<_LogsPage> {
   }
 
   bool _matchesLog(_ClassifiedLog item) =>
-      _sources.contains(item.source) &&
-      _levels.contains(item.level) &&
+      (_source == null || item.source == _source) &&
+      (_level == null || item.level == _level) &&
       item.log.message.toLowerCase().contains(_query.text.toLowerCase());
 
-  void _toggleSource(String source) {
-    setState(() {
-      if (!_sources.remove(source)) _sources.add(source);
-    });
+  void _setSource(String? source) {
+    setState(() => _source = source);
     if (_selectedRun != null) {
       unawaited(_loadHistoryPage(_selectedRun!, page: 0));
     }
   }
 
-  void _toggleLevel(_LogLevel level) {
-    setState(() {
-      if (!_levels.remove(level)) _levels.add(level);
-    });
+  void _setLevel(_LogLevel? level) {
+    setState(() => _level = level);
     if (_selectedRun != null) {
       unawaited(_loadHistoryPage(_selectedRun!, page: 0));
     }
@@ -2449,11 +2516,11 @@ class _LogsPageState extends State<_LogsPage> {
     final run = _selectedRun;
     if (store == null || run == null) return;
     final query = _query.text.toLowerCase();
-    final sources = Set<String>.of(_sources);
-    final levels = Set<_LogLevel>.of(_levels);
+    final source = _source;
+    final level = _level;
     bool matchesSnapshot(_ClassifiedLog item) =>
-        sources.contains(item.source) &&
-        levels.contains(item.level) &&
+        (source == null || item.source == source) &&
+        (level == null || item.level == level) &&
         item.log.message.toLowerCase().contains(query);
     final buffer = StringBuffer();
     var first = true;
@@ -2485,13 +2552,22 @@ class _LogsPageState extends State<_LogsPage> {
                 Wrap(
                   spacing: 8,
                   children: [
-                    for (final source in ['Backend', 'HTTP-META'])
-                      FilterChip(
+                    ChoiceChip(
+                      key: const ValueKey('logs-source-all'),
+                      label: Text(l10n.logAllSources),
+                      selected: _source == null,
+                      onSelected: (_) {
+                        _setSource(null);
+                        setDialogState(() {});
+                      },
+                    ),
+                    for (final source in const ['Backend', 'HTTP-META'])
+                      ChoiceChip(
                         key: ValueKey('logs-source-$source'),
                         label: Text(source),
-                        selected: _sources.contains(source),
+                        selected: _source == source,
                         onSelected: (_) {
-                          _toggleSource(source);
+                          _setSource(source);
                           setDialogState(() {});
                         },
                       ),
@@ -2502,13 +2578,22 @@ class _LogsPageState extends State<_LogsPage> {
                 Wrap(
                   spacing: 8,
                   children: [
+                    ChoiceChip(
+                      key: const ValueKey('logs-level-all'),
+                      label: Text(l10n.logAllSources),
+                      selected: _level == null,
+                      onSelected: (_) {
+                        _setLevel(null);
+                        setDialogState(() {});
+                      },
+                    ),
                     for (final level in _LogLevel.values)
-                      FilterChip(
+                      ChoiceChip(
                         key: ValueKey('logs-level-${level.name}'),
                         label: Text(_levelLabel(l10n, level)),
-                        selected: _levels.contains(level),
+                        selected: _level == level,
                         onSelected: (_) {
-                          _toggleLevel(level);
+                          _setLevel(level);
                           setDialogState(() {});
                         },
                       ),
@@ -2547,12 +2632,6 @@ class _LogsPageState extends State<_LogsPage> {
         ),
       ),
     );
-  }
-
-  String _sourceFilterLabel(AppLocalizations l10n) {
-    if (_sources.length >= 2) return '${l10n.logSources}：${l10n.logAllSources}';
-    if (_sources.length == 1) return '${l10n.logSources}：${_sources.first}';
-    return l10n.logSources;
   }
 
   String _logTime(RuntimeLog log) {
@@ -2698,7 +2777,7 @@ class _LogsPageState extends State<_LogsPage> {
             bottom: typography.spacingLg,
           )
         : EdgeInsets.all(typography.spacingLg);
-    final filterCount = _sources.length + _levels.length;
+    final filterCount = (_source == null ? 0 : 1) + (_level == null ? 0 : 1);
     return Padding(
       key: const ValueKey('logs-body'),
       padding: bodyPadding,
@@ -2760,92 +2839,53 @@ class _LogsPageState extends State<_LogsPage> {
                 else
                   Row(
                     children: [
-                      Expanded(child: _buildSearchField(l10n)),
+                      Expanded(flex: 2, child: _buildSearchField(l10n)),
                       SizedBox(width: typography.spacingSm),
-                      ConstrainedBox(
-                        constraints: const BoxConstraints(
-                          minWidth: 120,
-                          maxWidth: 180,
+                      Expanded(
+                        child: _LogToolbarDropdown<String>(
+                          key: const ValueKey('logs-source-filter'),
+                          hint: l10n.logSources,
+                          options: const ['Backend', 'HTTP-META'],
+                          value: _source,
+                          includeAll: true,
+                          allLabel: l10n.logAllSources,
+                          itemLabel: (source) => source,
+                          onChanged: _setSource,
                         ),
-                        child: InputDecorator(
-                          decoration: InputDecoration(
-                            isDense: true,
-                            contentPadding: EdgeInsets.symmetric(
-                              horizontal: typography.spacingSm,
-                              vertical: typography.spacingXs,
-                            ),
-                          ),
-                          child: Semantics(
-                            button: true,
-                            enabled: true,
-                            label: l10n.logFilters,
-                            child: InkWell(
-                              key: const ValueKey('logs-source-filter'),
-                              onTap: () => unawaited(_showFilters(l10n)),
-                              borderRadius: BorderRadius.circular(
-                                typography.radiusMd,
-                              ),
-                              child: Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Flexible(
-                                    child: ExcludeSemantics(
-                                      child: Text(
-                                        _sourceFilterLabel(l10n),
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                  ),
-                                  const ExcludeSemantics(
-                                    child: Icon(Icons.arrow_drop_down),
-                                  ),
-                                ],
-                              ),
-                            ),
+                      ),
+                      SizedBox(width: typography.spacingSm),
+                      Expanded(
+                        child: _LogToolbarDropdown<String>(
+                          key: const ValueKey('logs-level-filter'),
+                          hint: l10n.logLevels,
+                          options: [
+                            for (final level in _LogLevel.values) level.name,
+                          ],
+                          value: _level?.name,
+                          includeAll: true,
+                          allLabel: l10n.logLevels,
+                          itemLabel: (name) => _levelLabel(l10n, _LogLevel.values.byName(name)),
+                          onChanged: (name) => _setLevel(
+                            name == null ? null : _LogLevel.values.byName(name),
                           ),
                         ),
                       ),
                       SizedBox(width: typography.spacingSm),
-                      SizedBox(
-                        width: 160,
-                        child: InputDecorator(
-                          decoration: InputDecoration(
-                            isDense: true,
-                            contentPadding: EdgeInsets.symmetric(
-                              horizontal: typography.spacingSm,
-                              vertical: typography.spacingXs,
-                            ),
-                          ),
-                          child: DropdownButtonHideUnderline(
-                            child: DropdownButton<LogSort>(
-                              key: const ValueKey('logs-sort-selector'),
-                              value: widget.sort,
-                              isExpanded: true,
-                              isDense: true,
-                              items: [
-                                DropdownMenuItem(
-                                  value: LogSort.newestFirst,
-                                  child: Text(
-                                    l10n.logNewest,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                                DropdownMenuItem(
-                                  value: LogSort.newestLast,
-                                  child: Text(
-                                    l10n.logOldest,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ],
-                              onChanged: (value) {
-                                if (value != null) {
-                                  unawaited(widget.onSortChanged(value));
-                                }
-                              },
-                            ),
-                          ),
+                      Expanded(
+                        child: _LogToolbarDropdown<LogSort>(
+                          key: const ValueKey('logs-sort-selector'),
+                          hint: l10n.logSort,
+                          options: [LogSort.newestFirst, LogSort.newestLast],
+                          value: widget.sort,
+                          itemLabel: (value) =>
+                              value == LogSort.newestFirst
+                                  ? l10n.logNewest
+                                  : l10n.logOldest,
+                          onChanged: (value) {
+                            if (value != null) {
+                              unawaited(widget.onSortChanged(value));
+                            }
+                          },
                         ),
                       ),
                     ],
