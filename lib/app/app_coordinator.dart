@@ -51,9 +51,6 @@ class AppCoordinator {
 
   Uri get webUiUri {
     final frontend = _frontendOrigin.replace(path: '/');
-    if (_effectiveValue(BackendEnvPolicy.merge) != 'false') {
-      return frontend;
-    }
     return frontend.replace(queryParameters: {'api': webUiApiUri.toString()});
   }
 
@@ -104,7 +101,9 @@ class AppCoordinator {
   /// UI 显示的 `frontendBackendPath` 应来自 config：当 config 尚未设置该字段
   /// 且 config store 可用时，生成随机路径（`randomBackendPath`）写入 config，
   /// 之后 `EffectiveRuntimeConfig.resolve` 从 config 取值，运行时不再用 `/` 兜底。
-  Future<SubDockConfig> _initializeBackendPath(SubDockConfig configuration) async {
+  Future<SubDockConfig> _initializeBackendPath(
+    SubDockConfig configuration,
+  ) async {
     final store = configurationStore;
     if (store == null) return configuration;
     if (configuration.backend.frontendBackendPath != null) return configuration;

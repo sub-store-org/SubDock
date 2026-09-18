@@ -41,7 +41,10 @@ void main() {
 
     expect(runtime.operations, ['configuration:3002', 'start']);
     expect(coordinator.webUiUri.path, '/');
-    expect(coordinator.webUiUri.queryParameters, isEmpty);
+    expect(
+      coordinator.webUiUri.queryParameters['api'],
+      'http://127.0.0.1:3002/',
+    );
   });
 
   test(
@@ -125,7 +128,7 @@ void main() {
     );
   });
 
-  test('keeps the merged frontend URL free of API query parameters', () async {
+  test('includes the API query parameter for the merged frontend', () async {
     final temp = await Directory.systemTemp.createTemp('subdock_coordinator_');
     addTearDown(() => temp.delete(recursive: true));
     final coordinator = AppCoordinator(
@@ -137,8 +140,14 @@ void main() {
 
     await coordinator.saveEnvironment(BackendEnvDocument.parse(''));
 
-    expect(coordinator.webUiUri, Uri.parse('http://127.0.0.1:3001/'));
-    expect(coordinator.webUiUri.queryParameters, isEmpty);
+    expect(
+      coordinator.webUiUri,
+      Uri.parse('http://127.0.0.1:3001/?api=http%3A%2F%2F127.0.0.1%3A3001%2F'),
+    );
+    expect(
+      coordinator.webUiUri.queryParameters['api'],
+      'http://127.0.0.1:3001/',
+    );
   });
 
   test('first load generates a random persisted backend path', () async {
@@ -178,9 +187,7 @@ void main() {
     );
     // backend.env 携带一个旧路径；config 首次加载生成随机路径并应覆盖它。
     await coordinator.saveEnvironment(
-      BackendEnvDocument.parse(
-        'SUB_STORE_FRONTEND_BACKEND_PATH=/legacy\n',
-      ),
+      BackendEnvDocument.parse('SUB_STORE_FRONTEND_BACKEND_PATH=/legacy\n'),
     );
     await coordinator.loadEnvironment();
 
