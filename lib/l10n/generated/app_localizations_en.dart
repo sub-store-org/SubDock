@@ -309,6 +309,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get logSources => 'Sources';
 
   @override
+  String get logAllSources => 'All';
+
+  @override
   String get logLevels => 'Levels';
 
   @override
@@ -479,6 +482,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get frontendBackendPath => 'Frontend Backend Path';
+
+  @override
+  String get regenerateBackendPath => 'Regenerate';
 
   @override
   String get corsAllowedOrigins => 'CORS Allowed Origins';

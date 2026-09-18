@@ -1629,7 +1629,7 @@ class _SurfacePanel extends StatelessWidget {
 }
 
 class _OverviewBadge extends StatelessWidget {
-  const _OverviewBadge({required this.text, this.color});
+  const _OverviewBadge({super.key, required this.text, this.color});
 
   final String text;
   final Color? color;
@@ -1847,8 +1847,15 @@ class _OverviewPage extends StatelessWidget {
         ],
       ),
     );
+    final httpMetaBadge = _OverviewBadge(
+      key: const ValueKey('overview-http-meta-badge'),
+      text: state.httpMetaStatus == HttpMetaStatus.running
+          ? l10n.healthy
+          : httpMetaLabel,
+      color: httpMetaColor,
+    );
     final httpMetaIdentity = Row(
-      key: const ValueKey('overview-http-meta-hero-top'),
+      mainAxisSize: MainAxisSize.min,
       children: [
         Icon(Icons.circle, size: 10, color: httpMetaColor),
         SizedBox(width: typography.spacingS),
@@ -1861,17 +1868,30 @@ class _OverviewPage extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          httpMetaIdentity,
+          Flex(
+            key: const ValueKey('overview-http-meta-hero-top'),
+            direction: compact ? Axis.vertical : Axis.horizontal,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              compact ? httpMetaIdentity : Flexible(child: httpMetaIdentity),
+              if (compact) SizedBox(height: typography.spacingXs),
+              compact ? httpMetaBadge : Flexible(child: httpMetaBadge),
+            ],
+          ),
+          SizedBox(height: typography.spacingS),
+          Text(
+            state.httpMetaPort == null ? '-' : '${state.httpMetaPort}',
+            style: typography.titleLarge.copyWith(
+              fontSize: compact ? 24 : 28,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
           SizedBox(height: typography.spacingS),
           Wrap(
             spacing: typography.spacingMd,
             runSpacing: typography.spacingXs,
             children: [
-              if (state.httpMetaPort != null)
-                _OverviewMeta(
-                  label: l10n.port,
-                  value: '${state.httpMetaPort}',
-                ),
               _OverviewMeta(label: l10n.status, value: httpMetaLabel),
             ],
           ),
@@ -1914,22 +1934,27 @@ class _OverviewPage extends StatelessWidget {
         ),
       ],
     );
-    final heroPanels = Flex(
-      key: const ValueKey('overview-hero-grid'),
-      direction: compact ? Axis.vertical : Axis.horizontal,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (compact) ...[
-          backendPanel,
-          SizedBox(height: typography.spacingSm),
-          httpMetaPanel,
-        ] else ...[
-          Expanded(flex: 5, child: backendPanel),
-          SizedBox(width: typography.spacingSm),
-          Expanded(flex: 3, child: httpMetaPanel),
-        ],
-      ],
-    );
+    final heroPanels = compact
+        ? Flex(
+            key: const ValueKey('overview-hero-grid'),
+            direction: Axis.vertical,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              backendPanel,
+              SizedBox(height: typography.spacingSm),
+              httpMetaPanel,
+            ],
+          )
+        : Flex(
+            key: const ValueKey('overview-hero-grid'),
+            direction: Axis.horizontal,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(flex: 5, child: backendPanel),
+              SizedBox(width: typography.spacingSm),
+              Expanded(flex: 3, child: httpMetaPanel),
+            ],
+          );
     final startStat = _OverviewStatCard(
       key: const ValueKey('overview-stat-start'),
       label: l10n.recentStart,
@@ -2524,6 +2549,12 @@ class _LogsPageState extends State<_LogsPage> {
     );
   }
 
+  String _sourceFilterLabel(AppLocalizations l10n) {
+    if (_sources.length >= 2) return '${l10n.logSources}：${l10n.logAllSources}';
+    if (_sources.length == 1) return '${l10n.logSources}：${_sources.first}';
+    return l10n.logSources;
+  }
+
   String _logTime(RuntimeLog log) {
     final local = log.timestamp.toLocal();
     return '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}:${local.second.toString().padLeft(2, '0')}';
@@ -2731,31 +2762,90 @@ class _LogsPageState extends State<_LogsPage> {
                     children: [
                       Expanded(child: _buildSearchField(l10n)),
                       SizedBox(width: typography.spacingSm),
-                      OutlinedButton(
-                        key: const ValueKey('logs-source-filter'),
-                        onPressed: () => unawaited(_showFilters(l10n)),
-                        child: Text(l10n.logFilters),
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(
+                          minWidth: 120,
+                          maxWidth: 180,
+                        ),
+                        child: InputDecorator(
+                          decoration: InputDecoration(
+                            isDense: true,
+                            contentPadding: EdgeInsets.symmetric(
+                              horizontal: typography.spacingSm,
+                              vertical: typography.spacingXs,
+                            ),
+                          ),
+                          child: Semantics(
+                            button: true,
+                            enabled: true,
+                            label: l10n.logFilters,
+                            child: InkWell(
+                              key: const ValueKey('logs-source-filter'),
+                              onTap: () => unawaited(_showFilters(l10n)),
+                              borderRadius: BorderRadius.circular(
+                                typography.radiusMd,
+                              ),
+                              child: Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Flexible(
+                                    child: ExcludeSemantics(
+                                      child: Text(
+                                        _sourceFilterLabel(l10n),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ),
+                                  const ExcludeSemantics(
+                                    child: Icon(Icons.arrow_drop_down),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
                       ),
                       SizedBox(width: typography.spacingSm),
-                      DropdownButtonHideUnderline(
-                        child: DropdownButton<LogSort>(
-                          key: const ValueKey('logs-sort-selector'),
-                          value: widget.sort,
-                          items: [
-                            DropdownMenuItem(
-                              value: LogSort.newestFirst,
-                              child: Text(l10n.logNewest),
+                      SizedBox(
+                        width: 160,
+                        child: InputDecorator(
+                          decoration: InputDecoration(
+                            isDense: true,
+                            contentPadding: EdgeInsets.symmetric(
+                              horizontal: typography.spacingSm,
+                              vertical: typography.spacingXs,
                             ),
-                            DropdownMenuItem(
-                              value: LogSort.newestLast,
-                              child: Text(l10n.logOldest),
+                          ),
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<LogSort>(
+                              key: const ValueKey('logs-sort-selector'),
+                              value: widget.sort,
+                              isExpanded: true,
+                              isDense: true,
+                              items: [
+                                DropdownMenuItem(
+                                  value: LogSort.newestFirst,
+                                  child: Text(
+                                    l10n.logNewest,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                DropdownMenuItem(
+                                  value: LogSort.newestLast,
+                                  child: Text(
+                                    l10n.logOldest,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                              onChanged: (value) {
+                                if (value != null) {
+                                  unawaited(widget.onSortChanged(value));
+                                }
+                              },
                             ),
-                          ],
-                          onChanged: (value) {
-                            if (value != null) {
-                              unawaited(widget.onSortChanged(value));
-                            }
-                          },
+                          ),
                         ),
                       ),
                     ],
@@ -3567,7 +3657,13 @@ class _SettingsPageState extends State<_SettingsPage> {
                 : CrossAxisAlignment.center,
             children: [
               Expanded(flex: compact ? 0 : 1, child: details),
-              SizedBox(width: compact ? double.infinity : 280, child: control),
+              SizedBox(
+                width: compact ? double.infinity : 280,
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: control,
+                ),
+              ),
             ],
           ),
         );
@@ -3692,10 +3788,9 @@ class _SettingsPageState extends State<_SettingsPage> {
                         key: const ValueKey('settings-language-row'),
                         title: l10n.languageHeading,
                         subtitle: l10n.languageSubtitle,
-                        control: DropdownButton<String>(
+                        control: DropdownButtonFormField<String>(
                           key: const ValueKey('settings-language'),
-                          isExpanded: true,
-                          value: _generalLocale ?? 'system',
+                          initialValue: _generalLocale ?? 'system',
                           items: [
                             DropdownMenuItem(
                               value: 'system',
@@ -3835,10 +3930,9 @@ class _SettingsPageState extends State<_SettingsPage> {
                         key: const ValueKey('settings-close-behavior-row'),
                         title: l10n.closeBehaviorHeading,
                         subtitle: l10n.closeBehaviorSubtitle,
-                        control: DropdownButton<CloseBehavior>(
+                        control: DropdownButtonFormField<CloseBehavior>(
                           key: const ValueKey('settings-close-behavior'),
-                          isExpanded: true,
-                          value: _generalCloseBehavior,
+                          initialValue: _generalCloseBehavior,
                           items: [
                             DropdownMenuItem(
                               value: CloseBehavior.exitApp,
@@ -3992,16 +4086,38 @@ class _SettingsPageState extends State<_SettingsPage> {
                         configRow(
                           key: const ValueKey('settings-backend-path-row'),
                           label: l10n.frontendBackendPath,
-                          control: TextField(
-                            controller: _path,
-                            decoration: const InputDecoration(),
-                            onChanged: (value) => _updateBackend(
-                              _backendDraft.copyWith(
-                                frontendBackendPath: value.trim().isEmpty
-                                    ? null
-                                    : value,
+                          control: Row(
+                            children: [
+                              Expanded(
+                                child: TextField(
+                                  controller: _path,
+                                  decoration: const InputDecoration(),
+                                  onChanged: (value) => _updateBackend(
+                                    _backendDraft.copyWith(
+                                      frontendBackendPath:
+                                          value.trim().isEmpty ? null : value,
+                                    ),
+                                  ),
+                                ),
                               ),
-                            ),
+                              SizedBox(width: typography.spacingSm),
+                              OutlinedButton.icon(
+                                key: const ValueKey(
+                                  'settings-backend-path-regenerate',
+                                ),
+                                onPressed: () {
+                                  final path = randomBackendPath();
+                                  _path.text = path;
+                                  _updateBackend(
+                                    _backendDraft.copyWith(
+                                      frontendBackendPath: path,
+                                    ),
+                                  );
+                                },
+                                icon: const Icon(Icons.refresh),
+                                label: Text(l10n.regenerateBackendPath),
+                              ),
+                            ],
                           ),
                         ),
                         divider(),

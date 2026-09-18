@@ -10,7 +10,6 @@ import 'package:flutter/material.dart'
         Clip,
         ClipRRect,
         Column,
-        ConstrainedBox,
         Container,
         CrossAxisAlignment,
         DropdownButton,
@@ -18,7 +17,6 @@ import 'package:flutter/material.dart'
         FilledButton,
         Flex,
         FilterChip,
-        Flexible,
         FontWeight,
         IconButton,
         InputDecorator,
@@ -1311,25 +1309,19 @@ void main() {
           .direction,
       Axis.vertical,
     );
-    // http-meta 身份行是左对齐 Row（无徽章、无 Flexible 右列）。
-    final httpMetaTop = tester.widget<Row>(
+    // http-meta 身份行带健康状态徽章（running -> 健康），与 Backend 对称。
+    final httpMetaTop = tester.widget<Flex>(
       find.byKey(const ValueKey('overview-http-meta-hero-top')),
     );
+    expect(httpMetaTop.direction, Axis.vertical);
     expect(httpMetaTop.children.length, 3);
-    // 徽章移除后无空 Flexible 占位残留：唯一 Flexible 承载标签文本。
-    for (final flexible in httpMetaTop.children.whereType<Flexible>()) {
-      expect(flexible.child, isA<Text>());
-    }
-    // 标签不再受 ConstrainedBox(maxWidth: 160) 约束。
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('overview-http-meta-hero-top')),
-        matching: find.byType(ConstrainedBox),
-      ),
-      findsNothing,
-    );
-    // 「随 SubDock 提供」徽章只在 Updates 页，Overview hero 无徽章。
+    // 徽章是健康/状态词，不是「随 SubDock 提供」bundled 徽章。
     expect(find.text('随 SubDock 提供'), findsNothing);
+    // HTTP-META 身份行带一个状态徽章（健康或状态词，视运行时状态）。
+    expect(
+      find.byKey(const ValueKey('overview-http-meta-badge')),
+      findsOneWidget,
+    );
 
     await tester.scrollUntilVisible(
       find.byKey(const ValueKey('overview-stats')),
@@ -1370,15 +1362,14 @@ void main() {
           .direction,
       Axis.horizontal,
     );
-    // http-meta 身份行是左对齐 Row，不随断点改变方向。
+    // http-meta 身份行带健康徽章，桌面方向为水平。
     expect(
       tester
-          .widget<Row>(
+          .widget<Flex>(
             find.byKey(const ValueKey('overview-http-meta-hero-top')),
           )
-          .children
-          .length,
-      3,
+          .direction,
+      Axis.horizontal,
     );
     final heroGrid = tester.widget<Flex>(
       find.byKey(const ValueKey('overview-hero-grid')),
@@ -1422,10 +1413,11 @@ void main() {
       ),
       findsOneWidget,
     );
+    // 端口是 hero 大字（呼应 Backend 版本大字），status 在 meta 行。
     expect(
       find.descendant(
         of: find.byKey(const ValueKey('overview-http-meta-hero')),
-        matching: find.textContaining('端口 9876'),
+        matching: find.text('9876'),
       ),
       findsOneWidget,
     );

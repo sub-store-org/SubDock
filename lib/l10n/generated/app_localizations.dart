@@ -644,6 +644,12 @@ abstract class AppLocalizations {
   /// **'来源'**
   String get logSources;
 
+  /// No description provided for @logAllSources.
+  ///
+  /// In zh, this message translates to:
+  /// **'全部'**
+  String get logAllSources;
+
   /// No description provided for @logLevels.
   ///
   /// In zh, this message translates to:
@@ -953,6 +959,12 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'前端 Backend 路径'**
   String get frontendBackendPath;
+
+  /// No description provided for @regenerateBackendPath.
+  ///
+  /// In zh, this message translates to:
+  /// **'重新生成'**
+  String get regenerateBackendPath;
 
   /// No description provided for @corsAllowedOrigins.
   ///

@@ -301,6 +301,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get logSources => '来源';
 
   @override
+  String get logAllSources => '全部';
+
+  @override
   String get logLevels => '级别';
 
   @override
@@ -467,6 +470,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get frontendBackendPath => '前端 Backend 路径';
+
+  @override
+  String get regenerateBackendPath => '重新生成';
 
   @override
   String get corsAllowedOrigins => '允许的 CORS 来源';
