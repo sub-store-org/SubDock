@@ -15,6 +15,9 @@ package() {
   cp -a "$startdir/bundle/." "$pkgdir/opt/$pkgname/"
   install -dm755 "$pkgdir/usr/bin"
   ln -s "/opt/$pkgname/SubDock" "$pkgdir/usr/bin/subdock"
+  install -Dm644 \
+    "$pkgdir/opt/$pkgname/data/icon/app_icon.png" \
+    "$pkgdir/usr/share/icons/hicolor/1024x1024/apps/org.substore.subdock.png"
   install -Dm644 "$startdir/subdock.desktop" \
     "$pkgdir/usr/share/applications/subdock.desktop"
 }

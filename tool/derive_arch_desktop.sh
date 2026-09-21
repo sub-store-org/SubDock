@@ -40,8 +40,9 @@ if [ -z "$startup_notify" ]; then startup_notify="true"; fi
   if [ -n "$generic_name" ]; then printf 'GenericName=%s\n' "$generic_name"; fi
   if [ -n "$comment" ]; then printf 'Comment=%s\n' "$comment"; fi
   printf 'Exec=/opt/subdock/SubDock\n'
-  # Icon 复用打包内 data/icon（提交的应用图标资源 assets/icon/app_icon.png）。
-  printf 'Icon=/opt/subdock/SubDock/data/icon/app_icon.png\n'
+  # Use the icon-theme name installed by PKGBUILD so Wayland desktops can
+  # resolve it for both the launcher and the running application.
+  printf 'Icon=org.substore.subdock\n'
   printf 'Terminal=false\n'
   printf 'Categories=%s\n' "$categories"
   printf 'StartupWMClass=%s\n' "$app_id"
