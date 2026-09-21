@@ -1,67 +1,27 @@
-# AGENTS.md
+<!-- pi-agents-md:begin version=1 scope=. -->
+# SubDock
 
-<!-- agents-md-generator: v1; doc-type: single_repo -->
+## Overview
 
-## 1. Overview
+SubDock is a private Flutter desktop runtime manager for Sub-Store.
 
-SubDock is a native shell that runs a packaged Sub-Store backend and embeds its local management UI.
+## Architecture and invariants
 
-## 2. Ownership Map
+- Keep desktop composition in `lib/desktop_main.dart`; configure initial window visibility before expensive startup work. Hidden starts must hide immediately and again when the window is ready.
+- `AppCoordinator` and `DesktopBackendRuntime` serialize operations. Preserve `restart` ordering: stop successfully before starting again.
+- Use `EffectiveRuntimeConfig.resolve` as the configuration merge boundary: system environment, raw backend ENV, then SubDock config overrides.
+- Create and retain per-user runtime directories through `RuntimeDirectories`; preserve their current-user permission restrictions.
+- Treat tray initialization as optional: surface failure as a warning and exit rather than hide-to-tray when it is unavailable.
+- Keep `lib/mobile_main.dart` as the limited mobile seam: `MobilePlaceholderRuntime`, no automatic start, and no WebView.
 
-### Stable Ownership Boundaries
+## Development and validation
 
-- **Runtime lifecycle**: Start in `lib/runtime/desktop_backend_runtime.dart`; keep `BackendRuntime`
-  platform-neutral and preserve serialized Backend/HTTP-META mutation, process identity, failure
-  publication, optional-helper degradation, and targeted cleanup.
-- **Configuration**: Start in `lib/settings/subdock_config.dart` for the effective resolver,
-  `backend_env*.dart` / `subdock_config_store.dart` for persistence, and `AppCoordinator` for activation.
-  Preserve raw ENV text, schema validation, precedence, and SubDock-reserved paths.
-- **WebUI boundary**: Start in `lib/app/app.dart`, but keep endpoint selection in `AppCoordinator`.
-  Preserve same-origin containment, external-browser handoff, download interception, and recovery UI.
-- **Packaged resources**: Treat `data/runtime`, `data/backend`, `data/frontend`, and `data/http-meta`
-  as the runtime contract. Linux, macOS, and Windows packaging each own their architecture-specific
-  resource preparation and verification.
+- Use FVM: run `fvm flutter analyze` after Dart changes and targeted `fvm flutter test` tests; run the full suite for cross-cutting work.
+- Follow coordinator tests for ordering and configuration behavior; test changes at the responsible boundary.
+- Do not hand-edit generated or platform directories covered by analyzer exclusions unless the platform-specific change requires it.
 
-## 3. Core Behaviors & Patterns
+## Packaging
 
-- `AppCoordinator` serializes app actions and `DesktopBackendRuntime` serializes process mutations.
-  Keep both layers; `restart` must never call `start` after `stop` fails.
-- Lifecycle failures publish the actionable runtime state before rethrowing. Cleanup must cover only
-  resources owned by that runtime instance and must still run when shutdown fails.
-- `EffectiveRuntimeConfig.resolve` is the only configuration merge point: system `<` user ENV `<`
-  SubDock config `<` reserved paths. The packaged binary directory is prepended to `PATH`; users may
-  not override data, frontend, or `META_FOLDER` paths.
-- Saving raw ENV or `SubDockConfig` does not restart the backend. Each persistence happens before
-  runtime activation, so activation failure can leave disk newer than in-memory state; do not hide or
-  reverse this ordering accidentally.
-- Create the WebView only for a running backend with a valid reachable configuration. Keep same-origin
-  routes embedded, open external HTTP(S) outside, deny other schemes, and cap Blob exports at 16 MiB.
-- Tray initialization failure deliberately changes window close from hide-to-tray to full exit with a
-  visible warning. Explicit exit must await backend disposal before destroying host resources.
-- Writable runtime state is private to the current user. Preserve atomic file replacement and POSIX
-  `0700` directory / `0600` file permissions or the corresponding Windows current-user ACL.
-
-## 4. Conventions
-
-- Shared app/coordinator code depends on `BackendRuntime`; construct `DesktopBackendRuntime` only in
-  the desktop entrypoint. Keep process, tray, window, and single-instance APIs out of the mobile seam.
-- `lib/mobile_main.dart` is intentionally a no-op seam, not an implemented mobile runtime. Do not add
-  speculative platform abstractions until a real mobile implementation requires them.
-- Edit localization inputs in `lib/l10n/app_zh.arb` and `l10n.yaml`, not `lib/l10n/generated/`. Treat
-  platform plugin registrants as generated from dependency configuration, never as hand-edited source.
-- Resource preparation stages before replacement. Keep version selection centralized; verify Node and
-  released Shoutrrr assets by checksum and HTTP-META releases with their version marker; `.subdock/`
-  remains untracked output.
-
-## 5. Working Agreements
-
-- Build context by reviewing related usages, flows, patterns, and likely impact before editing.
-- Fix the underlying cause, not only the visible symptom; prefer the narrowest complete change.
-- Check side effects across callers, shared abstractions, and behavior/API boundaries.
-- Ask only when a decision materially affects user-visible behavior, task scope, or an irreversible tradeoff.
-- Do not introduce a new testing, linting, or formatting framework without explicit approval.
-- Add or update tests within the existing test infrastructure when behavior changes.
-- Run `fvm flutter analyze` after code changes.
-- Run relevant tests for changed behavior; run the full suite for substantial or cross-cutting changes.
-- Keep new functions single-purpose and colocated with related code.
-- Add external dependencies only when necessary, and explain why.
+- Build packaging resources through the preparation scripts before desktop packaging. CI prepares backend, frontend, runtime, and HTTP-META resources, then verifies the resulting bundle.
+- See `README.md` for developer setup and platform preparation commands.
+<!-- pi-agents-md:end -->
