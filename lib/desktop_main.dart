@@ -36,6 +36,15 @@ Future<void> main() async {
     );
   }
   final directories = await RuntimeDirectories.create();
+  final preferencesStore = DesktopPreferencesStore(directories);
+  final preferences = await preferencesStore.load();
+  await prepareStartupWindow(
+    startHiddenToTray: preferences.startHiddenToTray,
+    hide: windowManager.hide,
+    show: _showWindow,
+    waitUntilReady: (options, callback) =>
+        windowManager.waitUntilReadyToShow(options, callback),
+  );
   final logStore = RuntimeLogStore(directories);
   await logStore.initialize();
   Object? startupBlocker;
@@ -89,8 +98,6 @@ Future<void> main() async {
   } on AppConfigError {
     // The settings page provides the recovery path via `configurationError`.
   }
-  final preferencesStore = DesktopPreferencesStore(directories);
-  final preferences = await preferencesStore.load();
   // The tray is built before the app loads its preference, so the resolver
   // reads a mutable holder that the locale-change callback updates. Resolve
   // the persisted preference here so a saved en preference shows in the tray
@@ -119,12 +126,6 @@ Future<void> main() async {
     },
   );
   await lifecycle.initialize();
-  // 启动时隐藏到托盘：窗口就绪但暂不显示，仅驻留托盘。
-  if (preferences.startHiddenToTray) {
-    await windowManager.waitUntilReadyToShow(desktopWindowOptions(), null);
-  } else {
-    await windowManager.waitUntilReadyToShow(desktopWindowOptions(), _showWindow);
-  }
   final autostart = AutostartManager();
   runApp(
     SubDockApp(
@@ -162,6 +163,29 @@ Locale resolveEffectiveLocale(
   return basicLocaleListResolution(
     systemLocales,
     AppLocalizations.supportedLocales,
+  );
+}
+
+typedef WindowReadyHandler = Future<void> Function(
+  WindowOptions options,
+  Future<void> Function()? callback,
+);
+
+/// Configures initial visibility before expensive startup work begins.
+///
+/// Native runners may create a visible window before Flutter has rendered its
+/// first frame, so a hidden launch hides it immediately and again once the
+/// window manager reports readiness.
+Future<void> prepareStartupWindow({
+  required bool startHiddenToTray,
+  required Future<void> Function() hide,
+  required Future<void> Function() show,
+  required WindowReadyHandler waitUntilReady,
+}) async {
+  if (startHiddenToTray) await hide();
+  await waitUntilReady(
+    desktopWindowOptions(),
+    startHiddenToTray ? hide : show,
   );
 }
 

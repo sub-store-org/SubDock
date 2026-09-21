@@ -15,11 +15,6 @@ struct _MyApplication {
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
 
-// Called when first Flutter frame received.
-static void first_frame_cb(MyApplication* self, FlView* view) {
-  gtk_widget_show(gtk_widget_get_toplevel(GTK_WIDGET(view)));
-}
-
 // Loads the Sub-Store app icon as the window icon. The icon is a committed
 // repo asset (assets/icon) bundled into the package under data/icon next to
 // the executable; when that is missing (e.g. a bare debug bundle) the window
@@ -89,10 +84,8 @@ static void my_application_activate(GApplication* application) {
   gtk_widget_show(GTK_WIDGET(view));
   gtk_container_add(GTK_CONTAINER(window), GTK_WIDGET(view));
 
-  // Show the window when Flutter renders.
-  // Requires the view to be realized so we can start rendering.
-  g_signal_connect_swapped(view, "first-frame", G_CALLBACK(first_frame_cb),
-                           self);
+  // The Dart window manager owns initial visibility. Realize the view so
+  // rendering can begin without forcing a hidden-to-tray launch to appear.
   gtk_widget_realize(GTK_WIDGET(view));
 
   fl_register_plugins(FL_PLUGIN_REGISTRY(view));

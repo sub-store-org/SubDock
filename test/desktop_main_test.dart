@@ -20,6 +20,46 @@ void main() {
     expect(usesCustomDesktopChrome(isMacOS: false), isTrue);
   });
 
+  test('hides the window before and after readiness when configured', () async {
+    final calls = <String>[];
+    Future<void> waitUntilReady(
+      WindowOptions _,
+      Future<void> Function()? callback,
+    ) async {
+      calls.add('ready');
+      await callback?.call();
+    }
+
+    await prepareStartupWindow(
+      startHiddenToTray: true,
+      hide: () async => calls.add('hide'),
+      show: () async => calls.add('show'),
+      waitUntilReady: waitUntilReady,
+    );
+
+    expect(calls, ['hide', 'ready', 'hide']);
+  });
+
+  test('shows the window only after it is ready by default', () async {
+    final calls = <String>[];
+    Future<void> waitUntilReady(
+      WindowOptions _,
+      Future<void> Function()? callback,
+    ) async {
+      calls.add('ready');
+      await callback?.call();
+    }
+
+    await prepareStartupWindow(
+      startHiddenToTray: false,
+      hide: () async => calls.add('hide'),
+      show: () async => calls.add('show'),
+      waitUntilReady: waitUntilReady,
+    );
+
+    expect(calls, ['ready', 'show']);
+  });
+
   group('resolveEffectiveLocale', () {
     test('uses the system locale without a saved preference', () {
       expect(

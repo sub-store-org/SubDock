@@ -27,13 +27,9 @@ bool FlutterWindow::OnCreate() {
   RegisterPlugins(flutter_controller_->engine());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
-  flutter_controller_->engine()->SetNextFrameCallback([&]() {
-    this->Show();
-  });
-
-  // Flutter can complete the first frame before the "show window" callback is
-  // registered. The following call ensures a frame is pending to ensure the
-  // window is shown. It is a no-op if the first frame hasn't completed yet.
+  // Dart's window manager owns initial visibility. In particular, do not
+  // reveal the native window on the first frame for hidden-to-tray launches.
+  // Still request the frame so the Dart application can initialize.
   flutter_controller_->ForceRedraw();
 
   return true;
