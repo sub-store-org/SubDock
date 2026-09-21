@@ -185,8 +185,13 @@ void main() {
   });
 
   test('only ignores a physically truncated orphan tail', () async {
+    final now = DateTime.utc(2026, 9, 13);
     Future<Directory> orphan(String tail, {int segmentBytes = 1 << 20}) async {
-      final store = RuntimeLogStore(directories, segmentBytes: segmentBytes);
+      final store = RuntimeLogStore(
+        directories,
+        now: () => now,
+        segmentBytes: segmentBytes,
+      );
       await store.initialize();
       final id = await store.beginRun();
       await store.append(
@@ -204,7 +209,7 @@ void main() {
     }
 
     final truncated = await orphan('{"timestamp":"2026-09-13T00:00:00');
-    final recovered = RuntimeLogStore(directories);
+    final recovered = RuntimeLogStore(directories, now: () => now);
     await recovered.initialize();
     expect((await recovered.listRuns()).single.eventCount, 1);
     expect(truncated.existsSync(), isTrue);
@@ -217,7 +222,7 @@ void main() {
       }),
     );
     expect(
-      () => RuntimeLogStore(directories).initialize(),
+      () => RuntimeLogStore(directories, now: () => now).initialize(),
       throwsFormatException,
     );
   });
