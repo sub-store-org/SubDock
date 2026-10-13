@@ -37,30 +37,25 @@ void main() {
     );
   });
 
-  test(
-    'saves atomically with private permissions and resets to defaults',
-    () async {
-      final temp = await Directory.systemTemp.createTemp(
-        'subdock_config_test_',
-      );
-      addTearDown(() => temp.delete(recursive: true));
-      final directories = await RuntimeDirectories.fromBaseDirectory(temp);
-      final store = SubDockConfigStore(directories);
-      const config = SubDockConfig(
-        backend: SubDockBackendConfig(apiPort: 4321),
-        httpMeta: SubDockHttpMetaConfig(enabled: false, port: 9877),
-      );
+  test('persists private configuration and resets to defaults', () async {
+    final temp = await Directory.systemTemp.createTemp('subdock_config_test_');
+    addTearDown(() => temp.delete(recursive: true));
+    final directories = await RuntimeDirectories.fromBaseDirectory(temp);
+    final store = SubDockConfigStore(directories);
+    const config = SubDockConfig(
+      backend: SubDockBackendConfig(apiPort: 4321),
+      httpMeta: SubDockHttpMetaConfig(enabled: false, port: 9877),
+    );
 
-      await store.save(config);
+    await store.save(config);
 
-      expect(await store.load(), config);
-      if (!Platform.isWindows) {
-        expect((await store.file.stat()).mode & 0x1ff, 0x180);
-      }
-      await store.reset();
-      expect(await store.load(), const SubDockConfig());
-    },
-  );
+    expect(await store.load(), config);
+    if (!Platform.isWindows) {
+      expect((await store.file.stat()).mode & 0x1ff, 0x180);
+    }
+    await store.reset();
+    expect(await store.load(), const SubDockConfig());
+  });
 
   test('fails closed on malformed saved JSON until reset', () async {
     final temp = await Directory.systemTemp.createTemp('subdock_config_test_');
@@ -127,7 +122,7 @@ void main() {
     },
   );
 
-  test('removing an override follows ENV or the effective default', () {
+  test('explicit null clears backend and HTTP-META overrides', () {
     const config = SubDockConfig(
       backend: SubDockBackendConfig(apiPort: 4000),
       httpMeta: SubDockHttpMetaConfig(port: 9999),

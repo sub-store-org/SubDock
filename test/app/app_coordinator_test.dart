@@ -5,7 +5,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:subdock/app/app_coordinator.dart';
 import 'package:subdock/runtime/backend_runtime.dart';
 import 'package:subdock/runtime/runtime_directories.dart';
-import 'package:subdock/runtime/runtime_log_store.dart';
 import 'package:subdock/settings/backend_env.dart';
 import 'package:subdock/settings/backend_env_store.dart';
 import 'package:subdock/settings/config_error.dart';
@@ -287,10 +286,16 @@ void main() {
       componentUpdates: updates,
     );
 
-    await Future.wait([
-      coordinator.updateComponent(updates.availableUpdate),
-      coordinator.stop(),
-    ]);
+    final update = coordinator.updateComponent(updates.availableUpdate);
+    await updates.updateEntered.future;
+    final stop = coordinator.stop();
+    try {
+      await Future<void>.value();
+      expect(runtime.operations, ['update']);
+    } finally {
+      updates.releaseUpdate.complete();
+    }
+    await Future.wait([update, stop]);
 
     expect(runtime.operations, ['update', 'stop']);
   });
@@ -328,26 +333,14 @@ void main() {
       }
     },
   );
-
-  test('exposes the injected log store instance', () async {
-    final temp = await Directory.systemTemp.createTemp('subdock_coordinator_');
-    addTearDown(() => temp.delete(recursive: true));
-    final directories = await RuntimeDirectories.fromBaseDirectory(temp);
-    final store = RuntimeLogStore(directories);
-    final coordinator = AppCoordinator(
-      runtime: _FakeRuntime(),
-      environmentStore: BackendEnvStore(directories),
-      logStore: store,
-    );
-
-    expect(identical(coordinator.logStore, store), isTrue);
-  });
 }
 
 class _FakeUpdates implements ComponentUpdateOperations {
   _FakeUpdates(this.operations);
 
   final List<String> operations;
+  final updateEntered = Completer<void>();
+  final releaseUpdate = Completer<void>();
   final frontendUpdate = ComponentUpdate(
     kind: ComponentKind.frontend,
     currentVersion: '2.31.3',
@@ -381,7 +374,11 @@ class _FakeUpdates implements ComponentUpdateOperations {
   Future<void> rollback(ComponentKind kind) async => operations.add('rollback');
 
   @override
-  Future<void> update(ComponentUpdate update) async => operations.add('update');
+  Future<void> update(ComponentUpdate update) async {
+    operations.add('update');
+    updateEntered.complete();
+    await releaseUpdate.future;
+  }
 }
 
 class _FakeRuntime extends BackendRuntime {

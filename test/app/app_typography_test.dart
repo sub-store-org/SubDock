@@ -9,7 +9,7 @@ void main() {
     expect(AppTypography.light, AppTypography.dark);
   });
 
-  test('every role is non-null', () {
+  test('every text role specifies a font size', () {
     for (final t in const [AppTypography.light, AppTypography.dark]) {
       for (final textStyle in [
         t.titleLarge,
@@ -27,7 +27,9 @@ void main() {
 
   test('copyWith copies every field and keeps unset fields', () {
     const typography = AppTypography.light;
-    final copied = typography.copyWith(bodyMedium: const TextStyle(fontSize: 99));
+    final copied = typography.copyWith(
+      bodyMedium: const TextStyle(fontSize: 99),
+    );
     expect(copied.bodyMedium.fontSize, 99);
     expect(copied.titleLarge, typography.titleLarge);
     expect(copied.titleMedium, typography.titleMedium);
@@ -46,8 +48,16 @@ void main() {
     expect(copied.radiusLg, typography.radiusLg);
   });
 
-  test('lerp returns the source at 0 and the target at 1', () {
-    expect(AppTypography.light.lerp(AppTypography.dark, 0), AppTypography.light);
-    expect(AppTypography.light.lerp(AppTypography.dark, 1), AppTypography.dark);
+  test('lerp interpolates text and spacing between distinct values', () {
+    const source = AppTypography.light;
+    final target = source.copyWith(
+      bodyMedium: source.bodyMedium.copyWith(fontSize: 18),
+      spacingMd: 32,
+    );
+    expect(source.lerp(target, 0), source);
+    expect(source.lerp(target, 1), target);
+    final middle = source.lerp(target, 0.5);
+    expect(middle.bodyMedium.fontSize, 16);
+    expect(middle.spacingMd, 24);
   });
 }

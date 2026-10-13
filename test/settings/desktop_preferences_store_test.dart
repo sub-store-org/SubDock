@@ -7,7 +7,7 @@ import 'package:subdock/settings/desktop_preferences.dart';
 import 'package:subdock/settings/desktop_preferences_store.dart';
 
 void main() {
-  test('defaults are stable and round-trip through the snapshot', () async {
+  test('defaults are stable and round-trip through the snapshot', () {
     final preferences = DesktopPreferences.defaults;
 
     expect(preferences.themeMode, ThemeMode.system);
@@ -94,7 +94,7 @@ void main() {
     expect(await store.load(), DesktopPreferences.defaults);
   });
 
-  test('saves atomically with private permissions', () async {
+  test('persists preferences with private permissions', () async {
     final temp = await Directory.systemTemp.createTemp(
       'desktop_preferences_store_test_',
     );
@@ -110,10 +110,10 @@ void main() {
       ),
     );
 
-    expect(await store.load(), isNot(DesktopPreferences.defaults));
-    expect((await store.load()).themeMode, ThemeMode.dark);
-    expect((await store.load()).locale, 'zh');
-    expect((await store.load()).recentLogLimit, 500);
+    final saved = await store.load();
+    expect(saved.themeMode, ThemeMode.dark);
+    expect(saved.locale, 'zh');
+    expect(saved.recentLogLimit, 500);
     if (!Platform.isWindows) {
       expect((await store.file.stat()).mode & 0x1ff, 0x180);
     }

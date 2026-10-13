@@ -108,9 +108,20 @@ void main() {
       });
       addTearDown(subscription.cancel);
 
-      await expectLater(runtime.start(), throwsStateError);
+      await expectLater(
+        runtime.start(),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            contains('occupied by an unknown process'),
+          ),
+        ),
+      );
       await _waitFor(() => runsAtCrash.isNotEmpty);
       expect(runsAtCrash.single, 1);
+      expect(runtime.currentState.status, RuntimeStatus.crashed);
+      expect(await runtime.logStore.listRuns(), hasLength(1));
     });
 
     test('finalizes a run when a running backend exits unexpectedly', () async {
@@ -276,21 +287,6 @@ void main() {
       },
     );
 
-    test('rejects a port held by an unknown process', () async {
-      final blockedPort = await _unusedPort();
-      final blocker = await ServerSocket.bind(
-        InternetAddress.loopbackIPv4,
-        blockedPort,
-      );
-      addTearDown(blocker.close);
-      runtime = await _createRuntime(temp, port: blockedPort);
-
-      await expectLater(runtime.start(), throwsStateError);
-
-      expect(runtime.currentState.status, RuntimeStatus.crashed);
-      expect(await runtime.logStore.listRuns(), hasLength(1));
-    });
-
     test('rejects a missing manifest external binary', () async {
       runtime = await _createRuntime(
         temp,
@@ -354,7 +350,7 @@ void main() {
       );
     });
 
-    test('reports a startup failure after the backend exits', () async {
+    test('reports failed startup and terminates a stalled backend', () async {
       runtime = await _createRuntime(temp, mode: 'stall');
       final states = <RuntimeState>[];
       final subscription = runtime.state.listen(states.add);
@@ -400,7 +396,6 @@ Future<DesktopBackendRuntime> _createRuntime(
   List<String> externalBinaries = const <String>[],
   int? port,
   String? activeBackendVersion,
-  RuntimeLogStore? logStore,
   int? httpMetaPort,
   bool failingFinalize = false,
   bool shutdownTail = false,
@@ -480,11 +475,9 @@ server.listen(process.env.PORT, '127.0.0.1');
 process.on('SIGTERM', () => server.close(() => process.exit(0)));
 ''');
   }
-  final store =
-      logStore ??
-      (failingFinalize
-          ? _FailingFinalizeStore(directories)
-          : RuntimeLogStore(directories));
+  final store = failingFinalize
+      ? _FailingFinalizeStore(directories)
+      : RuntimeLogStore(directories);
   await store.initialize();
   if (activeBackendVersion != null) {
     final candidate = Directory.fromUri(

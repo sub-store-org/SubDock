@@ -16,7 +16,7 @@ void main() {
     expect(await ThemeModeStore(directories).load(), isNull);
   });
 
-  test('save then load round-trips the mode', () async {
+  test('round-trips the mode with private file permissions', () async {
     final temp = await Directory.systemTemp.createTemp(
       'theme_mode_store_test_',
     );
@@ -32,44 +32,21 @@ void main() {
 
     await store.save(ThemeMode.dark);
     expect(await store.load(), ThemeMode.dark);
-  });
-
-  test('save writes private file permissions', () async {
-    final temp = await Directory.systemTemp.createTemp(
-      'theme_mode_store_test_',
-    );
-    addTearDown(() => temp.delete(recursive: true));
-    final directories = await RuntimeDirectories.fromBaseDirectory(temp);
-    final store = ThemeModeStore(directories);
-
-    await store.save(ThemeMode.dark);
-
     if (!Platform.isWindows) {
       expect((await store.file.stat()).mode & 0x1ff, 0x180);
     }
   });
 
-  test('corrupt JSON degrades to null instead of throwing', () async {
+  test('corrupt JSON and unsupported modes degrade to null', () async {
     final temp = await Directory.systemTemp.createTemp(
       'theme_mode_store_test_',
     );
     addTearDown(() => temp.delete(recursive: true));
     final directories = await RuntimeDirectories.fromBaseDirectory(temp);
     final store = ThemeModeStore(directories);
-    await store.file.writeAsString('{not json');
-
-    expect(await store.load(), isNull);
-  });
-
-  test('unknown string value degrades to null', () async {
-    final temp = await Directory.systemTemp.createTemp(
-      'theme_mode_store_test_',
-    );
-    addTearDown(() => temp.delete(recursive: true));
-    final directories = await RuntimeDirectories.fromBaseDirectory(temp);
-    final store = ThemeModeStore(directories);
-    await store.file.writeAsString('"blue"');
-
-    expect(await store.load(), isNull);
+    for (final value in ['{not json', '"blue"']) {
+      await store.file.writeAsString(value);
+      expect(await store.load(), isNull, reason: value);
+    }
   });
 }

@@ -47,13 +47,15 @@ void main() {
                         port: server.port,
                         path: '/dist.zip',
                       ).toString(),
-                      'digest': 'sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+                      'digest': 'sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
                     },
                   ],
                 }),
               );
           } else if (request.uri.path == '/dist.zip') {
-            request.response.add(const <int>[]);
+            request.response
+              ..write('a')
+              ..write('bc');
           } else {
             request.response.statusCode = HttpStatus.notFound;
           }
@@ -66,7 +68,8 @@ void main() {
       await client.downloadVerified(release.assetNamed('dist.zip'), target);
 
       expect(release.version, '2.39.0');
-      expect(await target.readAsBytes(), isEmpty);
+      expect(await target.readAsBytes(), [97, 98, 99]);
+      expect(await File('${target.path}.download').exists(), isFalse);
     },
   );
 
@@ -104,15 +107,18 @@ void main() {
     );
   });
 
-  test('rejects a release without an absolute HTTP release page', () async {
+  test('rejects missing, relative, and non-HTTP release pages', () async {
+    const pages = [null, '/relative-release', 'ftp://example.invalid/release'];
+    var requestIndex = 0;
     unawaited(
       _serve(server, (request) async {
+        final page = pages[requestIndex++];
         request.response
           ..headers.contentType = ContentType.json
           ..write(
             jsonEncode({
               'tag_name': '2.39.0',
-              'html_url': '/relative-release',
+              'html_url': ?page,
               'draft': false,
               'prerelease': false,
               'assets': <Object>[],
@@ -122,57 +128,19 @@ void main() {
       }),
     );
 
-    await expectLater(
-      client.latest('sub-store-org/Sub-Store'),
-      throwsFormatException,
-    );
-  });
-
-  test('rejects a release without a release-page URL', () async {
-    unawaited(
-      _serve(server, (request) async {
-        request.response
-          ..headers.contentType = ContentType.json
-          ..write(
-            jsonEncode({
-              'tag_name': '2.39.0',
-              'draft': false,
-              'prerelease': false,
-              'assets': <Object>[],
-            }),
-          );
-        await request.response.close();
-      }),
-    );
-
-    await expectLater(
-      client.latest('sub-store-org/Sub-Store'),
-      throwsFormatException,
-    );
-  });
-
-  test('rejects a non-HTTP(S) release-page URL', () async {
-    unawaited(
-      _serve(server, (request) async {
-        request.response
-          ..headers.contentType = ContentType.json
-          ..write(
-            jsonEncode({
-              'tag_name': '2.39.0',
-              'html_url': 'ftp://example.invalid/release',
-              'draft': false,
-              'prerelease': false,
-              'assets': <Object>[],
-            }),
-          );
-        await request.response.close();
-      }),
-    );
-
-    await expectLater(
-      client.latest('sub-store-org/Sub-Store'),
-      throwsFormatException,
-    );
+    for (final page in pages) {
+      await expectLater(
+        client.latest('sub-store-org/Sub-Store'),
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message,
+            'message',
+            'GitHub Release URL is invalid',
+          ),
+        ),
+        reason: 'release page: $page',
+      );
+    }
   });
 
   test(

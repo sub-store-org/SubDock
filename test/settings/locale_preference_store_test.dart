@@ -15,7 +15,7 @@ void main() {
     expect(await LocalePreferenceStore(directories).load(), isNull);
   });
 
-  test('save then load round-trips the language', () async {
+  test('round-trips the language with private file permissions', () async {
     final temp = await Directory.systemTemp.createTemp(
       'locale_preference_store_test_',
     );
@@ -28,45 +28,22 @@ void main() {
 
     await store.save('zh');
     expect(await store.load(), 'zh');
-  });
-
-  test('save writes private file permissions', () async {
-    final temp = await Directory.systemTemp.createTemp(
-      'locale_preference_store_test_',
-    );
-    addTearDown(() => temp.delete(recursive: true));
-    final directories = await RuntimeDirectories.fromBaseDirectory(temp);
-    final store = LocalePreferenceStore(directories);
-
-    await store.save('en');
-
     if (!Platform.isWindows) {
       expect((await store.file.stat()).mode & 0x1ff, 0x180);
     }
   });
 
-  test('corrupt JSON degrades to null instead of throwing', () async {
+  test('corrupt JSON and unsupported languages degrade to null', () async {
     final temp = await Directory.systemTemp.createTemp(
       'locale_preference_store_test_',
     );
     addTearDown(() => temp.delete(recursive: true));
     final directories = await RuntimeDirectories.fromBaseDirectory(temp);
     final store = LocalePreferenceStore(directories);
-    await store.file.writeAsString('{not json');
-
-    expect(await store.load(), isNull);
-  });
-
-  test('unknown string value degrades to null', () async {
-    final temp = await Directory.systemTemp.createTemp(
-      'locale_preference_store_test_',
-    );
-    addTearDown(() => temp.delete(recursive: true));
-    final directories = await RuntimeDirectories.fromBaseDirectory(temp);
-    final store = LocalePreferenceStore(directories);
-    await store.file.writeAsString('"fr"');
-
-    expect(await store.load(), isNull);
+    for (final value in ['{not json', '"fr"']) {
+      await store.file.writeAsString(value);
+      expect(await store.load(), isNull, reason: value);
+    }
   });
 
   test('save rejects a language outside zh/en', () async {

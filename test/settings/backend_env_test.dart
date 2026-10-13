@@ -71,7 +71,7 @@ void main() {
     );
   });
 
-  test('saves a valid document atomically with private permissions', () async {
+  test('replaces a saved document with private permissions', () async {
     final temp = await Directory.systemTemp.createTemp('subdock_env_test_');
     addTearDown(() => temp.delete(recursive: true));
     final directories = await RuntimeDirectories.fromBaseDirectory(temp);

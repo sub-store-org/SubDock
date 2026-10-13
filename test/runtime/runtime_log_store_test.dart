@@ -46,13 +46,17 @@ void main() {
     expect(runs.single.id, start);
     expect(runs.single.eventCount, 3);
     final actual = await store.readRun(start);
-    expect(
-      actual.map((entry) => entry.message),
-      entries.map((entry) => entry.message),
-    );
+    expect(actual.map((entry) => entry.message), ['one', 'two', 'three']);
     expect(
       (await store.readRun(start, reverse: true)).map((entry) => entry.message),
-      entries.reversed.map((entry) => entry.message),
+      ['three', 'two', 'one'],
+    );
+    expect(
+      await store
+          .readRunStream(start, reverse: true)
+          .map((entry) => entry.message)
+          .toList(),
+      ['three', 'two', 'one'],
     );
   });
 
@@ -76,33 +80,11 @@ void main() {
     },
   );
 
-  test('streams reverse events across forced-small segments', () async {
-    final store = RuntimeLogStore(directories, segmentBytes: 1);
-    await store.initialize();
-    final id = await store.beginRun();
-    for (var index = 0; index < 5; index++) {
-      await store.append(
-        RuntimeLog(
-          timestamp: DateTime.utc(2026, 9, 13, 0, index),
-          source: RuntimeLogSource.stdout,
-          message: '$index',
-        ),
-      );
-    }
-    await store.finalize();
-    expect(
-      await store
-          .readRunStream(id, reverse: true)
-          .map((entry) => entry.message)
-          .toList(),
-      ['4', '3', '2', '1', '0'],
-    );
-  });
-
   test(
     'uses UTF-8 bytes for segment rollover and prunes legacy logs',
     () async {
-      final store = RuntimeLogStore(directories, segmentBytes: 40);
+      // Character counting fits these records; UTF-8 byte counting rolls over.
+      final store = RuntimeLogStore(directories, segmentBytes: 165);
       await store.initialize();
       final id = await store.beginRun();
       await store.append(
@@ -116,11 +98,18 @@ void main() {
         RuntimeLog(
           timestamp: DateTime.utc(2026, 9, 13, 0, 1),
           source: RuntimeLogSource.stdout,
-          message: 'second',
+          message: '第二条日志',
         ),
       );
       await store.finalize();
-      expect(await store.readRunStream(id).length, 2);
+      expect(
+        await store.readRunStream(id).map((entry) => entry.message).toList(),
+        ['中文日志', '第二条日志'],
+      );
+      final segments = await Directory.fromUri(
+        directories.logs.uri.resolve('runs/$id/'),
+      ).list().where((entry) => entry.path.endsWith('.jsonl')).toList();
+      expect(segments, hasLength(2));
 
       final legacy = File.fromUri(directories.logs.uri.resolve('backend.log'));
       await legacy.writeAsString('old');
@@ -150,7 +139,7 @@ void main() {
     expect((await store.readRun(id)).single.message, 'entry');
   });
 
-  test('reconciles an orphan run and retains the seven-day boundary', () async {
+  test('reconciles an orphan run with its durable event count', () async {
     final now = DateTime.utc(2026, 9, 13);
     final store = RuntimeLogStore(directories, now: () => now);
     await store.initialize();

@@ -49,6 +49,7 @@ void main() {
       'setPreventClose',
       'isMaximized',
     ]);
+    expect(windowCalls.first.arguments, {'isPreventClose': true});
   });
 
   test(
@@ -80,35 +81,37 @@ void main() {
     },
   );
 
-  test('close behavior exits or hides only after approval', () async {
-    final calls = <String>[];
-    final messenger =
-        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-    const channel = MethodChannel('window_manager');
-    messenger.setMockMethodCallHandler(channel, (call) async {
-      calls.add(call.method);
-      return true;
-    });
-    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+  test(
+    'exits on close when requested or when the tray is unavailable',
+    () async {
+      final calls = <String>[];
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      const channel = MethodChannel('window_manager');
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        calls.add(call.method);
+        return true;
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
 
-    final exiting = DesktopLifecycle(
-      onExit: () async => calls.add('exit'),
-      closeBehavior: () async => CloseBehavior.exitApp,
-    );
-    exiting.onWindowClose();
-    await Future<void>.delayed(Duration.zero);
-    expect(calls, contains('exit'));
-    expect(calls, contains('destroy'));
+      final exiting = DesktopLifecycle(
+        onExit: () async => calls.add('exit'),
+        closeBehavior: () async => CloseBehavior.exitApp,
+      );
+      exiting.onWindowClose();
+      await Future<void>.delayed(Duration.zero);
+      expect(calls, ['exit', 'destroy']);
 
-    calls.clear();
-    final tray = DesktopLifecycle(
-      onExit: () async => calls.add('exit'),
-      closeBehavior: () async => CloseBehavior.closeToTray,
-    );
-    tray.onWindowClose();
-    await Future<void>.delayed(Duration.zero);
-    expect(calls, contains('exit'));
-  });
+      calls.clear();
+      final tray = DesktopLifecycle(
+        onExit: () async => calls.add('exit'),
+        closeBehavior: () async => CloseBehavior.closeToTray,
+      );
+      tray.onWindowClose();
+      await Future<void>.delayed(Duration.zero);
+      expect(calls, ['exit', 'destroy']);
+    },
+  );
 
   test('a failed exit can be retried', () async {
     final calls = <String>[];

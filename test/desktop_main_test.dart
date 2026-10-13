@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:subdock/desktop_main.dart';
@@ -20,45 +22,31 @@ void main() {
     expect(usesCustomDesktopChrome(isMacOS: false), isTrue);
   });
 
-  test('hides the window before and after readiness when configured', () async {
-    final calls = <String>[];
-    Future<void> waitUntilReady(
-      WindowOptions _,
-      Future<void> Function()? callback,
-    ) async {
-      calls.add('ready');
-      await callback?.call();
-    }
+  for (final hidden in [true, false]) {
+    test('applies ${hidden ? 'hidden' : 'visible'} startup visibility', () async {
+      final calls = <String>[];
+      final visibilityApplied = Completer<void>();
+      Future<void> applyVisibility(String action) async {
+        await Future<void>.value();
+        calls.add(action);
+        if (calls.contains('ready')) visibilityApplied.complete();
+      }
 
-    await prepareStartupWindow(
-      startHiddenToTray: true,
-      hide: () async => calls.add('hide'),
-      show: () async => calls.add('show'),
-      waitUntilReady: waitUntilReady,
-    );
+      await prepareStartupWindow(
+        startHiddenToTray: hidden,
+        hide: () => applyVisibility('hide'),
+        show: () => applyVisibility('show'),
+        waitUntilReady: (options, callback) async {
+          calls.add('ready');
+          // window_manager invokes its readiness callback without awaiting it.
+          unawaited(callback!());
+        },
+      );
+      await visibilityApplied.future;
 
-    expect(calls, ['hide', 'ready', 'hide']);
-  });
-
-  test('shows the window only after it is ready by default', () async {
-    final calls = <String>[];
-    Future<void> waitUntilReady(
-      WindowOptions _,
-      Future<void> Function()? callback,
-    ) async {
-      calls.add('ready');
-      await callback?.call();
-    }
-
-    await prepareStartupWindow(
-      startHiddenToTray: false,
-      hide: () async => calls.add('hide'),
-      show: () async => calls.add('show'),
-      waitUntilReady: waitUntilReady,
-    );
-
-    expect(calls, ['ready', 'show']);
-  });
+      expect(calls, hidden ? ['hide', 'ready', 'hide'] : ['ready', 'show']);
+    });
+  }
 
   group('resolveEffectiveLocale', () {
     test('uses the system locale without a saved preference', () {

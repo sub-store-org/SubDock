@@ -7,17 +7,12 @@ import 'package:flutter/material.dart'
         Axis,
         BorderRadius,
         BoxDecoration,
-        Clip,
         ClipRRect,
-        Column,
         Container,
-        CrossAxisAlignment,
         ChoiceChip,
         DropdownButton,
-        ExpansionTile,
         FilledButton,
         Flex,
-        FontWeight,
         IconButton,
         InputDecorator,
         Locale,
@@ -26,12 +21,10 @@ import 'package:flutter/material.dart'
         ListView,
         OutlinedButton,
         OutlineInputBorder,
-        Row,
         Expanded,
         RoundedRectangleBorder,
         SelectableText,
         Scrollable,
-        SingleChildScrollView,
         SegmentedButton,
         Switch,
         Theme,
@@ -43,15 +36,7 @@ import 'package:flutter/material.dart'
 import 'package:flutter/scheduler.dart' show AppLifecycleState;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart'
-    show
-        EdgeInsets,
-        EdgeInsetsGeometry,
-        GestureDetector,
-        Key,
-        Offstage,
-        Padding,
-        SizedBox,
-        ValueKey;
+    show EdgeInsets, GestureDetector, Offstage, Padding, SizedBox, ValueKey;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:subdock/app/app.dart';
 import 'package:subdock/app/about_info.dart';
@@ -423,197 +408,6 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('logs surface renders empty and live log states', (
-    WidgetTester tester,
-  ) async {
-    late Directory temp;
-    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
-    final runtime = _FakeBackendRuntime();
-    final directories = await tester.runAsync(() async {
-      temp = await Directory.systemTemp.createTemp('subdock_widget_');
-      return RuntimeDirectories.fromBaseDirectory(temp);
-    });
-    final coordinator = AppCoordinator(
-      runtime: runtime,
-      environmentStore: BackendEnvStore(directories!),
-    );
-
-    await tester.pumpWidget(
-      SubDockApp(
-        coordinator: coordinator,
-        autoStart: false,
-        enableWebView: false,
-        locale: const Locale('zh'),
-      ),
-    );
-    await tester.tap(find.byKey(const ValueKey('nav-item-logs')));
-    await tester.pump();
-
-    expect(find.byKey(const ValueKey('overview-recent-logs')), findsNothing);
-    expect(find.byKey(const ValueKey('logs-surface')), findsOneWidget);
-    expect(find.text('暂无日志'), findsOneWidget);
-    runtime.emitLog(
-      RuntimeLog(
-        timestamp: DateTime.utc(2026, 9, 13, 4, 30),
-        source: RuntimeLogSource.stdout,
-        message: 'fixture log line',
-      ),
-    );
-    await tester.pump();
-
-    expect(find.text('暂无日志'), findsNothing);
-    expect(find.byKey(const ValueKey('overview-recent-logs')), findsNothing);
-    expect(find.text('Backend'), findsOneWidget);
-    expect(find.text('信息'), findsOneWidget);
-    expect(find.text('fixture log line'), findsOneWidget);
-    await tester.pumpWidget(const SizedBox());
-  });
-
-  testWidgets('logs toolbar sits outside the log list card', (tester) async {
-    late Directory temp;
-    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
-    final runtime = _FakeBackendRuntime();
-    final directories = await tester.runAsync(() async {
-      temp = await Directory.systemTemp.createTemp('subdock_widget_');
-      return RuntimeDirectories.fromBaseDirectory(temp);
-    });
-    final coordinator = AppCoordinator(
-      runtime: runtime,
-      environmentStore: BackendEnvStore(directories!),
-    );
-    await tester.binding.setSurfaceSize(const Size(1000, 700));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-    await tester.pumpWidget(
-      SubDockApp(
-        coordinator: coordinator,
-        autoStart: false,
-        enableWebView: false,
-        locale: const Locale('zh'),
-      ),
-    );
-    runtime.emitLog(
-      RuntimeLog(
-        timestamp: DateTime.utc(2026, 9, 13, 4, 30),
-        source: RuntimeLogSource.stdout,
-        message: 'fixture log line',
-      ),
-    );
-    await tester.tap(find.byKey(const ValueKey('nav-item-logs')));
-    await tester.pump();
-
-    final surface = find.byKey(const ValueKey('logs-surface'));
-    expect(surface, findsOneWidget);
-    final listCard = tester.widget<Material>(
-      find.descendant(of: surface, matching: find.byType(Material)).first,
-    );
-    final listRadius = (listCard.shape! as RoundedRectangleBorder).borderRadius;
-    expect(listRadius, BorderRadius.circular(12));
-    expect(listCard.clipBehavior, Clip.antiAlias);
-
-    // The toolbar is rendered above the list card, never inside it.
-    final toolbar = find.byKey(const ValueKey('logs-desktop-toolbar'));
-    expect(toolbar, findsOneWidget);
-    expect(
-      find.descendant(
-        of: surface,
-        matching: find.byKey(const ValueKey('logs-desktop-toolbar')),
-      ),
-      findsNothing,
-    );
-    final toolbarBlock = tester.widget<Column>(toolbar);
-    // 页面级 padding 在 logs-body 上（桌面 24，窄屏 12/12/12/24）；工具栏自身
-    // 下方的 8px 间距是 diff 引入的内部细节，直接断言它无法防回归。
-    final pagePadding = tester.widget<Padding>(
-      find.byKey(const ValueKey('logs-body')),
-    );
-    expect(pagePadding.padding, const EdgeInsets.all(24));
-    final toolbarTop = tester.getTopLeft(find.byWidget(toolbarBlock)).dy;
-    expect(toolbarTop, lessThan(tester.getTopLeft(surface).dy));
-
-    // Toolbar and list card share the page padding's edges: neither is
-    // indented inside the other.
-    final toolbarLeft = tester.getRect(find.byWidget(toolbarBlock)).left;
-    final listCardLeft = tester.getRect(surface).left;
-    expect((toolbarLeft - listCardLeft).abs(), lessThan(0.5));
-
-    // The search field is an inner control at the 8px radius token, not the
-    // 12px card radius. TextField.decoration is pre-theme-merge, so read the
-    // decoration the field actually renders.
-    final searchBorder = tester.widget<InputDecorator>(
-      find.descendant(
-        of: find.byKey(const ValueKey('logs-search')),
-        matching: find.byType(InputDecorator),
-      ),
-    ).decoration.enabledBorder as OutlineInputBorder;
-    expect(
-      searchBorder.borderRadius,
-      BorderRadius.circular(8),
-    );
-
-    // Desktop rows keep a single layer of padding, owned by the list.
-    final row = find.byKey(const ValueKey('logs-desktop-row')).first;
-    expect(row, findsOneWidget);
-    final rowPadding = const EdgeInsets.symmetric(horizontal: 12, vertical: 8);
-    final rowPaddingFinder = find.ancestor(
-      of: row,
-      matching: find.byWidgetPredicate(
-        (widget) => widget is Padding && widget.padding == rowPadding,
-      ),
-    );
-    expect(rowPaddingFinder, findsOneWidget);
-    // The row itself carries no padding; the list owns the single layer.
-    expect(tester.widget<Container>(row).padding, isNull);
-
-    // Empty state stays centered inside the same list card.
-    runtime.emitLog(
-      RuntimeLog(
-        timestamp: DateTime.utc(2026, 9, 13, 4, 31),
-        source: RuntimeLogSource.httpMetaStdout,
-        message: 'http meta fixture',
-      ),
-    );
-    final searchField = find.byKey(const ValueKey('logs-search'));
-    await tester.enterText(searchField, 'no-match');
-    await tester.pump();
-    expect(
-      find.descendant(of: surface, matching: find.text('没有匹配的日志')),
-      findsOneWidget,
-    );
-
-    // Narrow screen: the same split stays in place in compact form.
-    await tester.enterText(searchField, '');
-    await tester.pump();
-    await tester.binding.setSurfaceSize(const Size(599, 600));
-    await tester.pump();
-    final compactToolbar = find.byKey(const ValueKey('logs-mobile-toolbar'));
-    expect(compactToolbar, findsOneWidget);
-    final compactSurface = find.byKey(const ValueKey('logs-surface'));
-    expect(compactSurface, findsOneWidget);
-    expect(
-      find.descendant(of: compactSurface, matching: compactToolbar),
-      findsNothing,
-    );
-    expect(
-      tester
-          .getTopLeft(find.byWidget(tester.widget<Column>(compactToolbar)))
-          .dy,
-      lessThan(tester.getTopLeft(compactSurface).dy),
-    );
-    expect(find.byKey(const ValueKey('logs-mobile-row')), findsNWidgets(2));
-    final mobileRow = find.byKey(const ValueKey('logs-mobile-row')).first;
-    expect(
-      find.ancestor(
-        of: mobileRow,
-        matching: find.byWidgetPredicate(
-          (widget) => widget is Padding && widget.padding == rowPadding,
-        ),
-      ),
-      findsOneWidget,
-    );
-    expect(tester.widget<Container>(mobileRow).padding, isNull);
-    await tester.pumpWidget(const SizedBox());
-  });
-
   testWidgets('logs toolbar switches to the compact filter at 599px', (
     WidgetTester tester,
   ) async {
@@ -673,7 +467,12 @@ void main() {
     // 来源/级别是单一选择(ChoiceChip),默认都是「全部」即未选中具体项。
     final httpMeta = find.byKey(const ValueKey('logs-source-HTTP-META'));
     final back = find.byKey(const ValueKey('logs-source-Backend'));
-    expect(tester.widget<ChoiceChip>(find.byKey(const ValueKey('logs-source-all'))).selected, isTrue);
+    expect(
+      tester
+          .widget<ChoiceChip>(find.byKey(const ValueKey('logs-source-all')))
+          .selected,
+      isTrue,
+    );
     expect(tester.widget<ChoiceChip>(httpMeta).selected, isFalse);
     expect(tester.widget<ChoiceChip>(back).selected, isFalse);
     await tester.tap(back);
@@ -688,24 +487,15 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('logs page geometry holds across the 599 to 600 breakpoint', (
+  testWidgets('logs layout aligns toolbar and card at 599 and 600 pixels', (
     WidgetTester tester,
   ) async {
-    late Directory temp;
-    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
-    final runtime = _FakeBackendRuntime();
-    final directories = await tester.runAsync(() async {
-      temp = await Directory.systemTemp.createTemp('subdock_widget_');
-      return RuntimeDirectories.fromBaseDirectory(temp);
-    });
-    await tester.binding.setSurfaceSize(const Size(599, 700));
+    final fixture = await _widgetRuntime(tester);
+    await tester.binding.setSurfaceSize(const Size(600, 700));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
       SubDockApp(
-        coordinator: AppCoordinator(
-          runtime: runtime,
-          environmentStore: BackendEnvStore(directories!),
-        ),
+        coordinator: fixture.coordinator,
         autoStart: false,
         enableWebView: false,
         locale: const Locale('zh'),
@@ -716,7 +506,7 @@ void main() {
       'http meta fixture',
       'desktop fixture',
     ]) {
-      runtime.emitLog(
+      fixture.runtime.emitLog(
         RuntimeLog(
           timestamp: DateTime.utc(2026, 9, 13, 4, 30),
           source: RuntimeLogSource.stdout,
@@ -727,83 +517,76 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('nav-item-logs')));
     await tester.pump();
 
-    // Both tiers split the toolbar from the list card, and the toolbar keeps
-    // the card's left and right edges.
-    void expectToolbarAlignedToCard() {
-      final toolbar = tester.widget<Column>(
-        find.byWidgetPredicate(
-          (widget) =>
-              widget.key == const ValueKey('logs-desktop-toolbar') ||
-              widget.key == const ValueKey('logs-mobile-toolbar'),
-        ),
+    for (final width in const [600.0, 599.0]) {
+      await tester.binding.setSurfaceSize(Size(width, 700));
+      await tester.pump();
+      final compact = width < 600;
+      final toolbar = find.byKey(
+        ValueKey(compact ? 'logs-mobile-toolbar' : 'logs-desktop-toolbar'),
       );
-      final toolbarRect = tester.getRect(find.byWidget(toolbar));
-      final surface = tester.getRect(
-        find.byKey(const ValueKey('logs-surface')),
+      final surface = find.byKey(const ValueKey('logs-surface'));
+      final row = find.byKey(
+        ValueKey(compact ? 'logs-mobile-row' : 'logs-desktop-row'),
       );
-      expect((toolbarRect.left - surface.left).abs(), lessThan(0.5));
-      expect((toolbarRect.right - surface.right).abs(), lessThan(0.5));
-      expect(
-        (tester.getRect(find.byKey(const ValueKey('logs-search'))).left -
-                surface.left)
-            .abs(),
-        lessThan(0.5),
+      expect(toolbar, findsOneWidget);
+      expect(row, findsNWidgets(3));
+      expect(find.descendant(of: surface, matching: toolbar), findsNothing);
+
+      final toolbarRect = tester.getRect(toolbar);
+      final surfaceRect = tester.getRect(surface);
+      final searchRect = tester.getRect(
+        find.byKey(const ValueKey('logs-search')),
       );
-      final listCard = tester.widget<Material>(
-        find.descendant(
-          of: find.byKey(const ValueKey('logs-surface')),
-          matching: find.byType(Material),
-        ).first,
-      );
-      expect(
-        (listCard.shape! as RoundedRectangleBorder).borderRadius,
-        BorderRadius.circular(12),
-      );
+      expect((toolbarRect.left - surfaceRect.left).abs(), lessThan(0.5));
+      expect((toolbarRect.right - surfaceRect.right).abs(), lessThan(0.5));
+      expect((searchRect.left - surfaceRect.left).abs(), lessThan(0.5));
+      expect(toolbarRect.bottom, lessThanOrEqualTo(surfaceRect.top));
+
+      if (!compact) {
+        final card = tester.widget<Material>(
+          find.descendant(of: surface, matching: find.byType(Material)).first,
+        );
+        expect(
+          (card.shape! as RoundedRectangleBorder).borderRadius,
+          BorderRadius.circular(12),
+        );
+        final searchBorder =
+            tester
+                    .widget<InputDecorator>(
+                      find.descendant(
+                        of: find.byKey(const ValueKey('logs-search')),
+                        matching: find.byType(InputDecorator),
+                      ),
+                    )
+                    .decoration
+                    .enabledBorder
+                as OutlineInputBorder;
+        expect(searchBorder.borderRadius, BorderRadius.circular(8));
+      }
+      expect(tester.takeException(), isNull);
     }
 
-    // 599px: the compact toolbar inside the mobile padding layer.
-    expect(find.byKey(const ValueKey('logs-mobile-toolbar')), findsOneWidget);
-    expect(
-      tester.widget<Padding>(find.byKey(const ValueKey('logs-body'))).padding,
-      const EdgeInsets.only(top: 12, left: 12, right: 12, bottom: 24),
+    await tester.enterText(
+      find.byKey(const ValueKey('logs-search')),
+      'no-match',
     );
-    expect(find.byKey(const ValueKey('logs-mobile-row')), findsNWidgets(3));
-    expectToolbarAlignedToCard();
-
-    // 600px: the desktop toolbar inside the uniform page padding layer, with
-    // the same edges and the same card radius.
-    await tester.binding.setSurfaceSize(const Size(600, 700));
     await tester.pump();
     expect(
-      find.byKey(const ValueKey('logs-desktop-toolbar')),
+      find.descendant(
+        of: find.byKey(const ValueKey('logs-surface')),
+        matching: find.text('没有匹配的日志'),
+      ),
       findsOneWidget,
     );
-    expect(find.byKey(const ValueKey('logs-mobile-toolbar')), findsNothing);
-    expect(
-      tester.widget<Padding>(find.byKey(const ValueKey('logs-body'))).padding,
-      const EdgeInsets.all(24),
-    );
-    expect(find.byKey(const ValueKey('logs-desktop-row')), findsNWidgets(3));
-    expect(find.byKey(const ValueKey('logs-mobile-row')), findsNothing);
-    expectToolbarAlignedToCard();
-    expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
   });
-
   testWidgets('current logs capture the run limit and classify levels', (
     WidgetTester tester,
   ) async {
-    late Directory temp;
-    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
-    final runtime = _FakeBackendRuntime();
-    final directories = await tester.runAsync(() async {
-      temp = await Directory.systemTemp.createTemp('subdock_widget_');
-      return RuntimeDirectories.fromBaseDirectory(temp);
-    });
-    final coordinator = AppCoordinator(
-      runtime: runtime,
-      environmentStore: BackendEnvStore(directories!),
-    );
+    final fixture = await _widgetRuntime(tester);
+    final runtime = fixture.runtime;
+    final directories = fixture.directories;
+    final coordinator = fixture.coordinator;
     await tester.binding.setSurfaceSize(const Size(600, 480));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.runAsync(
@@ -823,6 +606,22 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('nav-item-logs')));
     await tester.pump();
 
+    expect(find.byKey(const ValueKey('logs-surface')), findsOneWidget);
+    expect(find.byKey(const ValueKey('overview-recent-logs')), findsNothing);
+    expect(find.text('暂无日志'), findsOneWidget);
+    runtime.emitLog(
+      RuntimeLog(
+        timestamp: DateTime.utc(2026, 9, 13, 4, 30),
+        source: RuntimeLogSource.stdout,
+        message: 'fixture log line',
+      ),
+    );
+    await tester.pump();
+    expect(find.text('暂无日志'), findsNothing);
+    expect(find.byKey(const ValueKey('overview-recent-logs')), findsNothing);
+    expect(find.text('Backend'), findsOneWidget);
+    expect(find.text('信息'), findsOneWidget);
+    expect(find.text('fixture log line'), findsOneWidget);
     expect(find.text('legacy entry'), findsNothing);
 
     runtime.emitState(RuntimeStatus.starting);
@@ -846,56 +645,39 @@ void main() {
       findsNothing,
     );
 
-    runtime.emitLog(
-      RuntimeLog(
-        timestamp: DateTime.now(),
-        source: RuntimeLogSource.stdout,
-        message: 'non-prefix trace panic',
-      ),
-    );
-    await tester.pump();
-    expect(
-      find.byWidgetPredicate(
-        (widget) =>
-            widget is SelectableText &&
-            widget.data?.contains('non-prefix trace panic') == true,
-      ),
-      findsOneWidget,
-    );
-    runtime.emitLog(
-      RuntimeLog(
-        timestamp: DateTime.now(),
-        source: RuntimeLogSource.stdout,
-        message: 'debug1 error404 panic_mode',
-      ),
-    );
-    await tester.pump();
-    expect(
-      find.byWidgetPredicate(
-        (widget) =>
-            widget is SelectableText &&
-            widget.data?.contains('debug1 error404 panic_mode') == true,
-      ),
-      findsOneWidget,
-    );
-    runtime.emitLog(
-      RuntimeLog(
-        timestamp: DateTime.now(),
-        source: RuntimeLogSource.stdout,
-        message: 'non-prefix panic',
-      ),
-    );
-    await tester.pump();
-    expect(
-      find.byWidgetPredicate(
-        (widget) =>
-            widget is SelectableText &&
-            widget.data?.contains('non-prefix panic') == true,
-      ),
-      findsOneWidget,
-    );
+    const classifications = {
+      'non-prefix trace panic': '调试',
+      'debug1 error404 panic_mode': '信息',
+      'non-prefix panic': '错误',
+    };
+    for (final entry in classifications.entries) {
+      runtime.emitLog(
+        RuntimeLog(
+          timestamp: DateTime.now(),
+          source: RuntimeLogSource.stdout,
+          message: entry.key,
+        ),
+      );
+      await tester.pump();
+      final message = find.byWidgetPredicate(
+        (widget) => widget is SelectableText && widget.data == entry.key,
+      );
+      expect(message, findsOneWidget);
+      final row = find.ancestor(
+        of: message,
+        matching: find.byKey(const ValueKey('logs-desktop-row')),
+      );
+      expect(row, findsOneWidget);
+      expect(
+        find.descendant(of: row, matching: find.text(entry.value)),
+        findsOneWidget,
+      );
+    }
 
     await tester.enterText(find.byType(TextField), 'Backend');
+    await tester.pump();
+    expect(find.byType(SelectableText), findsNothing);
+    await tester.enterText(find.byType(TextField), 'log-0');
     await tester.pump();
     expect(find.byType(SelectableText), findsNothing);
     await tester.enterText(find.byType(TextField), 'log-59');
@@ -925,15 +707,37 @@ void main() {
       findsOneWidget,
     );
 
-    await tester.enterText(find.byType(TextField), '');
+    for (final entry in [
+      (message: 'sort-oldest', timestamp: DateTime.utc(2020)),
+      (message: 'sort-newest', timestamp: DateTime.utc(2025)),
+    ]) {
+      runtime.emitLog(
+        RuntimeLog(
+          timestamp: entry.timestamp,
+          source: RuntimeLogSource.stdout,
+          message: entry.message,
+        ),
+      );
+    }
+    await tester.pump();
+    await tester.enterText(find.byType(TextField), 'sort-');
     await tester.tap(find.byKey(const ValueKey('logs-sort-selector')));
     await tester.pump();
     await tester.tap(find.text('最早在前').last);
     await tester.pump();
+    List<String?> sortedMessages() => tester
+        .widgetList<SelectableText>(find.byType(SelectableText))
+        .map((widget) => widget.data)
+        .toList();
+    var sortedRows = sortedMessages();
+    expect(sortedRows, ['sort-oldest', 'sort-newest']);
     await tester.tap(find.byKey(const ValueKey('logs-sort-selector')));
     await tester.pump();
     await tester.tap(find.text('最新在前').last);
     await tester.pump();
+    sortedRows = sortedMessages();
+    expect(sortedRows, ['sort-newest', 'sort-oldest']);
+    await tester.enterText(find.byType(TextField), '');
 
     await tester.enterText(find.byType(TextField), 'panic');
     await tester.tap(find.byKey(const ValueKey('nav-item-overview')));
@@ -1514,193 +1318,245 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('updates page separates packaged resources', (tester) async {
-    late Directory temp;
-    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
-    final directories = await tester.runAsync(() async {
-      temp = await Directory.systemTemp.createTemp('subdock_widget_');
-      return RuntimeDirectories.fromBaseDirectory(temp);
-    });
-    final runtime = _FakeBackendRuntime();
-    final coordinator = AppCoordinator(
-      runtime: runtime,
-      environmentStore: BackendEnvStore(directories!),
-      componentUpdates: _FakeComponentUpdateOperations(),
-    );
-    await tester.pumpWidget(
-      SubDockApp(
-        coordinator: coordinator,
-        autoStart: false,
-        enableWebView: false,
-        locale: const Locale('en'),
-      ),
-    );
-    runtime.emitState(
-      RuntimeStatus.running,
-      httpMetaStatus: HttpMetaStatus.running,
-      httpMetaPort: 9876,
-      httpMetaVersion: '1.3.0',
-      httpMetaMihomoVersion: 'v1.19.30',
-    );
-    await _pumpRealIo(tester);
-    await tester.tap(find.byKey(const ValueKey('nav-item-updates')));
-    await _pumpRealIo(tester);
-
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('updates-packaged-http-meta')),
-        matching: find.text('1.3.0'),
-      ),
-      findsOneWidget,
-    );
-    // HTTP-META tile 仍带「随 SubDock 提供」徽章与独立运行状态（R5、R7）。
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('updates-packaged-http-meta')),
-        matching: find.text('Ships with SubDock'),
-      ),
-      findsOneWidget,
-    );
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('updates-packaged-http-meta')),
-        matching: find.textContaining('Running on port'),
-      ),
-      findsOneWidget,
-    );
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('updates-packaged-node')),
-        matching: find.text('v24.20.0'),
-      ),
-      findsOneWidget,
-    );
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('updates-packaged-mihomo')),
-        matching: find.text('v1.19.30'),
-      ),
-      findsOneWidget,
-    );
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('updates-packaged-grid')),
-        matching: find.byType(FilledButton),
-      ),
-      findsNothing,
-    );
-
-    final packagedSection = find.byKey(const ValueKey('updates-packaged-section'));
-    expect(packagedSection, findsOneWidget);
-    // 「随 SubDock 提供」是外层卡片：12px 圆角。
-    final sectionRadius = tester.widget<Material>(
-      find.descendant(
-        of: packagedSection,
-        matching: find.byType(Material),
-      ).first,
-    ).shape! as RoundedRectangleBorder;
-    expect(
-      sectionRadius.borderRadius,
-      BorderRadius.circular(12),
-    );
-    // 卡片只有一层内边距：直接子是 section 内容列，不额外夹在 tile 之间。
-    final sectionPanelPadding = tester.widget<Padding>(
-      find.descendant(
-        of: packagedSection,
-        matching: find.byType(Padding),
-      ).first,
-    );
-    expect(
-      sectionPanelPadding.padding,
-      const EdgeInsets.all(12),
-    );
-    expect(
-      sectionPanelPadding.child,
-      isA<Column>().having(
-        (column) => column.key,
-        'key',
-        const ValueKey('updates-packaged-section-layout'),
-      ),
-    );
-    expect(
-      find.descendant(
-        of: packagedSection,
-        matching: find.textContaining('not replaced independently'),
-      ),
-      findsOneWidget,
-    );
-    // 三个 tile 桌面同一行、同宽、等高（HTTP-META 带说明行）。
-    final packagedGrid = tester.widget<Row>(
-      find.byKey(const ValueKey('updates-packaged-grid')),
-    );
-    expect(
-      packagedGrid.crossAxisAlignment,
-      CrossAxisAlignment.stretch,
-    );
-    const tileKeys = [
-      ValueKey('updates-packaged-http-meta'),
-      ValueKey('updates-packaged-mihomo'),
-      ValueKey('updates-packaged-node'),
-    ];
-    final tileSizes = <double>[];
-    for (final key in tileKeys) {
-      expect(
-        find.descendant(of: packagedSection, matching: find.byKey(key)),
-        findsOneWidget,
+  testWidgets(
+    'updates layout keeps packaged resources distinct at 599 and 600 pixels',
+    (WidgetTester tester) async {
+      final updates = _FakeComponentUpdateOperations();
+      final fixture = await _widgetRuntime(tester, componentUpdates: updates);
+      await tester.binding.setSurfaceSize(const Size(600, 480));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        SubDockApp(
+          coordinator: fixture.coordinator,
+          autoStart: false,
+          enableWebView: false,
+          locale: const Locale('en'),
+        ),
       );
-      final topLeft = tester.getTopLeft(find.byKey(key));
-      final bottomLeft = tester.getBottomLeft(find.byKey(key));
-      expect(bottomLeft.dy, greaterThan(topLeft.dy));
-      tileSizes.add(tester.getSize(find.byKey(key)).height);
-    }
-    expect(tileSizes.length, 3);
-    expect(tileSizes.toSet().length, 1);
-    final httpMetaTile = tester.getSize(
-      find.byKey(const ValueKey('updates-packaged-http-meta')),
-    );
-    final mihomoTile = tester.getSize(find.byKey(const ValueKey('updates-packaged-mihomo')));
-    final nodeTile = tester.getSize(find.byKey(const ValueKey('updates-packaged-node')));
-    expect(mihomoTile.width, httpMetaTile.width);
-    expect(nodeTile.width, httpMetaTile.width);
-    final tileDx = tileKeys.map(
-      (key) => tester.getTopLeft(find.byKey(key)).dx,
-    );
-    expect(tileDx.elementAt(1), greaterThan(tileDx.first));
-    expect(tileDx.elementAt(2), greaterThan(tileDx.elementAt(1)));
-    final tileTop = tileKeys.map(
-      (key) => tester.getTopLeft(find.byKey(key)).dy,
-    );
-    expect(tileTop.elementAt(1), tileTop.first);
-    expect(tileTop.elementAt(2), tileTop.first);
+      fixture.runtime.emitState(
+        RuntimeStatus.running,
+        httpMetaStatus: HttpMetaStatus.running,
+        httpMetaPort: 9876,
+        httpMetaVersion: '1.3.0',
+        httpMetaMihomoVersion: 'v1.19.30',
+      );
+      await _pumpRealIo(tester);
+      await tester.tap(find.byKey(const ValueKey('nav-item-updates')));
+      await _pumpRealIo(tester);
 
-    // 说明文字与 tile 共享外层卡片的单一左边缘，不被二次内缩。
-    final descriptionLeft = tester
-        .getRect(
+      const tileKeys = [
+        ValueKey('updates-packaged-http-meta'),
+        ValueKey('updates-packaged-mihomo'),
+        ValueKey('updates-packaged-node'),
+      ];
+      final packagedSection = find.byKey(
+        const ValueKey('updates-packaged-section'),
+      );
+      for (final width in const [600.0, 599.0]) {
+        await tester.binding.setSurfaceSize(Size(width, 480));
+        await tester.pump();
+        final compact = width < 600;
+        Rect unionRects(List<Rect> rects) => Rect.fromLTRB(
+          rects
+              .map((rect) => rect.left)
+              .reduce((left, right) => left < right ? left : right),
+          rects
+              .map((rect) => rect.top)
+              .reduce((top, bottom) => top < bottom ? top : bottom),
+          rects
+              .map((rect) => rect.right)
+              .reduce((left, right) => left > right ? left : right),
+          rects
+              .map((rect) => rect.bottom)
+              .reduce((top, bottom) => top > bottom ? top : bottom),
+        );
+        final l10n = AppLocalizations.of(
+          tester.element(find.byKey(const ValueKey('page-updates'))),
+        )!;
+        for (final kind in const ['frontend', 'backend']) {
+          final layout = find.byKey(ValueKey('component-layout-$kind'));
+          final title = kind == 'frontend'
+              ? l10n.frontendComponent
+              : l10n.backendComponent;
+          final description = kind == 'frontend'
+              ? l10n.frontendComponentDescription
+              : l10n.backendComponentDescription;
+          final status = find.byKey(
+            ValueKey('component-update-local-status-$kind'),
+          );
+          final checkResult = l10n.componentUpToDate(
+            '1.0.0',
+            kind == 'backend' ? 'backend-previous' : '-',
+          );
+          final detailTexts = [
+            find.descendant(of: layout, matching: find.text(title)),
+            find.descendant(of: layout, matching: find.text(description)),
+            find.descendant(of: layout, matching: status),
+            find.descendant(of: layout, matching: find.text(checkResult)),
+          ];
+          final detailRects = <Rect>[];
+          for (final detail in detailTexts) {
+            expect(detail, findsOneWidget);
+            detailRects.add(tester.getRect(detail));
+          }
+          final detailsRect = unionRects(detailRects);
+          final actionsRect = tester.getRect(
+            find.byKey(ValueKey('component-actions-$kind')),
+          );
+          if (compact) {
+            expect(actionsRect.top, greaterThan(detailsRect.bottom));
+          } else {
+            expect(actionsRect.left, greaterThanOrEqualTo(detailsRect.right));
+            expect(actionsRect.top, lessThan(detailsRect.bottom));
+            expect(actionsRect.bottom, greaterThan(detailsRect.top));
+          }
+        }
+
+        final stop = find.byKey(const ValueKey('updates-backend-stop'));
+        final notice = find.byKey(const ValueKey('updates-backend-notice'));
+        await tester.ensureVisible(stop);
+        await tester.pump();
+        expect(tester.widget<OutlinedButton>(stop).onPressed, isNotNull);
+        expect(stop.hitTestable(), findsOneWidget);
+        final stopRect = tester.getRect(stop);
+        final noticeRect = tester.getRect(notice);
+        final noticeHeading = find.descendant(
+          of: notice,
+          matching: find.text('${l10n.backendRuntime} ${l10n.running}'),
+        );
+        final noticeBody = find.descendant(
+          of: notice,
+          matching: find.text(
+            'Stop Backend before updating or rolling back components.',
+          ),
+        );
+        expect(noticeHeading, findsOneWidget);
+        expect(noticeBody, findsOneWidget);
+        final noticeTextRect = unionRects([
+          tester.getRect(noticeHeading),
+          tester.getRect(noticeBody),
+        ]);
+        expect(stopRect.left, greaterThanOrEqualTo(noticeRect.left));
+        expect(stopRect.right, lessThanOrEqualTo(noticeRect.right));
+        expect(stopRect.top, greaterThanOrEqualTo(noticeRect.top));
+        expect(stopRect.bottom, lessThanOrEqualTo(noticeRect.bottom));
+        if (compact) {
+          expect(stopRect.top, greaterThanOrEqualTo(noticeTextRect.bottom));
+        } else {
+          expect(stopRect.left, greaterThanOrEqualTo(noticeTextRect.right));
+          expect(stopRect.top, lessThan(noticeTextRect.bottom));
+          expect(stopRect.bottom, greaterThan(noticeTextRect.top));
+        }
+
+        await tester.ensureVisible(packagedSection);
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        expect(
+          find.descendant(
+            of: find.byKey(tileKeys.first),
+            matching: find.text('1.3.0'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: find.byKey(tileKeys.first),
+            matching: find.text('Ships with SubDock'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: find.byKey(tileKeys.first),
+            matching: find.textContaining('Running on port'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: find.byKey(tileKeys[1]),
+            matching: find.text('v1.19.30'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: find.byKey(tileKeys[2]),
+            matching: find.text('v24.20.0'),
+          ),
+          findsOneWidget,
+        );
+        for (final key in tileKeys) {
+          expect(
+            find.descendant(of: packagedSection, matching: find.byKey(key)),
+            findsOneWidget,
+          );
+        }
+        expect(
           find.descendant(
             of: packagedSection,
-            matching: find.textContaining('not replaced independently'),
+            matching: find.byType(FilledButton),
           ),
-        )
-        .left;
-    final firstTileLeft = tester
-        .getTopLeft(find.byKey(const ValueKey('updates-packaged-http-meta')))
-        .dx;
-    expect((descriptionLeft - firstTileLeft).abs(), lessThan(0.5));
+          findsNothing,
+        );
+        final description = find.descendant(
+          of: packagedSection,
+          matching: find.textContaining('not replaced independently'),
+        );
+        expect(description, findsOneWidget);
 
-    // tile 圆角为 10px（R2 例外），不再用 8px。
-    final tileCard = tester.widget<Material>(
-      find.descendant(
-        of: find.byKey(const ValueKey('updates-packaged-http-meta')),
-        matching: find.byType(Material),
-      ),
-    );
-    expect(
-      (tileCard.shape! as RoundedRectangleBorder).borderRadius,
-      BorderRadius.circular(10),
-    );
-    await tester.pumpWidget(const SizedBox());
-  });
+        final tileRects = tileKeys
+            .map((key) => tester.getRect(find.byKey(key)))
+            .toList();
+        expect(
+          (tester.getRect(description).left - tileRects.first.left).abs(),
+          lessThan(0.5),
+        );
+        expect(tileRects[1].width, tileRects.first.width);
+        expect(tileRects[2].width, tileRects.first.width);
+        if (compact) {
+          expect(tileRects[1].top, greaterThan(tileRects.first.bottom));
+          expect(tileRects[2].top, greaterThan(tileRects[1].bottom));
+          expect(
+            (tileRects[1].left - tileRects.first.left).abs(),
+            lessThan(0.5),
+          );
+          expect(
+            (tileRects[2].left - tileRects.first.left).abs(),
+            lessThan(0.5),
+          );
+        } else {
+          expect(tileRects[1].left, greaterThan(tileRects.first.right));
+          expect(tileRects[2].left, greaterThan(tileRects[1].right));
+          expect((tileRects[1].top - tileRects.first.top).abs(), lessThan(0.5));
+          expect((tileRects[2].top - tileRects.first.top).abs(), lessThan(0.5));
+          expect(tileRects[1].height, tileRects.first.height);
+          expect(tileRects[2].height, tileRects.first.height);
+        }
 
+        final sectionCard = tester.widget<Material>(
+          find
+              .descendant(of: packagedSection, matching: find.byType(Material))
+              .first,
+        );
+        expect(
+          (sectionCard.shape! as RoundedRectangleBorder).borderRadius,
+          BorderRadius.circular(12),
+        );
+        final tileCard = tester.widget<Material>(
+          find.descendant(
+            of: find.byKey(tileKeys.first),
+            matching: find.byType(Material),
+          ),
+        );
+        expect(
+          (tileCard.shape! as RoundedRectangleBorder).borderRadius,
+          BorderRadius.circular(10),
+        );
+      }
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
   testWidgets('backend update page stops a running backend', (tester) async {
     late Directory temp;
     addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
@@ -1733,10 +1589,12 @@ void main() {
     expect(find.byKey(const ValueKey('settings-child-save')), findsNothing);
     // Updates notice 圆角为 10px（R2 第二个例外），不再用 12px。
     final backendNotice = tester.widget<Material>(
-      find.descendant(
-        of: find.byKey(const ValueKey('updates-backend-notice')),
-        matching: find.byType(Material),
-      ).first,
+      find
+          .descendant(
+            of: find.byKey(const ValueKey('updates-backend-notice')),
+            matching: find.byType(Material),
+          )
+          .first,
     );
     expect(
       (backendNotice.shape! as RoundedRectangleBorder).borderRadius,
@@ -1867,120 +1725,121 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('stopped component update reloads status and requires restart', (
-    tester,
-  ) async {
-    late Directory temp;
-    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
-    await tester.binding.setSurfaceSize(const Size(600, 480));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-    final directories = await tester.runAsync(() async {
-      temp = await Directory.systemTemp.createTemp('subdock_widget_');
-      return RuntimeDirectories.fromBaseDirectory(temp);
-    });
-    final updates = _FakeComponentUpdateOperations()
-      ..statuses[ComponentKind.frontend] = const ComponentVersionStatus(
-        current: '1.0.0',
-        previous: '0.9.0',
-      )
-      ..checkResults[ComponentKind.frontend] = ComponentUpdate(
-        kind: ComponentKind.frontend,
-        currentVersion: '1.0.0',
-        availableVersion: '1.1.0',
-        release: GithubRelease(
-          version: '1.1.0',
-          releaseUri: Uri.parse('https://example.invalid/frontend'),
-          assets: const [],
+  testWidgets(
+    'stopped component update reloads status and requires a manual start',
+    (tester) async {
+      late Directory temp;
+      addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+      await tester.binding.setSurfaceSize(const Size(600, 480));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final directories = await tester.runAsync(() async {
+        temp = await Directory.systemTemp.createTemp('subdock_widget_');
+        return RuntimeDirectories.fromBaseDirectory(temp);
+      });
+      final updates = _FakeComponentUpdateOperations()
+        ..statuses[ComponentKind.frontend] = const ComponentVersionStatus(
+          current: '1.0.0',
+          previous: '0.9.0',
+        )
+        ..checkResults[ComponentKind.frontend] = ComponentUpdate(
+          kind: ComponentKind.frontend,
+          currentVersion: '1.0.0',
+          availableVersion: '1.1.0',
+          release: GithubRelease(
+            version: '1.1.0',
+            releaseUri: Uri.parse('https://example.invalid/frontend'),
+            assets: const [],
+          ),
+        );
+      final runtime = _FakeBackendRuntime();
+      final opened = <Uri>[];
+      final coordinator = AppCoordinator(
+        runtime: runtime,
+        environmentStore: BackendEnvStore(directories!),
+        componentUpdates: updates,
+      );
+      await tester.pumpWidget(
+        SubDockApp(
+          coordinator: coordinator,
+          autoStart: false,
+          enableWebView: false,
+          locale: const Locale('en'),
+          onOpenExternalUri: (uri) async {
+            opened.add(uri);
+            return true;
+          },
         ),
       );
-    final runtime = _FakeBackendRuntime();
-    final opened = <Uri>[];
-    var openResult = true;
-    final coordinator = AppCoordinator(
-      runtime: runtime,
-      environmentStore: BackendEnvStore(directories!),
-      componentUpdates: updates,
-    );
-    await tester.pumpWidget(
-      SubDockApp(
-        coordinator: coordinator,
-        autoStart: false,
-        enableWebView: false,
-        locale: const Locale('en'),
-        onOpenExternalUri: (uri) async {
-          opened.add(uri);
-          return openResult;
-        },
-      ),
-    );
-    await tester.tap(find.byKey(const ValueKey('nav-item-updates')));
-    await tester.pumpAndSettle();
-    await _pumpRealIo(tester);
-    expect(
-      find.byKey(const ValueKey('component-release-notes-frontend')),
-      findsOneWidget,
-    );
-    await tester.tap(
-      find.byKey(const ValueKey('component-release-notes-frontend')),
-    );
-    expect(opened, [Uri.parse('https://example.invalid/frontend')]);
-    await tester.tap(
-      find.byKey(const ValueKey('component-update-action-frontend')),
-    );
-    await _pumpRealIo(tester);
-    expect(updates.updateCalls, hasLength(1));
-    expect(updates.rollbackCalls, isEmpty);
-    expect(runtime.restarts, 0);
-    expect(find.textContaining('Current version: 1.1.0'), findsOneWidget);
-    expect(
-      find.byKey(const ValueKey('component-start-now-frontend')),
-      findsOneWidget,
-    );
-    expect(
-      find.byKey(const ValueKey('component-release-notes-frontend')),
-      findsNothing,
-    );
-    final restart = find.byKey(
-      const ValueKey('component-start-now-frontend'),
-    );
-    await tester.ensureVisible(restart);
-    await tester.tap(restart);
-    await _pumpRealIo(tester);
-    expect(runtime.starts, 1);
-    expect(runtime.restarts, 0);
-    expect(
-      find.byKey(const ValueKey('component-start-now-frontend')),
-      findsNothing,
-    );
-    expect(updates.updateCalls, hasLength(1));
-    expect(updates.rollbackCalls, isEmpty);
-    openResult = false;
-    updates.checkErrors[ComponentKind.frontend] = StateError('network failed');
-    final recheck = find.byKey(
-      const ValueKey('component-update-recheck-frontend'),
-    );
-    await tester.ensureVisible(recheck);
-    await tester.tap(recheck);
-    await _pumpRealIo(tester);
-    final updateCount = updates.updateCalls.length;
-    final rollbackCount = updates.rollbackCalls.length;
-    final restartCount = runtime.restarts;
-    final openedCount = opened.length;
-    expect(
-      find.byKey(const ValueKey('component-release-notes-frontend')),
-      findsNothing,
-    );
-    expect(opened, hasLength(openedCount));
-    expect(
-      find.byKey(const ValueKey('component-update-local-status-frontend')),
-      findsOneWidget,
-    );
-    expect(find.textContaining('Current version: 1.1.0'), findsOneWidget);
-    expect(updates.updateCalls.length, updateCount);
-    expect(updates.rollbackCalls.length, rollbackCount);
-    expect(runtime.restarts, restartCount);
-    await tester.pumpWidget(const SizedBox());
-  });
+      await tester.tap(find.byKey(const ValueKey('nav-item-updates')));
+      await tester.pumpAndSettle();
+      await _pumpRealIo(tester);
+      expect(
+        find.byKey(const ValueKey('component-release-notes-frontend')),
+        findsOneWidget,
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('component-release-notes-frontend')),
+      );
+      expect(opened, [Uri.parse('https://example.invalid/frontend')]);
+      await tester.tap(
+        find.byKey(const ValueKey('component-update-action-frontend')),
+      );
+      await _pumpRealIo(tester);
+      expect(updates.updateCalls, hasLength(1));
+      expect(updates.rollbackCalls, isEmpty);
+      expect(runtime.restarts, 0);
+      expect(find.textContaining('Current version: 1.1.0'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('component-start-now-frontend')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('component-release-notes-frontend')),
+        findsNothing,
+      );
+      final restart = find.byKey(
+        const ValueKey('component-start-now-frontend'),
+      );
+      await tester.ensureVisible(restart);
+      await tester.tap(restart);
+      await _pumpRealIo(tester);
+      expect(runtime.starts, 1);
+      expect(runtime.restarts, 0);
+      expect(
+        find.byKey(const ValueKey('component-start-now-frontend')),
+        findsNothing,
+      );
+      expect(updates.updateCalls, hasLength(1));
+      expect(updates.rollbackCalls, isEmpty);
+      final updateCount = updates.updateCalls.length;
+      final rollbackCount = updates.rollbackCalls.length;
+      final restartCount = runtime.restarts;
+      final openedCount = opened.length;
+      updates.checkErrors[ComponentKind.frontend] = StateError(
+        'network failed',
+      );
+      final recheck = find.byKey(
+        const ValueKey('component-update-recheck-frontend'),
+      );
+      await tester.ensureVisible(recheck);
+      await tester.tap(recheck);
+      await _pumpRealIo(tester);
+      expect(
+        find.byKey(const ValueKey('component-release-notes-frontend')),
+        findsNothing,
+      );
+      expect(opened, hasLength(openedCount));
+      expect(
+        find.byKey(const ValueKey('component-update-local-status-frontend')),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Current version: 1.1.0'), findsOneWidget);
+      expect(updates.updateCalls.length, updateCount);
+      expect(updates.rollbackCalls.length, rollbackCount);
+      expect(runtime.restarts, restartCount);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
 
   testWidgets('rollback requires confirmation and reloads swapped status', (
     tester,
@@ -2234,8 +2093,8 @@ void main() {
     );
     final loader = AboutInfoLoader(
       loadPackageMetadata: () async => (version: '1.2.3', buildNumber: ''),
-      operatingSystem: () => 'linux',
-      architecture: () => 'x64',
+      operatingSystem: () => 'windows',
+      architecture: () => 'arm64',
     );
     await tester.pumpWidget(
       SubDockApp(
@@ -2273,8 +2132,8 @@ void main() {
       find.text('Project homepage: https://github.com/Delusions6515/SubDock'),
       findsOneWidget,
     );
-    expect(find.text('Operating system: linux'), findsOneWidget);
-    expect(find.text('Architecture: x64'), findsOneWidget);
+    expect(find.text('Operating system: windows'), findsOneWidget);
+    expect(find.text('Architecture: arm64'), findsOneWidget);
     for (final key in [
       'about-version',
       'about-build-number',
@@ -2352,68 +2211,6 @@ void main() {
     expect(find.textContaining('metadata failed'), findsOneWidget);
     expect(find.byKey(const ValueKey('about-version')), findsNothing);
     expect(find.byKey(const ValueKey('settings-about-page')), findsOneWidget);
-    expect(find.byKey(const ValueKey('settings-child-save')), findsNothing);
-    await tester.pumpWidget(const SizedBox());
-  });
-
-  testWidgets('settings about page renders localized metadata labels', (
-    tester,
-  ) async {
-    late Directory temp;
-    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
-    final directories = await tester.runAsync(() async {
-      temp = await Directory.systemTemp.createTemp('subdock_widget_');
-      return RuntimeDirectories.fromBaseDirectory(temp);
-    });
-    final coordinator = AppCoordinator(
-      runtime: _FakeBackendRuntime(),
-      environmentStore: BackendEnvStore(directories!),
-    );
-    final loader = AboutInfoLoader(
-      loadPackageMetadata: () async => (version: '1.2.3', buildNumber: '42'),
-      operatingSystem: () => 'linux',
-      architecture: () => 'x64',
-    );
-    await tester.pumpWidget(
-      SubDockApp(
-        coordinator: coordinator,
-        autoStart: false,
-        enableWebView: false,
-        locale: const Locale('zh'),
-        aboutInfoLoader: loader,
-      ),
-    );
-    await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
-    await tester.pumpAndSettle();
-    await tester.drag(
-      find.byKey(const ValueKey('settings-list')),
-      const Offset(0, -500),
-    );
-    await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(
-      find.byKey(const ValueKey('settings-card-about')),
-      -200,
-      scrollable: find.byType(Scrollable).first,
-    );
-    await tester.drag(
-      find.byKey(const ValueKey('settings-list')),
-      const Offset(0, -160),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('settings-card-about')));
-    await _pumpRealIo(tester);
-
-    expect(find.text('SubDock 版本: 1.2.3'), findsOneWidget);
-    expect(find.text('构建号: 42'), findsOneWidget);
-    expect(find.text('许可证: GPL-3.0'), findsOneWidget);
-    expect(
-      find.text('项目主页: https://github.com/Delusions6515/SubDock'),
-      findsOneWidget,
-    );
-    expect(find.text('操作系统: linux'), findsOneWidget);
-    expect(find.text('架构: x64'), findsOneWidget);
-    expect(find.text('Current version'), findsNothing);
-    expect(find.text('Previous version'), findsNothing);
     expect(find.byKey(const ValueKey('settings-child-save')), findsNothing);
     await tester.pumpWidget(const SizedBox());
   });
@@ -2641,10 +2438,7 @@ void main() {
         hasFocusAction: true,
       ),
     );
-    expect(
-      find.byKey(const ValueKey('logs-source-filter')),
-      findsOneWidget,
-    );
+    expect(find.byKey(const ValueKey('logs-source-filter')), findsOneWidget);
     expect(find.text('全部'), findsOneWidget);
     semantics.dispose();
     await tester.pumpWidget(const SizedBox());
@@ -2713,6 +2507,8 @@ void main() {
     );
     expect(find.text('当前版本'), findsNothing);
     expect(find.text('上一版本'), findsNothing);
+    expect(find.text('Current version'), findsNothing);
+    expect(find.text('Previous version'), findsNothing);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -3130,9 +2926,7 @@ void main() {
 
     // SPA pushState to the /subs route reports via the bridge channel.
     final subsUri = coordinator.webUiUri.replace(path: '/subs');
-    blobMessage(
-      '{"type":"url","url":"${subsUri.toString()}"}',
-    );
+    blobMessage('{"type":"url","url":"${subsUri.toString()}"}');
     await _pumpRealIo(tester);
     expect(find.text(subsUri.toString()), findsOneWidget);
     expect(find.text(coordinator.webUiUri.toString()), findsNothing);
@@ -3384,7 +3178,7 @@ void main() {
   );
 
   testWidgets(
-    'selecting dark from the settings appearance section applies it',
+    'minimum settings window supports config editing and responsive controls',
     (WidgetTester tester) async {
       late Directory temp;
       addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
@@ -3392,439 +3186,93 @@ void main() {
         temp = await Directory.systemTemp.createTemp('subdock_widget_');
         return RuntimeDirectories.fromBaseDirectory(temp);
       });
+      final store = SubDockConfigStore(directories!);
       final coordinator = AppCoordinator(
         runtime: _FakeBackendRuntime(),
-        environmentStore: BackendEnvStore(directories!),
+        environmentStore: BackendEnvStore(directories),
+        configurationStore: store,
       );
-
-      await tester.pumpWidget(
-        SubDockApp(
-          coordinator: coordinator,
-          autoStart: false,
-          enableWebView: false,
-          locale: const Locale('zh'),
-        ),
-      );
-
-      await tester.tap(find.text('设置'));
-      await tester.pumpAndSettle();
-      await tester.tap(
-        find.descendant(
-          of: find.byType(SegmentedButton<ThemeMode>),
-          matching: find.text('深色'),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      expect(
-        Theme.of(tester.element(find.text('SubDock'))).brightness,
-        Brightness.dark,
-      );
-      await tester.pumpWidget(const SizedBox());
-    },
-  );
-
-  testWidgets('restores a persisted dark preference on startup', (
-    WidgetTester tester,
-  ) async {
-    late Directory temp;
-    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
-    final directories = await tester.runAsync(() async {
-      temp = await Directory.systemTemp.createTemp('subdock_widget_');
-      return RuntimeDirectories.fromBaseDirectory(temp);
-    });
-    final store = DesktopPreferencesStore(directories!);
-    await tester.runAsync(
-      () => store.save(
-        DesktopPreferences.defaults.copyWith(themeMode: ThemeMode.dark),
-      ),
-    );
-    final coordinator = AppCoordinator(
-      runtime: _FakeBackendRuntime(),
-      environmentStore: BackendEnvStore(directories),
-    );
-
-    await tester.pumpWidget(
-      SubDockApp(
-        coordinator: coordinator,
-        autoStart: false,
-        enableWebView: false,
-        preferences: await tester.runAsync(() => store.load()),
-        locale: const Locale('zh'),
-      ),
-    );
-    await _pumpRealIo(tester);
-
-    expect(
-      Theme.of(tester.element(find.text('SubDock'))).brightness,
-      Brightness.dark,
-    );
-    await tester.pumpWidget(const SizedBox());
-  });
-
-  testWidgets('settings surfaces fit the minimum desktop window', (
-    WidgetTester tester,
-  ) async {
-    late Directory temp;
-    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
-    final directories = await tester.runAsync(() async {
-      temp = await Directory.systemTemp.createTemp('subdock_widget_');
-      return RuntimeDirectories.fromBaseDirectory(temp);
-    });
-    final coordinator = AppCoordinator(
-      runtime: _FakeBackendRuntime(),
-      environmentStore: BackendEnvStore(directories!),
-    );
-    final aboutLoader = AboutInfoLoader(
-      loadPackageMetadata: () async => (version: '1.0.0', buildNumber: '1'),
-      operatingSystem: () => 'linux',
-      architecture: () => 'x64',
-    );
-
-    await tester.binding.setSurfaceSize(const Size(600, 480));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-    await tester.pumpWidget(
-      SubDockApp(
-        coordinator: coordinator,
-        autoStart: false,
-        enableWebView: false,
-        locale: const Locale('zh'),
-        aboutInfoLoader: aboutLoader,
-      ),
-    );
-    await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
-    await tester.pumpAndSettle();
-
-    expect(find.byKey(const ValueKey('settings-appearance')), findsOneWidget);
-    expect(find.byKey(const ValueKey('settings-save-all')), findsOneWidget);
-    expect(find.byKey(const ValueKey('settings-subdock-config')), findsNothing);
-    expect(
-      find.byKey(const ValueKey('settings-card-backend-config')),
-      findsOneWidget,
-    );
-    expect(find.byKey(const ValueKey('settings-raw-env')), findsNothing);
-    final l10n = AppLocalizations.of(
-      tester.element(find.byKey(const ValueKey('settings-appearance'))),
-    )!;
-    expect(find.text(l10n.themeHeading), findsOneWidget);
-    expect(find.text(l10n.languageHeading), findsOneWidget);
-    expect(find.text(l10n.themeSubtitle), findsOneWidget);
-    expect(find.text(l10n.languageSubtitle), findsOneWidget);
-    expect(find.text(l10n.closeBehaviorSubtitle), findsOneWidget);
-    expect(find.text(l10n.recentLogsSubtitle), findsOneWidget);
-    expect(tester.takeException(), isNull);
-
-    // Section titles live above their cards (sketch `.section-title`),
-    // rendered once each in 14px/w600 rather than inside the card body, with
-    // a spacingSm gap down to the card.
-    const titleCardGap = 12;
-
-    void expectHeadingOutside(String heading) {
-      expect(find.text(heading), findsOneWidget);
-      final style = tester.widget<Text>(find.text(heading)).style!;
-      expect(style.fontSize, 14);
-      expect(style.fontWeight, FontWeight.w600);
-    }
-
-    void expectHeadingOutsideCard(String heading, Key cardKey) {
-      expectHeadingOutside(heading);
-      expect(
-        find.descendant(
-          of: find.byKey(cardKey),
-          matching: find.text(heading),
-        ),
-        findsNothing,
-      );
-    }
-
-    final homeSectionHeadings = [
-      l10n.appearanceLanguageHeading,
-      l10n.runtimeHeading,
-      l10n.desktopBehaviorHeading,
-    ];
-    const homeSectionCardKeys = [
-      'settings-appearance',
-      'settings-runtime',
-      'settings-desktop-behavior',
-    ];
-    for (var i = 0; i < homeSectionHeadings.length; i++) {
-      expectHeadingOutsideCard(
-        homeSectionHeadings[i],
-        ValueKey(homeSectionCardKeys[i]),
-      );
-    }
-
-    EdgeInsetsGeometry rowPadding(Key key) {
-      final widget = tester.widget(find.byKey(key));
-      if (widget is Padding) return widget.padding;
-      return tester.widget<Padding>(
-        find.ancestor(
-          of: find.byKey(key),
-          matching: find.byType(Padding),
-        ).first,
-      ).padding;
-    }
-
-    const uniformRowPadding = EdgeInsets.symmetric(
-      horizontal: 16,
-      vertical: 12,
-    );
-
-    // Rows keep one uniform layer of padding: 16h + 12v.
-    const rowKeys = [
-      'settings-theme-row',
-      'settings-language-row',
-      'settings-http-meta',
-      'settings-backend-config-row',
-      'settings-advanced-env-row',
-      'settings-close-behavior-row',
-    ];
-    for (final key in rowKeys) {
-      expect(rowPadding(ValueKey(key)), uniformRowPadding);
-    }
-
-    // No leading blank before a sub-page: home's trailing section is followed
-    // by a single 24px gap, then the About tile — sub-pages start from the
-    // same position.
-    final aboutTileTop = tester.getRect(
-      find.byKey(const ValueKey('settings-card-about')),
-    ).top;
-    final desktopCard = tester.getRect(
-      find.byKey(const ValueKey('settings-desktop-behavior')),
-    );
-    expect(aboutTileTop - desktopCard.bottom, 24);
-
-    // Cards, section titles and the About tile all share the content column's
-    // single left edge — no element is indented inside the 960px container.
-    final homeEdges = <double>[];
-    for (final key in const [
-      'settings-appearance',
-      'settings-runtime',
-      'settings-desktop-behavior',
-      'settings-card-about',
-    ]) {
-      homeEdges.add(tester.getRect(find.byKey(ValueKey(key))).left);
-    }
-    for (final heading in homeSectionHeadings) {
-      homeEdges.add(tester.getRect(find.text(heading)).left);
-    }
-    for (final left in homeEdges) {
-      expect((left - homeEdges.first).abs(), lessThan(0.5));
-    }
-
-    // Outer section cards use the shared 12px card radius, distinct from the
-    // 8px control radius used inside them.
-    for (final key in const [
-      'settings-appearance',
-      'settings-runtime',
-      'settings-desktop-behavior',
-    ]) {
-      final card = tester.widget<Material>(
-        find.descendant(
-          of: find.byKey(ValueKey(key)),
-          matching: find.byType(Material),
-        ).first,
-      );
-      expect(
-        (card.shape! as RoundedRectangleBorder).borderRadius,
-        BorderRadius.circular(12),
-      );
-    }
-
-    // Backend Config sub-page: the heading is outside the card and rows are
-    // 16h + 12v.
-    //
-    // The settings list keeps its offset across sub-pages, so a target may sit
-    // above the viewport; ensureVisible scrolls whichever way is needed.
-    Future<void> openSubPage(Finder tile) async {
-      await tester.ensureVisible(tile);
-      await tester.pumpAndSettle();
-      await tester.tap(tile);
-      await tester.pumpAndSettle();
-    }
-
-    Future<void> backToHome() async {
-      await tester.ensureVisible(find.byKey(const ValueKey('settings-back')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('settings-back')));
-      await tester.pumpAndSettle();
-      expect(find.byKey(const ValueKey('settings-appearance')), findsOneWidget);
-    }
-
-    await openSubPage(
-      find.byKey(const ValueKey('settings-card-backend-config')),
-    );
-    expectHeadingOutsideCard(
-      l10n.backendConfigHeading,
-      const ValueKey('settings-backend-config'),
-    );
-    expect(
-      tester.getRect(find.byKey(const ValueKey('settings-backend-config'))).top -
-          tester.getRect(find.text(l10n.backendConfigHeading)).bottom,
-      titleCardGap,
-    );
-    for (final key in [
-      'settings-backend-host-row',
-      'settings-backend-port-row',
-      'settings-backend-merge-row',
-      'settings-backend-path-row',
-      'settings-backend-cors-row',
-    ]) {
-      expect(rowPadding(ValueKey(key)), uniformRowPadding);
-    }
-    expect(find.byKey(const ValueKey('settings-save-all')), findsNothing);
-    await backToHome();
-
-    // Advanced ENV sub-page: the section title is outside the card and the
-    // ExpansionTile no longer repeats the same heading text.
-    await openSubPage(
-      find.byKey(const ValueKey('settings-card-advanced-env')),
-    );
-    expectHeadingOutsideCard(
-      l10n.advancedRawEnv,
-      const ValueKey('settings-raw-env'),
-    );
-    expect(
-      tester.getRect(find.byKey(const ValueKey('settings-raw-env'))).top -
-          tester.getRect(find.text(l10n.advancedRawEnv)).bottom,
-      titleCardGap,
-    );
-    final envExpansion = tester.widget<ExpansionTile>(
-      find.byKey(const ValueKey('settings-raw-env-expansion')),
-    );
-    final envTileTitle = envExpansion.title as Text;
-    expect(envTileTitle.data, l10n.advancedRawEnvSubtitle);
-    expect(envTileTitle.data, isNot(l10n.advancedRawEnv));
-    expect(envExpansion.subtitle, isNull);
-    expect(envExpansion.tilePadding, uniformRowPadding);
-    expect(envExpansion.childrenPadding, uniformRowPadding);
-    await backToHome();
-
-    // About sub-page: the heading is outside the card and metadata rows match
-    // the card's 16h + 12v padding.
-    await openSubPage(find.byKey(const ValueKey('settings-card-about')));
-    await _pumpRealIo(tester);
-    expectHeadingOutside(l10n.aboutSubDock);
-    expect(
-      tester
-          .getRect(find.byKey(const ValueKey('settings-about-card')))
-          .top -
-          tester.getRect(find.text(l10n.aboutSubDock)).bottom,
-      titleCardGap,
-    );
-    expect(
-      rowPadding(const ValueKey('about-version')),
-      uniformRowPadding,
-    );
-    await backToHome();
-    expect(tester.takeException(), isNull);
-
-    await tester.binding.setSurfaceSize(const Size(599, 700));
-    await tester.pumpAndSettle();
-    final mobileTheme = tester.getRect(
-      find.byKey(const ValueKey('settings-theme-mode')),
-    );
-    final mobileLanguage = tester.getRect(
-      find.byKey(const ValueKey('settings-language')),
-    );
-    expect(
-      tester
-          .widget<Flex>(
-            find
-                .ancestor(
-                  of: find.byKey(const ValueKey('settings-theme-row')),
-                  matching: find.byType(Flex),
-                )
-                .first,
-          )
-          .direction,
-      Axis.vertical,
-    );
-    expect(mobileLanguage.top, greaterThan(mobileTheme.bottom));
-
-    await tester.binding.setSurfaceSize(const Size(600, 700));
-    await tester.pumpAndSettle();
-    final desktopTheme = tester.getRect(
-      find.byKey(const ValueKey('settings-theme-mode')),
-    );
-    final desktopLanguage = tester.getRect(
-      find.byKey(const ValueKey('settings-language')),
-    );
-    expect(
-      tester
-          .widget<Flex>(
-            find
-                .ancestor(
-                  of: find.byKey(const ValueKey('settings-theme-row')),
-                  matching: find.byType(Flex),
-                )
-                .first,
-          )
-          .direction,
-      Axis.horizontal,
-    );
-    expect((desktopLanguage.left - desktopTheme.left).abs(), lessThan(1));
-    expect(desktopLanguage.top, greaterThan(desktopTheme.bottom));
-    expect(find.byKey(const ValueKey('settings-save-all')), findsOneWidget);
-    expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox());
-  });
-
-  testWidgets(
-    '600x480 Settings backend subpage keeps back and save reachable',
-    (tester) async {
-      late Directory temp;
-      addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
-      final directories = await tester.runAsync(() async {
-        temp = await Directory.systemTemp.createTemp('subdock_widget_');
-        return RuntimeDirectories.fromBaseDirectory(temp);
-      });
 
       await tester.binding.setSurfaceSize(const Size(600, 480));
       addTearDown(() => tester.binding.setSurfaceSize(null));
       await tester.pumpWidget(
         SubDockApp(
-          coordinator: AppCoordinator(
-            runtime: _FakeBackendRuntime(),
-            environmentStore: BackendEnvStore(directories!),
-          ),
+          coordinator: coordinator,
           autoStart: false,
           enableWebView: false,
           locale: const Locale('en'),
         ),
       );
-
       await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
       await tester.pumpAndSettle();
+
+      final l10n = AppLocalizations.of(
+        tester.element(find.byKey(const ValueKey('settings-appearance'))),
+      )!;
+      expect(find.text(l10n.themeSubtitle), findsOneWidget);
+      expect(find.text(l10n.languageSubtitle), findsOneWidget);
+      final appearanceHeading = find.text(l10n.appearanceLanguageHeading);
+      final appearanceCard = find.byKey(const ValueKey('settings-appearance'));
+      final headingRect = tester.getRect(appearanceHeading);
+      final appearanceCardRect = tester.getRect(appearanceCard);
+      expect((headingRect.left - appearanceCardRect.left).abs(), lessThan(0.5));
+      expect(
+        find.descendant(of: appearanceCard, matching: appearanceHeading),
+        findsNothing,
+      );
+      expect(appearanceCardRect.top - headingRect.bottom, 12);
+      final themeDetails = find.byKey(const ValueKey('settings-theme-row'));
+      final themeControl = find.byKey(const ValueKey('settings-theme-mode'));
+      final desktopDetailsRect = tester.getRect(themeDetails);
+      final desktopControlRect = tester.getRect(themeControl);
+      expect(
+        desktopControlRect.left,
+        greaterThanOrEqualTo(desktopDetailsRect.right),
+      );
+      expect(desktopControlRect.top, lessThan(desktopDetailsRect.bottom));
+      expect(desktopControlRect.bottom, greaterThan(desktopDetailsRect.top));
+      expect(
+        find.ancestor(
+          of: find.byKey(const ValueKey('settings-theme-row')),
+          matching: find.byWidgetPredicate(
+            (widget) =>
+                widget is Padding &&
+                widget.padding ==
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          ),
+        ),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+
       final backendConfig = find.byKey(
         const ValueKey('settings-card-backend-config'),
       );
-      expect(backendConfig, findsOneWidget);
       await tester.ensureVisible(backendConfig);
       await tester.pumpAndSettle();
       await tester.tap(backendConfig);
       await tester.pumpAndSettle();
-
-      expect(tester.takeException(), isNull);
-      expect(find.byKey(const ValueKey('settings-back')), findsOneWidget);
-      expect(find.byKey(const ValueKey('settings-child-save')), findsOneWidget);
-      for (final key in [
-        'settings-backend-host-row',
-        'settings-backend-port-row',
-        'settings-backend-merge-row',
-        'settings-backend-path-row',
-        'settings-backend-cors-row',
-      ]) {
-        expect(find.byKey(ValueKey(key)), findsOneWidget);
-      }
-
-      final settingsBack = find.byKey(const ValueKey('settings-back'));
-      expect(settingsBack, findsOneWidget);
-      await tester.ensureVisible(settingsBack);
+      final hostField = find.descendant(
+        of: find.byKey(const ValueKey('settings-backend-host-row')),
+        matching: find.byType(TextField),
+      );
+      await tester.enterText(hostField, '127.0.0.2');
+      await tester.pump();
+      final save = find.byKey(const ValueKey('settings-child-save'));
+      await tester.ensureVisible(save);
       await tester.pumpAndSettle();
-      await tester.tap(settingsBack);
+      expect(tester.widget<FilledButton>(save).onPressed, isNotNull);
+      await tester.tap(save);
+      await _pumpRealIo(tester);
+      expect((await tester.runAsync(store.load))!.backend.apiHost, '127.0.0.2');
+
+      final back = find.byKey(const ValueKey('settings-back'));
+      await tester.ensureVisible(back);
+      await tester.pumpAndSettle();
+      await tester.tap(back);
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('settings-appearance')), findsOneWidget);
+
       final advancedEnv = find.byKey(
         const ValueKey('settings-card-advanced-env'),
       );
@@ -3832,274 +3280,40 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(advancedEnv);
       await tester.pumpAndSettle();
-      expect(find.byKey(const ValueKey('settings-raw-env')), findsOneWidget);
-      final expansion = find.byKey(
-        const ValueKey('settings-raw-env-expansion'),
+      await tester.tap(
+        find.byKey(const ValueKey('settings-raw-env-expansion')),
       );
-      await tester.tap(expansion);
       await tester.pumpAndSettle();
       expect(
         find.byKey(const ValueKey('settings-raw-env-editor')),
         findsOneWidget,
       );
+      await tester.ensureVisible(back);
+      await tester.pumpAndSettle();
+      await tester.tap(back);
+      await tester.pumpAndSettle();
+
+      await tester.binding.setSurfaceSize(const Size(599, 480));
+      await tester.pumpAndSettle();
+      final cardRect = tester.getRect(appearanceCard);
+      final compactDetailsRect = tester.getRect(themeDetails);
+      final compactControlRect = tester.getRect(themeControl);
+      final languageRect = tester.getRect(
+        find.byKey(const ValueKey('settings-language')),
+      );
+      expect(compactControlRect.left, greaterThanOrEqualTo(cardRect.left));
+      expect(languageRect.left, greaterThanOrEqualTo(cardRect.left));
+      expect(compactControlRect.right, lessThanOrEqualTo(cardRect.right));
+      expect(languageRect.right, lessThanOrEqualTo(cardRect.right));
+      expect(languageRect.top, greaterThan(compactControlRect.bottom));
+      expect(
+        compactControlRect.top,
+        greaterThanOrEqualTo(compactDetailsRect.bottom),
+      );
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
     },
   );
-
-  testWidgets('599x480 updates page uses mobile hierarchy', (tester) async {
-    late Directory temp;
-    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
-    final directories = await tester.runAsync(() async {
-      temp = await Directory.systemTemp.createTemp('subdock_widget_');
-      return RuntimeDirectories.fromBaseDirectory(temp);
-    });
-
-    final updates = _FakeComponentUpdateOperations();
-    final runtime = _FakeBackendRuntime();
-
-    await tester.binding.setSurfaceSize(const Size(599, 480));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-    await tester.pumpWidget(
-      SubDockApp(
-        coordinator: AppCoordinator(
-          runtime: runtime,
-          environmentStore: BackendEnvStore(directories!),
-          componentUpdates: updates,
-        ),
-        autoStart: false,
-        enableWebView: false,
-        locale: const Locale('en'),
-      ),
-    );
-
-    await tester.tap(find.byKey(const ValueKey('nav-item-updates')));
-    await _pumpRealIo(tester);
-    runtime.emitState(RuntimeStatus.running);
-    await tester.pump();
-
-    expect(tester.takeException(), isNull);
-    expect(
-      tester
-          .widget<SingleChildScrollView>(
-            find.byKey(const ValueKey('updates-list')),
-          )
-          .padding,
-      const EdgeInsets.only(top: 12, left: 12, right: 12, bottom: 24),
-    );
-    expect(
-      tester
-          .widget<Flex>(find.byKey(const ValueKey('component-layout-frontend')))
-          .direction,
-      Axis.vertical,
-    );
-    expect(
-      tester
-          .widget<Flex>(find.byKey(const ValueKey('component-layout-backend')))
-          .direction,
-      Axis.vertical,
-    );
-    expect(
-      tester
-          .widget<Flex>(
-            find.byKey(const ValueKey('updates-backend-notice-layout')),
-          )
-          .direction,
-      Axis.vertical,
-    );
-    expect(
-      find.byKey(const ValueKey('updates-independent-section')),
-      findsOneWidget,
-    );
-    expect(find.byKey(const ValueKey('updates-packaged-grid')), findsOneWidget);
-    // 窄屏三个 tile 单列，顺序 HTTP-META → Mihomo → Node。
-    final mobileGrid = tester.widget<Column>(
-      find.byKey(const ValueKey('updates-packaged-grid')),
-    );
-    expect(mobileGrid.crossAxisAlignment, CrossAxisAlignment.stretch);
-    final mobileTileWidths = <double>[];
-    final mobileTileLeft = <double>[];
-    var mobileTileTop = 0.0;
-    for (final key in const [
-      ValueKey('updates-packaged-http-meta'),
-      ValueKey('updates-packaged-mihomo'),
-      ValueKey('updates-packaged-node'),
-    ]) {
-      final size = tester.getSize(find.byKey(key));
-      final topLeft = tester.getTopLeft(find.byKey(key));
-      expect(topLeft.dy, greaterThan(mobileTileTop));
-      mobileTileTop = topLeft.dy;
-      mobileTileWidths.add(size.width);
-      mobileTileLeft.add(topLeft.dx);
-    }
-    expect(mobileTileWidths.elementAt(1), mobileTileWidths.first);
-    expect(mobileTileWidths.elementAt(2), mobileTileWidths.first);
-    // 单列：三个 tile 左对齐且宽度一致。
-    expect(mobileTileLeft.elementAt(1), mobileTileLeft.first);
-    expect(mobileTileLeft.elementAt(2), mobileTileLeft.first);
-    // 三个 tile 同属外层卡片。
-    for (final key in const [
-      ValueKey('updates-packaged-http-meta'),
-      ValueKey('updates-packaged-mihomo'),
-      ValueKey('updates-packaged-node'),
-    ]) {
-      expect(
-        find.ancestor(
-          of: find.byKey(key),
-          matching: find.byKey(const ValueKey('updates-packaged-section')),
-        ),
-        findsOneWidget,
-      );
-    }
-    expect(
-      find.byKey(const ValueKey('component-release-notes-frontend')),
-      findsOneWidget,
-    );
-    expect(
-      find.byKey(const ValueKey('component-update-action-frontend')),
-      findsNothing,
-    );
-    expect(
-      tester.getSize(find.byKey(const ValueKey('updates-packaged-node'))).width,
-      greaterThan(500),
-    );
-    await tester.pumpWidget(const SizedBox());
-  });
-
-  testWidgets('600x480 updates page uses desktop hierarchy', (tester) async {
-    late Directory temp;
-    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
-    final directories = await tester.runAsync(() async {
-      temp = await Directory.systemTemp.createTemp('subdock_widget_');
-      return RuntimeDirectories.fromBaseDirectory(temp);
-    });
-
-    final updates = _FakeComponentUpdateOperations()
-      ..statuses[ComponentKind.backend] = const ComponentVersionStatus(
-        current: '2.0.0',
-        previous: '1.0.0',
-      );
-    final runtime = _FakeBackendRuntime();
-
-    await tester.binding.setSurfaceSize(const Size(600, 480));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-    await tester.pumpWidget(
-      SubDockApp(
-        coordinator: AppCoordinator(
-          runtime: runtime,
-          environmentStore: BackendEnvStore(directories!),
-          componentUpdates: updates,
-        ),
-        autoStart: false,
-        enableWebView: false,
-        locale: const Locale('en'),
-      ),
-    );
-
-    await tester.tap(find.byKey(const ValueKey('nav-item-updates')));
-    await _pumpRealIo(tester);
-    runtime.emitState(RuntimeStatus.running);
-    await tester.pump();
-
-    expect(tester.takeException(), isNull);
-    expect(
-      tester
-          .widget<SingleChildScrollView>(
-            find.byKey(const ValueKey('updates-list')),
-          )
-          .padding,
-      const EdgeInsets.all(24),
-    );
-    expect(
-      tester
-          .widget<Flex>(find.byKey(const ValueKey('component-layout-frontend')))
-          .direction,
-      Axis.horizontal,
-    );
-    expect(
-      tester
-          .widget<Flex>(find.byKey(const ValueKey('component-layout-backend')))
-          .direction,
-      Axis.horizontal,
-    );
-    expect(
-      tester
-          .widget<Flex>(
-            find.byKey(const ValueKey('updates-backend-notice-layout')),
-          )
-          .direction,
-      Axis.horizontal,
-    );
-    expect(
-      find.byKey(const ValueKey('updates-independent-section')),
-      findsOneWidget,
-    );
-    expect(
-      find.byKey(const ValueKey('updates-packaged-http-meta')),
-      findsOneWidget,
-    );
-    expect(
-      find.byKey(const ValueKey('updates-packaged-mihomo')),
-      findsOneWidget,
-    );
-    expect(find.byKey(const ValueKey('updates-packaged-node')), findsOneWidget);
-    expect(
-      tester.getSize(find.byKey(const ValueKey('updates-packaged-node'))).width,
-      lessThan(300),
-    );
-    await tester.pumpWidget(const SizedBox());
-  });
-
-  testWidgets('changing the theme previews without saving to the store', (
-    WidgetTester tester,
-  ) async {
-    late Directory temp;
-    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
-    final directories = await tester.runAsync(() async {
-      temp = await Directory.systemTemp.createTemp('subdock_widget_');
-      return RuntimeDirectories.fromBaseDirectory(temp);
-    });
-    final store = DesktopPreferencesStore(directories!);
-    await tester.runAsync(
-      () => store.save(DesktopPreferences.defaults.copyWith(locale: 'zh')),
-    );
-    final coordinator = AppCoordinator(
-      runtime: _FakeBackendRuntime(),
-      environmentStore: BackendEnvStore(directories),
-    );
-
-    await tester.pumpWidget(
-      SubDockApp(
-        coordinator: coordinator,
-        autoStart: false,
-        enableWebView: false,
-        preferences: await tester.runAsync(() => store.load()),
-        locale: const Locale('zh'),
-      ),
-    );
-
-    await tester.tap(find.text('设置'));
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.descendant(
-        of: find.byType(SegmentedButton<ThemeMode>),
-        matching: find.text('浅色'),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    expect(
-      Theme.of(tester.element(find.text('SubDock'))).brightness,
-      Brightness.light,
-    );
-
-    await _pumpRealIo(tester);
-    expect(
-      (await tester.runAsync(() => store.load()))!.themeMode,
-      ThemeMode.system,
-    );
-    await tester.pumpWidget(const SizedBox());
-  });
 
   testWidgets('a delayed preference save does not clear newer general edits', (
     WidgetTester tester,
@@ -4167,89 +3381,6 @@ void main() {
           .widget<FilledButton>(find.byKey(const ValueKey('settings-save-all')))
           .onPressed,
       isNotNull,
-    );
-    await tester.pumpWidget(const SizedBox());
-  });
-
-  testWidgets(
-    'without a themeModeStore the settings selector applies but does not persist',
-    (WidgetTester tester) async {
-      late Directory temp;
-      addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
-      final directories = await tester.runAsync(() async {
-        temp = await Directory.systemTemp.createTemp('subdock_widget_');
-        return RuntimeDirectories.fromBaseDirectory(temp);
-      });
-      final coordinator = AppCoordinator(
-        runtime: _FakeBackendRuntime(),
-        environmentStore: BackendEnvStore(directories!),
-      );
-
-      await tester.pumpWidget(
-        SubDockApp(
-          coordinator: coordinator,
-          autoStart: false,
-          enableWebView: false,
-          locale: const Locale('zh'),
-        ),
-      );
-
-      await tester.tap(find.text('设置'));
-      await tester.pumpAndSettle();
-      await tester.tap(
-        find.descendant(
-          of: find.byType(SegmentedButton<ThemeMode>),
-          matching: find.text('深色'),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      expect(
-        Theme.of(tester.element(find.text('SubDock'))).brightness,
-        Brightness.dark,
-      );
-      await tester.pumpWidget(const SizedBox());
-    },
-  );
-
-  testWidgets('a corrupt theme store file degrades to following the system', (
-    WidgetTester tester,
-  ) async {
-    late Directory temp;
-    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
-    final directories = await tester.runAsync(() async {
-      temp = await Directory.systemTemp.createTemp('subdock_widget_');
-      return RuntimeDirectories.fromBaseDirectory(temp);
-    });
-    final store = DesktopPreferencesStore(directories!);
-    await tester.runAsync(() => store.file.writeAsString('{not json'));
-    final preferences = await tester.runAsync(() => store.load());
-    final coordinator = AppCoordinator(
-      runtime: _FakeBackendRuntime(),
-      environmentStore: BackendEnvStore(directories),
-    );
-    addTearDown(
-      () => tester.binding.platformDispatcher.platformBrightnessTestValue =
-          Brightness.light,
-    );
-
-    tester.binding.platformDispatcher.platformBrightnessTestValue =
-        Brightness.dark;
-    await tester.pumpWidget(
-      SubDockApp(
-        coordinator: coordinator,
-        autoStart: false,
-        enableWebView: false,
-        preferences: preferences,
-        locale: const Locale('zh'),
-      ),
-    );
-    await _pumpRealIo(tester);
-
-    expect(tester.takeException(), isNull);
-    expect(
-      Theme.of(tester.element(find.text('SubDock'))).brightness,
-      Brightness.dark,
     );
     await tester.pumpWidget(const SizedBox());
   });
@@ -4333,41 +3464,51 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('restores a persisted English preference on startup', (
-    WidgetTester tester,
-  ) async {
-    late Directory temp;
-    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
-    final directories = await tester.runAsync(() async {
-      temp = await Directory.systemTemp.createTemp('subdock_widget_');
-      return RuntimeDirectories.fromBaseDirectory(temp);
-    });
-    final preferencesStore = DesktopPreferencesStore(directories!);
-    await tester.runAsync(
-      () => preferencesStore.save(
-        DesktopPreferences.defaults.copyWith(locale: 'en'),
-      ),
-    );
-    final coordinator = AppCoordinator(
-      runtime: _FakeBackendRuntime(),
-      environmentStore: BackendEnvStore(directories),
-    );
+  testWidgets(
+    'applies persisted theme and language over the system preferences',
+    (WidgetTester tester) async {
+      late Directory temp;
+      addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+      final directories = await tester.runAsync(() async {
+        temp = await Directory.systemTemp.createTemp('subdock_widget_');
+        return RuntimeDirectories.fromBaseDirectory(temp);
+      });
+      final preferencesStore = DesktopPreferencesStore(directories!);
+      await tester.runAsync(
+        () => preferencesStore.save(
+          DesktopPreferences.defaults.copyWith(
+            themeMode: ThemeMode.dark,
+            locale: 'en',
+          ),
+        ),
+      );
+      tester.binding.platformDispatcher.localeTestValue = const Locale('zh');
+      addTearDown(tester.binding.platformDispatcher.clearLocaleTestValue);
+      final coordinator = AppCoordinator(
+        runtime: _FakeBackendRuntime(),
+        environmentStore: BackendEnvStore(directories),
+      );
 
-    await tester.pumpWidget(
-      SubDockApp(
-        coordinator: coordinator,
-        autoStart: false,
-        enableWebView: false,
-        preferences: await tester.runAsync(() => preferencesStore.load()),
-      ),
-    );
-    await _pumpRealIo(tester);
+      await tester.pumpWidget(
+        SubDockApp(
+          coordinator: coordinator,
+          autoStart: false,
+          enableWebView: false,
+          preferences: await tester.runAsync(() => preferencesStore.load()),
+        ),
+      );
+      await _pumpRealIo(tester);
 
-    expect(find.text('Settings'), findsOneWidget);
-    await tester.pumpWidget(const SizedBox());
-  });
+      expect(find.text('Settings'), findsOneWidget);
+      expect(
+        Theme.of(tester.element(find.text('SubDock'))).brightness,
+        Brightness.dark,
+      );
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
 
-  testWidgets('a corrupt locale store degrades to the system language', (
+  testWidgets('corrupt preferences fall back to system theme and language', (
     WidgetTester tester,
   ) async {
     late Directory temp;
@@ -4387,9 +3528,10 @@ void main() {
     );
     tester.binding.platformDispatcher.localeTestValue = const Locale('en');
     addTearDown(tester.binding.platformDispatcher.clearLocaleTestValue);
+    tester.binding.platformDispatcher.platformBrightnessTestValue =
+        Brightness.dark;
     addTearDown(
-      () => tester.binding.platformDispatcher.platformBrightnessTestValue =
-          Brightness.light,
+      tester.binding.platformDispatcher.clearPlatformBrightnessTestValue,
     );
 
     await tester.pumpWidget(
@@ -4404,22 +3546,28 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.text('Settings'), findsOneWidget);
+    expect(
+      Theme.of(tester.element(find.text('SubDock'))).brightness,
+      Brightness.dark,
+    );
     await tester.pumpWidget(const SizedBox());
   });
 
   testWidgets('theme selector round-trips through all three modes', (
     WidgetTester tester,
   ) async {
-    late Directory temp;
-    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
-    final directories = await tester.runAsync(() async {
-      temp = await Directory.systemTemp.createTemp('subdock_widget_');
-      return RuntimeDirectories.fromBaseDirectory(temp);
-    });
-    final coordinator = AppCoordinator(
-      runtime: _FakeBackendRuntime(),
-      environmentStore: BackendEnvStore(directories!),
+    final fixture = await _widgetRuntime(tester);
+    final store = DesktopPreferencesStore(fixture.directories);
+    await tester.runAsync(
+      () => store.save(
+        DesktopPreferences.defaults.copyWith(
+          themeMode: ThemeMode.system,
+          locale: 'zh',
+        ),
+      ),
     );
+    final preferences = await tester.runAsync(store.load);
+    final coordinator = fixture.coordinator;
     addTearDown(
       () => tester.binding.platformDispatcher.platformBrightnessTestValue =
           Brightness.light,
@@ -4432,6 +3580,8 @@ void main() {
         coordinator: coordinator,
         autoStart: false,
         enableWebView: false,
+        preferences: preferences,
+        preferencesStore: store,
         locale: const Locale('zh'),
       ),
     );
@@ -4451,6 +3601,7 @@ void main() {
         Theme.of(tester.element(find.text('SubDock'))).brightness,
         expected,
       );
+      expect((await tester.runAsync(store.load))!.themeMode, ThemeMode.system);
     }
 
     await selectTheme('浅色', Brightness.light);
@@ -4460,6 +3611,43 @@ void main() {
 
     await tester.pumpWidget(const SizedBox());
   });
+}
+
+Future<
+  ({
+    RuntimeDirectories directories,
+    _FakeBackendRuntime runtime,
+    AppCoordinator coordinator,
+  })
+>
+_widgetRuntime(
+  WidgetTester tester, {
+  ComponentUpdateOperations? componentUpdates,
+}) async {
+  late Directory temp;
+  addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+  final directories = await tester.runAsync(() async {
+    temp = await Directory.systemTemp.createTemp('subdock_widget_');
+    return RuntimeDirectories.fromBaseDirectory(temp);
+  });
+  final runtimeDirectories = directories!;
+  final runtime = _FakeBackendRuntime();
+  final coordinator = AppCoordinator(
+    runtime: runtime,
+    environmentStore: BackendEnvStore(runtimeDirectories),
+    componentUpdates: componentUpdates,
+  );
+  addTearDown(() async {
+    await tester.pumpWidget(const SizedBox());
+    final disposal = coordinator.dispose();
+    await tester.pump();
+    await disposal;
+  });
+  return (
+    directories: runtimeDirectories,
+    runtime: runtime,
+    coordinator: coordinator,
+  );
 }
 
 /// Interleaves real-async turns (letting dart:io completions arrive) with

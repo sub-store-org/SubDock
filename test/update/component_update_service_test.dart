@@ -1,693 +1,492 @@
-import 'dart:async';
 import 'dart:io';
 
-import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:subdock/runtime/backend_runtime.dart';
-import 'package:subdock/runtime/runtime_directories.dart';
 import 'package:subdock/update/component_metadata_store.dart';
-import 'package:subdock/update/component_recovery.dart';
 import 'package:subdock/update/component_resource_resolver.dart';
 import 'package:subdock/update/component_update_checker.dart';
 import 'package:subdock/update/component_update_service.dart';
-import 'package:subdock/update/data_backup_store.dart';
 import 'package:subdock/update/github_release_client.dart';
 
+import 'update_fixture.dart';
+
 void main() {
-  test('rolls Frontend back to its previous component', () async {
-    final fixture = await _fixture();
-    addTearDown(fixture.dispose);
-    await fixture.metadata.save(
-      ComponentKind.frontend,
-      const ComponentMetadata(
-        baseline: '2.31.3',
-        active: '2.32.0',
-        previous: '2.31.3',
-      ),
-    );
+  for (final row in <({String owner, ComponentKind kind, String active})>[
+    (owner: 'Frontend', kind: ComponentKind.frontend, active: '2.32.0'),
+    (owner: 'Backend', kind: ComponentKind.backend, active: '2.39.0'),
+  ]) {
+    test(
+      'toggles ${row.owner} rollback pointers and preserves runtime state',
+      () async {
+        final fixture = await createUpdateFixture();
+        addTearDown(fixture.dispose);
+        const baselineByOwner = {
+          ComponentKind.frontend: '2.31.3',
+          ComponentKind.backend: '2.38.4',
+        };
+        final baseline = baselineByOwner[row.kind]!;
+        String? targetBackup;
+        if (row.kind == ComponentKind.backend) {
+          await writeUpdateFile(
+            fixture.directories.data,
+            'settings.json',
+            'old',
+          );
+          targetBackup = await fixture.backups.create(fixture.directories.data);
+          await writeUpdateFile(
+            fixture.directories.data,
+            'settings.json',
+            'new',
+          );
+        }
+        await fixture.metadata.save(
+          row.kind,
+          ComponentMetadata(
+            baseline: baseline,
+            active: row.active,
+            previous: baseline,
+          ),
+        );
+        final service = _service(fixture, _UnexpectedDownloads());
 
-    await fixture.service.rollback(ComponentKind.frontend);
+        await service.rollback(row.kind);
 
-    expect(fixture.runtime.restarts, 0);
-    expect(
-      await fixture.metadata.load(ComponentKind.frontend, baseline: 'ignored'),
-      const ComponentMetadata(baseline: '2.31.3', previous: '2.32.0'),
-    );
+        expect(
+          await fixture.readMetadata(row.kind, baseline: 'ignored'),
+          ComponentMetadata(baseline: baseline, previous: row.active),
+        );
+        _expectRuntimeIdle(fixture.runtime);
+        if (row.kind == ComponentKind.backend) {
+          expect(
+            await File('${fixture.directories.data.path}/settings.json')
+                .readAsString(),
+            'old',
+          );
+          final safetyBackup = (await fixture.backups.list()).single;
+          expect(safetyBackup, isNot(targetBackup));
+          expect(
+            await File(
+              '${fixture.directories.backups.path}/$safetyBackup/settings.json',
+            ).readAsString(),
+            'new',
+          );
 
-    await fixture.service.rollback(ComponentKind.frontend);
-    expect(
-      await fixture.metadata.load(ComponentKind.frontend, baseline: 'ignored'),
-      const ComponentMetadata(
-        baseline: '2.31.3',
-        active: '2.32.0',
-        previous: '2.31.3',
-      ),
+          await writeUpdateFile(
+            fixture.directories.data,
+            'settings.json',
+            'new-again',
+          );
+          await service.rollback(row.kind);
+          expect(
+            await fixture.readMetadata(row.kind, baseline: 'ignored'),
+            ComponentMetadata(
+              baseline: baseline,
+              active: row.active,
+              previous: baseline,
+            ),
+          );
+          expect(
+            await File('${fixture.directories.data.path}/settings.json')
+                .readAsString(),
+            'new',
+          );
+          final nextSafety = (await fixture.backups.list()).single;
+          expect(nextSafety, isNot(safetyBackup));
+          expect(
+            await File(
+              '${fixture.directories.backups.path}/$nextSafety/settings.json',
+            ).readAsString(),
+            'new-again',
+          );
+        } else {
+          await service.rollback(row.kind);
+          expect(
+            await fixture.readMetadata(row.kind, baseline: 'ignored'),
+            ComponentMetadata(
+              baseline: baseline,
+              active: row.active,
+              previous: baseline,
+            ),
+          );
+          expect(await fixture.backups.list(), isEmpty);
+        }
+        _expectRuntimeIdle(fixture.runtime);
+      },
     );
-  });
-
-  test('rolls Backend back with the latest pre-update data backup', () async {
-    final fixture = await _fixture();
-    addTearDown(fixture.dispose);
-    await _write(fixture.directories.data, 'settings.json', 'old');
-    await fixture.backups.create(fixture.directories.data);
-    await _write(fixture.directories.data, 'settings.json', 'new');
-    await fixture.metadata.save(
-      ComponentKind.backend,
-      const ComponentMetadata(
-        baseline: '2.38.4',
-        active: '2.39.0',
-        previous: '2.38.4',
-      ),
-    );
-
-    await fixture.service.rollback(ComponentKind.backend);
-
-    expect(fixture.runtime.stops, 0);
-    expect(fixture.runtime.restarts, 0);
-    expect(
-      await File('${fixture.directories.data.path}/settings.json')
-          .readAsString(),
-      'old',
-    );
-    expect(
-      await fixture.metadata.load(ComponentKind.backend, baseline: 'ignored'),
-      const ComponentMetadata(baseline: '2.38.4', previous: '2.39.0'),
-    );
-
-    await _write(fixture.directories.data, 'settings.json', 'new-again');
-    await fixture.metadata.save(
-      ComponentKind.backend,
-      const ComponentMetadata(
-        baseline: '2.38.4',
-        active: '2.39.0',
-        previous: '2.38.4',
-      ),
-    );
-    await fixture.service.rollback(ComponentKind.backend);
-    expect(
-      await File('${fixture.directories.data.path}/settings.json')
-          .readAsString(),
-      'new',
-    );
-  });
+  }
 
   test(
-    'rejects every non-stopped component mutation before reading state',
+    'rejects all stopped-state violations before any component mutation',
     () async {
-      for (final status in const [
+      const statuses = [
         RuntimeStatus.starting,
         RuntimeStatus.running,
         RuntimeStatus.stopping,
         RuntimeStatus.unhealthy,
         RuntimeStatus.crashed,
-      ]) {
-        final fixture = await _fixture(status: status);
+      ];
+      const frontendMetadata = ComponentMetadata(
+        baseline: '2.31.3',
+        active: '2.32.0',
+        previous: '2.31.3',
+      );
+      const backendMetadata = ComponentMetadata(
+        baseline: '2.38.4',
+        active: '2.39.0',
+        previous: '2.38.4',
+      );
+      final frontendUpdate = ComponentUpdate(
+        kind: ComponentKind.frontend,
+        currentVersion: '2.31.3',
+        availableVersion: '2.33.0',
+        release: frontendRelease('2.33.0'),
+      );
+      final backendUpdate = ComponentUpdate(
+        kind: ComponentKind.backend,
+        currentVersion: '2.38.4',
+        availableVersion: '2.40.0',
+        release: backendRelease('2.40.0'),
+      );
+
+      for (final status in statuses) {
+        final fixture = await createUpdateFixture(status: status);
         addTearDown(fixture.dispose);
-        const frontendMetadata = ComponentMetadata(
-          baseline: '2.31.3',
-          active: '2.32.0',
-          previous: '2.31.3',
-        );
-        const backendMetadata = ComponentMetadata(
-          baseline: '2.38.4',
-          active: '2.39.0',
-          previous: '2.38.4',
-        );
         await fixture.metadata.save(ComponentKind.frontend, frontendMetadata);
         await fixture.metadata.save(ComponentKind.backend, backendMetadata);
-        await _write(
-          fixture.directories.components,
-          'frontend/2.32.0/index.html',
-          'frontend',
+        await writeUpdateFile(
+          fixture.directories.data,
+          'settings.json',
+          'backup',
         );
-        await _write(
-          fixture.directories.components,
-          'frontend/2.31.3/index.html',
-          'previous frontend',
-        );
-        await _write(
-          fixture.directories.components,
-          'backend/2.39.0/sub-store.bundle.js',
-          'backend',
-        );
-        await _write(
-          fixture.directories.components,
-          'backend/2.38.4/sub-store.bundle.js',
-          'previous backend',
-        );
-        await _write(fixture.directories.data, 'settings.json', 'current');
         await fixture.backups.create(fixture.directories.data);
-        await _write(fixture.directories.data, 'settings.json', 'current');
+        await writeUpdateFile(
+          fixture.directories.data,
+          'settings.json',
+          'current',
+        );
         final backupsBefore = await fixture.backups.list();
-        final update = ComponentUpdate(
-          kind: ComponentKind.frontend,
-          currentVersion: '2.31.3',
-          availableVersion: '2.33.0',
-          release: _frontendRelease('2.33.0'),
-        );
-        final backendUpdate = ComponentUpdate(
-          kind: ComponentKind.backend,
-          currentVersion: '2.38.4',
-          availableVersion: '2.40.0',
-          release: _backendRelease('2.40.0'),
-        );
+        final serviceDownloads = _UnexpectedDownloads();
+        final service = _service(fixture, serviceDownloads);
+        final actions = <({String name, Future<void> Function() run})>[
+          (name: 'Frontend update', run: () => service.update(frontendUpdate)),
+          (name: 'Backend update', run: () => service.update(backendUpdate)),
+          (
+            name: 'Frontend rollback',
+            run: () => service.rollback(ComponentKind.frontend),
+          ),
+          (
+            name: 'Backend rollback',
+            run: () => service.rollback(ComponentKind.backend),
+          ),
+        ];
 
-        for (final action in <({Future<void> Function() run, String message})>[
-          (
-            run: () => fixture.service.update(update),
-            message: 'Component mutation requires a stopped Backend',
-          ),
-          (
-            run: () => fixture.service.update(backendUpdate),
-            message: 'Component mutation requires a stopped Backend',
-          ),
-          (
-            run: () => fixture.service.rollback(ComponentKind.frontend),
-            message: 'Component mutation requires a stopped Backend',
-          ),
-          (
-            run: () => fixture.service.rollback(ComponentKind.backend),
-            message: 'Component mutation requires a stopped Backend',
-          ),
-        ]) {
+        for (final action in actions) {
+          final row = '$status / ${action.name}';
           await expectLater(
             action.run(),
             throwsA(
               isA<StateError>().having(
                 (error) => error.message,
                 'message',
-                action.message,
+                'Component mutation requires a stopped Backend',
               ),
             ),
+            reason: row,
           );
-        }
-        expect(
-          await fixture.metadata.load(
-            ComponentKind.frontend,
-            baseline: 'ignored',
-          ),
-          frontendMetadata,
-        );
-        expect(
-          await fixture.metadata.load(
-            ComponentKind.backend,
-            baseline: 'ignored',
-          ),
-          backendMetadata,
-        );
-        expect(
-          await File('${fixture.directories.data.path}/settings.json')
-              .readAsString(),
-          'current',
-        );
-        expect(await fixture.backups.list(), backupsBefore);
-        for (final path in ['frontend/2.33.0', 'backend/2.40.0']) {
           expect(
-            await Directory.fromUri(
-              fixture.directories.components.uri.resolve(path),
-            ).exists(),
-            isFalse,
+            await fixture.readMetadata(
+              ComponentKind.frontend,
+              baseline: 'ignored',
+            ),
+            frontendMetadata,
+            reason: row,
           );
+          expect(
+            await fixture.readMetadata(
+              ComponentKind.backend,
+              baseline: 'ignored',
+            ),
+            backendMetadata,
+            reason: row,
+          );
+          expect(
+            await File('${fixture.directories.data.path}/settings.json')
+                .readAsString(),
+            'current',
+            reason: row,
+          );
+          expect(await fixture.backups.list(), backupsBefore, reason: row);
+          for (final candidate in ['frontend/2.33.0', 'backend/2.40.0']) {
+            expect(
+              await Directory.fromUri(
+                fixture.directories.components.uri.resolve(candidate),
+              ).exists(),
+              isFalse,
+              reason: row,
+            );
+          }
+          expect(serviceDownloads.calls, 0, reason: row);
+          _expectRuntimeIdle(fixture.runtime, reason: row);
         }
-        expect(fixture.downloads.calls, 0);
-        expect(fixture.runtime.starts, 0);
-        expect(fixture.runtime.stops, 0);
-        expect(fixture.runtime.restarts, 0);
       }
     },
   );
 
-  test(
-    'restores and retries Frontend rollback after retention failure',
-    () async {
-      final fixture = await _fixture();
-      addTearDown(fixture.dispose);
-      const prior = ComponentMetadata(
-        baseline: '2.31.3',
-        active: '2.32.0',
-        previous: '2.31.3',
-      );
-      await fixture.metadata.save(ComponentKind.frontend, prior);
-      final blocker = File(
-        '${fixture.directories.components.path}/frontend/9.9.9',
-      );
-      await blocker.parent.create(recursive: true);
-      await blocker.writeAsString('blocker');
-
-      await expectLater(
-        fixture.service.rollback(ComponentKind.frontend),
-        throwsStateError,
-      );
-      expect(
-        await fixture.metadata.load(
-          ComponentKind.frontend,
-          baseline: 'ignored',
+  for (final row
+      in <
+        ({
+          String owner,
+          ComponentKind kind,
+          Set<int> failures,
+          bool retentionFailure,
+          bool deferred,
+        })
+      >[
+        (
+          owner: 'Backend',
+          kind: ComponentKind.backend,
+          failures: {},
+          retentionFailure: true,
+          deferred: false,
         ),
-        prior,
-      );
-      await blocker.delete();
-      await fixture.service.rollback(ComponentKind.frontend);
-      expect(
-        await fixture.metadata.load(
-          ComponentKind.frontend,
-          baseline: 'ignored',
+        (
+          owner: 'Frontend',
+          kind: ComponentKind.frontend,
+          failures: {},
+          retentionFailure: true,
+          deferred: false,
         ),
-        const ComponentMetadata(baseline: '2.31.3', previous: '2.32.0'),
-      );
-    },
-  );
-
-  test(
-    'restores and retries Backend rollback after retention failure',
-    () async {
-      final fixture = await _fixture();
+        (
+          owner: 'Backend',
+          kind: ComponentKind.backend,
+          failures: {2},
+          retentionFailure: false,
+          deferred: false,
+        ),
+        (
+          owner: 'Frontend',
+          kind: ComponentKind.frontend,
+          failures: {2},
+          retentionFailure: false,
+          deferred: false,
+        ),
+        (
+          owner: 'Backend',
+          kind: ComponentKind.backend,
+          failures: {2, 3},
+          retentionFailure: false,
+          deferred: true,
+        ),
+        (
+          owner: 'Frontend',
+          kind: ComponentKind.frontend,
+          failures: {2, 3},
+          retentionFailure: false,
+          deferred: true,
+        ),
+      ]) {
+    final failure = row.retentionFailure
+        ? 'retention failure'
+        : row.deferred
+        ? 'deferred metadata repair'
+        : 'final metadata save failure';
+    test('repairs ${row.owner} rollback after $failure and retries', () async {
+      final fixture = await createUpdateFixture();
       addTearDown(fixture.dispose);
-      await _write(fixture.directories.data, 'settings.json', 'old');
-      await fixture.backups.create(fixture.directories.data);
-      await _write(fixture.directories.data, 'settings.json', 'current');
-      const prior = ComponentMetadata(
-        baseline: '2.38.4',
-        active: '2.39.0',
-        previous: '2.38.4',
-      );
-      await fixture.metadata.save(ComponentKind.backend, prior);
-      final blocker = File(
-        '${fixture.directories.components.path}/backend/9.9.9',
-      );
-      await blocker.parent.create(recursive: true);
-      await blocker.writeAsString('blocker');
-
-      await expectLater(
-        fixture.service.rollback(ComponentKind.backend),
-        throwsStateError,
-      );
-      expect(
-        await fixture.metadata.load(ComponentKind.backend, baseline: 'ignored'),
-        prior,
-      );
-      expect(
-        await File('${fixture.directories.data.path}/settings.json')
-            .readAsString(),
-        'current',
-      );
-      await blocker.delete();
-      await fixture.service.rollback(ComponentKind.backend);
-      expect(
-        await File('${fixture.directories.data.path}/settings.json')
-            .readAsString(),
-        'old',
-      );
-    },
-  );
-
-  test(
-    'restores Backend rollback after final metadata save failure and retries',
-    () async {
-      final fixture = await _fixture(failOn: {2});
-      addTearDown(fixture.dispose);
-      await _write(fixture.directories.data, 'settings.json', 'old');
-      final targetBackup = await fixture.backups.create(
+      final backend = row.kind == ComponentKind.backend;
+      final baseline = backend ? '2.38.4' : '2.31.3';
+      final active = backend ? '2.39.0' : '2.32.0';
+      const currentData = 'current';
+      const prior = {
+        ComponentKind.backend: ComponentMetadata(
+          baseline: '2.38.4',
+          active: '2.39.0',
+          previous: '2.38.4',
+        ),
+        ComponentKind.frontend: ComponentMetadata(
+          baseline: '2.31.3',
+          active: '2.32.0',
+          previous: '2.31.3',
+        ),
+      };
+      String? targetBackup;
+      if (backend) {
+        await writeUpdateFile(fixture.directories.data, 'settings.json', 'old');
+        targetBackup = await fixture.backups.create(fixture.directories.data);
+      }
+      await writeUpdateFile(
         fixture.directories.data,
+        'settings.json',
+        currentData,
       );
-      await _write(fixture.directories.data, 'settings.json', 'current');
-      const prior = ComponentMetadata(
-        baseline: '2.38.4',
-        active: '2.39.0',
-        previous: '2.38.4',
-      );
-      await fixture.metadata.save(ComponentKind.backend, prior);
-      final store = fixture.metadata as _FailOnSaveMetadataStore;
-      store.reset();
+      await fixture.metadata.save(row.kind, prior[row.kind]!);
+      fixture.metadata.failOn = {...row.failures};
+      fixture.metadata.resetSaveCount();
 
-      await expectLater(
-        fixture.service.rollback(ComponentKind.backend),
-        throwsStateError,
+      File? blocker;
+      if (row.retentionFailure) {
+        blocker = File(
+          '${fixture.directories.components.path}/${row.kind.name}/9.9.9',
+        );
+        await blocker.parent.create(recursive: true);
+        await blocker.writeAsString('retention blocker');
+      }
+      final service = _service(fixture, _UnexpectedDownloads());
+      await expectLater(service.rollback(row.kind), throwsA(isA<StateError>()));
+      _expectRuntimeIdle(fixture.runtime);
+      final diskMetadata = ComponentMetadataStore(
+        fixture.directories.components,
       );
+
+      if (!row.deferred) {
+        expect(
+          await diskMetadata.load(row.kind, baseline: 'ignored'),
+          prior[row.kind],
+        );
+        expect(
+          await File('${fixture.directories.data.path}/settings.json')
+              .readAsString(),
+          currentData,
+        );
+        expect(
+          await fixture.backups.list(),
+          backend ? [targetBackup] : isEmpty,
+        );
+      } else {
+        final pending = await diskMetadata.load(row.kind, baseline: 'ignored');
+        final pendingBackups = await fixture.backups.list();
+        if (backend) {
+          final safetyIds = pendingBackups
+              .where((id) => id != targetBackup)
+              .toList();
+          expect(safetyIds, hasLength(1));
+          final safetyBackup = safetyIds.single;
+          expect(
+            pending,
+            ComponentMetadata(
+              baseline: '2.38.4',
+              previous: active,
+              pending: ComponentPending(
+                version: baseline,
+                backupId: safetyBackup,
+                operation: ComponentPendingOperation.rollback,
+              ),
+            ),
+          );
+          expect(pendingBackups, containsAll([targetBackup, safetyBackup]));
+          expect(pendingBackups, hasLength(2));
+          expect(
+            await File(
+              '${fixture.directories.backups.path}/$targetBackup/settings.json',
+            ).readAsString(),
+            'old',
+          );
+          expect(
+            await File(
+              '${fixture.directories.backups.path}/$safetyBackup/settings.json',
+            ).readAsString(),
+            currentData,
+          );
+        } else {
+          expect(
+            pending,
+            const ComponentMetadata(
+              baseline: '2.31.3',
+              previous: '2.32.0',
+              pending: ComponentPending(
+                version: '2.31.3',
+                operation: ComponentPendingOperation.rollback,
+              ),
+            ),
+          );
+          expect(pendingBackups, isEmpty);
+        }
+        expect(
+          await File('${fixture.directories.data.path}/settings.json')
+              .readAsString(),
+          currentData,
+        );
+        expect(await fixture.recoverPending(), isTrue);
+        expect(
+          await diskMetadata.load(row.kind, baseline: 'ignored'),
+          prior[row.kind],
+        );
+        expect(
+          await File('${fixture.directories.data.path}/settings.json')
+              .readAsString(),
+          currentData,
+        );
+        expect(
+          await fixture.backups.list(),
+          backend ? [targetBackup] : isEmpty,
+        );
+      }
+      _expectRuntimeIdle(fixture.runtime);
+
+      if (blocker != null) await blocker.delete();
+      fixture.metadata.failOn = {};
+      fixture.metadata.resetSaveCount();
+      await service.rollback(row.kind);
       expect(
-        await fixture.metadata.load(ComponentKind.backend, baseline: 'ignored'),
-        prior,
+        await diskMetadata.load(row.kind, baseline: 'ignored'),
+        ComponentMetadata(baseline: baseline, previous: active),
       );
-      expect(await fixture.backups.list(), [targetBackup]);
       expect(
         await File('${fixture.directories.data.path}/settings.json')
             .readAsString(),
-        'current',
+        backend ? 'old' : currentData,
       );
-      expect(fixture.runtime.starts, 0);
-      expect(fixture.runtime.stops, 0);
-      expect(fixture.runtime.restarts, 0);
-
-      store.failOn = {};
-      store.reset();
-      await fixture.service.rollback(ComponentKind.backend);
-      expect(
-        await fixture.metadata.load(ComponentKind.backend, baseline: 'ignored'),
-        const ComponentMetadata(baseline: '2.38.4', previous: '2.39.0'),
-      );
-      expect(
-        await File('${fixture.directories.data.path}/settings.json')
-            .readAsString(),
-        'old',
-      );
-      final afterRetry = await fixture.backups.list();
-      expect(afterRetry, hasLength(1));
-      expect(afterRetry.single, isNot(targetBackup));
-      expect(fixture.runtime.starts, 0);
-      expect(fixture.runtime.stops, 0);
-      expect(fixture.runtime.restarts, 0);
-    },
-  );
-
-  test('startup recovery repairs Backend rollback when immediate recovery save fails', () async {
-    final fixture = await _fixture(failOn: {2, 3});
-    addTearDown(fixture.dispose);
-    await _write(fixture.directories.data, 'settings.json', 'old');
-    final targetBackup = await fixture.backups.create(fixture.directories.data);
-    await _write(fixture.directories.data, 'settings.json', 'current');
-    const prior = ComponentMetadata(
-      baseline: '2.38.4',
-      active: '2.39.0',
-      previous: '2.38.4',
-    );
-    await fixture.metadata.save(ComponentKind.backend, prior);
-    final store = fixture.metadata as _FailOnSaveMetadataStore;
-    store.reset();
-    await expectLater(
-      fixture.service.rollback(ComponentKind.backend),
-      throwsStateError,
-    );
-    final pending = await ComponentMetadataStore(fixture.directories.components)
-        .load(ComponentKind.backend, baseline: 'ignored');
-    expect(pending.active, isNull);
-    expect(pending.previous, '2.39.0');
-    expect(pending.pending?.version, '2.38.4');
-    expect(pending.pending?.operation, ComponentPendingOperation.rollback);
-    final safetyBackup = pending.pending!.backupId!;
-    expect(
-      await fixture.backups.list(),
-      containsAll([targetBackup, safetyBackup]),
-    );
-    expect(await fixture.backups.list(), hasLength(2));
-    expect(
-      await File('${fixture.directories.data.path}/settings.json')
-          .readAsString(),
-      'current',
-    );
-
-    await ComponentRecovery(
-      bundleDirectory: Directory.fromUri(fixture.root.uri.resolve('bundle/')),
-      dataDirectory: fixture.directories.data,
-      metadataStore: ComponentMetadataStore(fixture.directories.components),
-      dataBackups: fixture.backups,
-    ).recoverPending();
-    final recovered = await ComponentMetadataStore(
-      fixture.directories.components,
-    ).load(ComponentKind.backend, baseline: 'ignored');
-    expect(recovered, prior);
-    expect(await fixture.backups.list(), [targetBackup]);
-    store.failOn = {};
-    store.reset();
-    await fixture.service.rollback(ComponentKind.backend);
-    expect(
-      await fixture.metadata.load(ComponentKind.backend, baseline: 'ignored'),
-      const ComponentMetadata(baseline: '2.38.4', previous: '2.39.0'),
-    );
-    expect(
-      await File('${fixture.directories.data.path}/settings.json')
-          .readAsString(),
-      'old',
-    );
-    final afterRetry = await fixture.backups.list();
-    expect(afterRetry, hasLength(1));
-    expect(afterRetry.single, isNot(targetBackup));
-    expect(fixture.runtime.starts, 0);
-    expect(fixture.runtime.stops, 0);
-    expect(fixture.runtime.restarts, 0);
-  });
-
-  test(
-    'restores Frontend rollback after final metadata save failure and retries',
-    () async {
-      final fixture = await _fixture(failOn: {2});
-      addTearDown(fixture.dispose);
-      const prior = ComponentMetadata(
-        baseline: '2.31.3',
-        active: '2.32.0',
-        previous: '2.31.3',
-      );
-      await fixture.metadata.save(ComponentKind.frontend, prior);
-      final store = fixture.metadata as _FailOnSaveMetadataStore;
-      store.reset();
-
-      await expectLater(
-        fixture.service.rollback(ComponentKind.frontend),
-        throwsStateError,
-      );
-      expect(
-        await fixture.metadata.load(
-          ComponentKind.frontend,
-          baseline: 'ignored',
-        ),
-        prior,
-      );
-      expect(fixture.runtime.starts, 0);
-      expect(fixture.runtime.stops, 0);
-      expect(fixture.runtime.restarts, 0);
-      store.failOn = {};
-      store.reset();
-      await fixture.service.rollback(ComponentKind.frontend);
-      expect(
-        await fixture.metadata.load(
-          ComponentKind.frontend,
-          baseline: 'ignored',
-        ),
-        const ComponentMetadata(baseline: '2.31.3', previous: '2.32.0'),
-      );
-    },
-  );
-
-  test('startup recovery repairs Frontend rollback when immediate recovery save fails', () async {
-    final fixture = await _fixture(failOn: {2, 3});
-    addTearDown(fixture.dispose);
-    const prior = ComponentMetadata(
-      baseline: '2.31.3',
-      active: '2.32.0',
-      previous: '2.31.3',
-    );
-    await fixture.metadata.save(ComponentKind.frontend, prior);
-    final store = fixture.metadata as _FailOnSaveMetadataStore;
-    store.reset();
-    await expectLater(
-      fixture.service.rollback(ComponentKind.frontend),
-      throwsStateError,
-    );
-    final pending = await ComponentMetadataStore(fixture.directories.components)
-        .load(ComponentKind.frontend, baseline: 'ignored');
-    expect(pending.active, isNull);
-    expect(pending.previous, '2.32.0');
-    expect(pending.pending?.version, '2.31.3');
-    expect(pending.pending?.operation, ComponentPendingOperation.rollback);
-    await ComponentRecovery(
-      bundleDirectory: Directory.fromUri(fixture.root.uri.resolve('bundle/')),
-      dataDirectory: fixture.directories.data,
-      metadataStore: ComponentMetadataStore(fixture.directories.components),
-      dataBackups: fixture.backups,
-    ).recoverPending();
-    expect(
-      await ComponentMetadataStore(fixture.directories.components)
-          .load(ComponentKind.frontend, baseline: 'ignored'),
-      prior,
-    );
-    store.failOn = {};
-    store.reset();
-    await fixture.service.rollback(ComponentKind.frontend);
-    expect(
-      await fixture.metadata.load(ComponentKind.frontend, baseline: 'ignored'),
-      const ComponentMetadata(baseline: '2.31.3', previous: '2.32.0'),
-    );
-    expect(fixture.runtime.starts, 0);
-    expect(fixture.runtime.stops, 0);
-    expect(fixture.runtime.restarts, 0);
-  });
+      if (backend) {
+        final retrySafety = (await fixture.backups.list()).single;
+        expect(retrySafety, isNot(targetBackup));
+        expect(
+          await File(
+            '${fixture.directories.backups.path}/$retrySafety/settings.json',
+          ).readAsString(),
+          currentData,
+        );
+      } else {
+        expect(await fixture.backups.list(), isEmpty);
+      }
+      _expectRuntimeIdle(fixture.runtime);
+    });
+  }
 }
 
-Future<_Fixture> _fixture({
-  RuntimeStatus status = RuntimeStatus.stopped,
-  Set<int>? failOn,
-}) async {
-  final root = await Directory.systemTemp.createTemp('subdock_update_service_');
-  final bundle = Directory.fromUri(root.uri.resolve('bundle/'));
-  await _write(bundle, 'data/backend/version', '2.38.4\n');
-  await _write(bundle, 'data/backend/sub-store.bundle.js', 'baseline');
-  await _write(
-    bundle,
-    'data/backend/runtime-manifest.json',
-    '{"testedNode":"24.15.0","externalBinary":[]}',
-  );
-  await _write(bundle, 'data/frontend/version', '2.31.3\n');
-  await _write(bundle, 'data/frontend/index.html', 'baseline');
-  final directories = await RuntimeDirectories.fromBaseDirectory(
-    Directory.fromUri(root.uri.resolve('application-support/')),
-  );
-  final metadata = failOn == null
-      ? ComponentMetadataStore(directories.components)
-      : _FailOnSaveMetadataStore(directories.components, failOn: failOn);
-  final backups = DataBackupStore(
-    backupsDirectory: directories.backups,
-    stagingDirectory: directories.staging,
-  );
-  final runtime = _FakeRuntime(status: status);
-  final downloads = _FakeDownloads();
-  final service = ComponentUpdateService(
-    runtime: runtime,
-    directories: directories,
-    metadataStore: metadata,
-    resources: ComponentResourceResolver(
-      bundleDirectory: bundle,
-      componentsDirectory: directories.components,
-      metadataStore: metadata,
-    ),
-    releases: downloads,
-    backups: backups,
-  );
-  return _Fixture(
-    root,
-    bundle,
-    directories,
-    metadata,
-    backups,
-    runtime,
-    downloads,
-    service,
+ComponentUpdateService _service(
+  UpdateFixture fixture,
+  GithubReleaseDownloader downloads,
+) => ComponentUpdateService(
+  runtime: fixture.runtime,
+  directories: fixture.directories,
+  metadataStore: fixture.metadata,
+  resources: ComponentResourceResolver(
+    bundleDirectory: fixture.bundle,
+    componentsDirectory: fixture.directories.components,
+    metadataStore: fixture.metadata,
+  ),
+  releases: downloads,
+  backups: fixture.backups,
+);
+
+void _expectRuntimeIdle(UpdateTestRuntime runtime, {String? reason}) {
+  expect(
+    [runtime.starts, runtime.stops, runtime.restarts],
+    [0, 0, 0],
+    reason: reason,
   );
 }
 
-GithubRelease _frontendRelease(String version) => GithubRelease(
-  version: version,
-  releaseUri: Uri.parse('https://example.invalid/frontend-release'),
-  assets: [
-    GithubReleaseAsset(name: 'dist.zip', downloadUri: Uri(), sha256: '0' * 64),
-  ],
-);
-
-GithubRelease _backendRelease(String version) => GithubRelease(
-  version: version,
-  releaseUri: Uri.parse('https://example.invalid/backend-release'),
-  assets: [
-    GithubReleaseAsset(
-      name: 'sub-store.bundle.js',
-      downloadUri: Uri(),
-      sha256: '0' * 64,
-    ),
-    GithubReleaseAsset(
-      name: 'runtime-manifest.json',
-      downloadUri: Uri(),
-      sha256: '1' * 64,
-    ),
-  ],
-);
-
-class _FakeDownloads implements GithubReleaseDownloader {
+class _UnexpectedDownloads implements GithubReleaseDownloader {
   var calls = 0;
 
   @override
   Future<void> downloadVerified(GithubReleaseAsset asset, File target) async {
     calls++;
-    await target.parent.create(recursive: true);
-    if (asset.name == 'dist.zip') {
-      final archive = Archive()
-        ..add(ArchiveFile.string('index.html', 'updated frontend'));
-      await target.writeAsBytes(ZipEncoder().encode(archive));
-    } else {
-      await target.writeAsString(
-        asset.name == 'runtime-manifest.json'
-            ? '{"testedNode":"24.15.0","externalBinary":[]}'
-            : 'updated backend',
-      );
-    }
+    throw StateError('A valid service operation must not download assets');
   }
 
   @override
-  Future<GithubRelease> latest(String repository) => throw UnimplementedError();
-}
-
-class _FakeRuntime extends BackendRuntime {
-  _FakeRuntime({this.status = RuntimeStatus.stopped});
-
-  final RuntimeStatus status;
-  var restarts = 0;
-  var stops = 0;
-  var starts = 0;
-
-  @override
-  RuntimeState get currentState =>
-      RuntimeState(status: status, changedAt: DateTime.now());
-  @override
-  Uri get endpoint => Uri.parse('http://127.0.0.1:3001');
-  @override
-  Stream<RuntimeLog> get logs => const Stream.empty();
-  @override
-  Stream<RuntimeState> get state => const Stream.empty();
-  @override
-  Future<void> activateUserEnvironment(Map<String, String> environment) async {}
-  @override
-  Future<void> dispose() async {}
-  @override
-  Future<BackendInfo> info() => throw UnimplementedError();
-  @override
-  Future<bool> isHealthy() async => true;
-  @override
-  Future<void> restart() async => restarts++;
-  @override
-  Future<void> start() async => starts++;
-  @override
-  Future<void> stop() async => stops++;
-}
-
-class _Fixture {
-  const _Fixture(
-    this.root,
-    this.bundle,
-    this.directories,
-    this.metadata,
-    this.backups,
-    this.runtime,
-    this.downloads,
-    this.service,
-  );
-
-  final Directory root;
-  final Directory bundle;
-  final RuntimeDirectories directories;
-  final ComponentMetadataStore metadata;
-  final DataBackupStore backups;
-  final _FakeRuntime runtime;
-  final _FakeDownloads downloads;
-  final ComponentUpdateService service;
-
-  Future<void> dispose() => root.delete(recursive: true);
-}
-
-class _FailOnSaveMetadataStore extends ComponentMetadataStore {
-  _FailOnSaveMetadataStore(super.directory, {required Set<int> failOn})
-    : failOn = {...failOn};
-
-  Set<int> failOn;
-  var _saveCount = 0;
-
-  void reset() => _saveCount = 0;
-
-  @override
-  Future<void> save(ComponentKind kind, ComponentMetadata metadata) {
-    if (failOn.contains(++_saveCount)) {
-      throw StateError('injected metadata save failure');
-    }
-    return super.save(kind, metadata);
-  }
-}
-
-Future<void> _write(Directory root, String path, String value) async {
-  final file = File.fromUri(root.uri.resolve(path));
-  await file.parent.create(recursive: true);
-  await file.writeAsString(value);
+  Future<GithubRelease> latest(String repository) =>
+      throw StateError('A valid service operation must not load releases');
 }
