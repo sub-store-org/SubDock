@@ -44,7 +44,7 @@ class DesktopTray {
         image.dispose();
       }
       icon.setTooltip('SubDock');
-      // Linux exposes its D-Bus menu to panels only for the clicked trigger.
+      // Linux panels should open the exported menu on a primary click.
       icon.setContextMenuTrigger(
         Platform.isLinux
             ? ContextMenuTrigger.clicked

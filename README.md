@@ -19,6 +19,15 @@ before running the desktop app.
 
 ### Linux
 
+Install the native development libraries (Debian/Ubuntu):
+
+```sh
+sudo apt-get install -y libgtk-3-dev libx11-dev libxi-dev libwebkit2gtk-4.1-dev
+```
+
+GTK, X11, and Xi development libraries are also required for `flutter test`,
+which compiles the tray's native library.
+
 ```sh
 tool/prepare_backend.sh
 tool/prepare_frontend.sh
