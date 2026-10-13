@@ -1,38 +1,28 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/widgets.dart';
-import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'app/close_request_guard.dart';
+import 'desktop_tray.dart';
 import 'settings/config_error.dart';
 import 'settings/desktop_preferences.dart';
 
-/// The tray menu items whose labels depend on the UI language.
-enum TrayItem { show, exit }
-
-/// Resolves a tray menu label from its [TrayItem] in the current UI language.
-/// The menu is a native OS menu with no BuildContext, so the label text is
-/// produced by the caller (desktop_main) via a language callback.
-typedef TrayLabelResolver = String Function(TrayItem item);
-
-class DesktopLifecycle with WindowListener, TrayListener {
+class DesktopLifecycle with WindowListener {
   DesktopLifecycle({
     required this.onExit,
     this.trayLabels,
     this.closeBehavior = _defaultCloseBehavior,
     CloseRequestGuard? closeRequestGuard,
-    Directory? bundleDirectory,
-  }) : _bundleDirectory =
-           bundleDirectory ?? File(Platform.resolvedExecutable).parent,
+    DesktopTray? tray,
+  }) : _tray = tray ?? DesktopTray(),
        closeRequestGuard = closeRequestGuard ?? CloseRequestGuard();
 
   final Future<void> Function() onExit;
   final TrayLabelResolver? trayLabels;
   final Future<CloseBehavior> Function() closeBehavior;
   final CloseRequestGuard closeRequestGuard;
-  final Directory _bundleDirectory;
+  final DesktopTray _tray;
   final warning = ValueNotifier<Object?>(null);
   final isMaximized = ValueNotifier<bool>(false);
   var _trayReady = false;
@@ -42,52 +32,26 @@ class DesktopLifecycle with WindowListener, TrayListener {
     await windowManager.setPreventClose(true);
     isMaximized.value = await windowManager.isMaximized();
     windowManager.addListener(this);
-    trayManager.addListener(this);
     try {
-      await trayManager.setIcon(
-        trayIconPath(
-          bundleDirectory: _bundleDirectory,
-          isWindows: Platform.isWindows,
-        ),
+      _tray.initialize(
+        onShow: _showWindow,
+        onExit: _exitFromTray,
+        labels: trayLabels,
       );
-      if (traySupportsToolTip(isLinux: Platform.isLinux)) {
-        await trayManager.setToolTip('SubDock');
-      }
-      await _updateContextMenu();
       _trayReady = true;
     } catch (_) {
       warning.value = const AppConfigError(AppConfigErrorCode.trayUnavailable);
     }
   }
 
-  /// Rebuilds the tray menu in the current language (KTD3). Safe to call
-  /// before the tray is ready; it simply records the pending label state.
+  /// Updates menu labels in the current language once the tray is ready.
   Future<void> updateTray() async {
     if (!_trayReady) return;
     try {
-      await _updateContextMenu();
+      _tray.updateLabels(trayLabels);
     } catch (_) {
       warning.value = const AppConfigError(AppConfigErrorCode.trayUnavailable);
     }
-  }
-
-  Future<void> _updateContextMenu() {
-    final labels = trayLabels;
-    return trayManager.setContextMenu(
-      Menu(
-        items: [
-          MenuItem(
-            key: TrayItem.show.name,
-            label: labels?.call(TrayItem.show) ?? 'Show window',
-          ),
-          MenuItem.separator(),
-          MenuItem(
-            key: TrayItem.exit.name,
-            label: labels?.call(TrayItem.exit) ?? 'Exit',
-          ),
-        ],
-      ),
-    );
   }
 
   Future<void> exit() async {
@@ -95,14 +59,16 @@ class DesktopLifecycle with WindowListener, TrayListener {
     _exiting = true;
     try {
       await onExit();
-      if (_trayReady) await trayManager.destroy();
+      if (_trayReady) {
+        _tray.dispose();
+        _trayReady = false;
+      }
       await windowManager.destroy();
     } catch (_) {
       _exiting = false;
       rethrow;
     }
     windowManager.removeListener(this);
-    trayManager.removeListener(this);
   }
 
   Future<void> minimize() => windowManager.minimize();
@@ -141,29 +107,6 @@ class DesktopLifecycle with WindowListener, TrayListener {
     await exit();
   }
 
-  @override
-  void onTrayIconMouseDown() => unawaited(_showWindow());
-
-  @override
-  void onTrayIconRightMouseDown() {
-    if (traySupportsPopupContextMenu(
-      isWindows: Platform.isWindows,
-      isMacOS: Platform.isMacOS,
-    )) {
-      unawaited(trayManager.popUpContextMenu());
-    }
-  }
-
-  @override
-  void onTrayMenuItemClick(MenuItem menuItem) {
-    switch (menuItem.key) {
-      case 'show':
-        unawaited(_showWindow());
-      case 'exit':
-        unawaited(_exitFromTray());
-    }
-  }
-
   Future<void> _showWindow() async {
     if (await windowManager.isMinimized()) {
       await windowManager.restore();
@@ -180,26 +123,3 @@ class DesktopLifecycle with WindowListener, TrayListener {
 
 Future<CloseBehavior> _defaultCloseBehavior() async =>
     CloseBehavior.closeToTray;
-
-/// The icon path handed to tray_manager.setIcon.
-///
-/// On Linux the plugin joins the path under `<exe>/data/flutter_assets`, and on
-/// macOS it loads the path via `rootBundle`, so both platforms take a relative
-/// path into the bundled Flutter assets. Windows loads the path directly with
-/// `LoadImage`, so it needs the absolute .ico path next to the executable.
-String trayIconPath({
-  required Directory bundleDirectory,
-  required bool isWindows,
-}) =>
-    isWindows
-        ? File.fromUri(
-            bundleDirectory.uri.resolve('data/tray_icon.ico'),
-          ).path
-        : 'assets/icon/app_icon_32.png';
-
-bool traySupportsToolTip({required bool isLinux}) => !isLinux;
-
-bool traySupportsPopupContextMenu({
-  required bool isWindows,
-  required bool isMacOS,
-}) => isWindows || isMacOS;

@@ -9,6 +9,7 @@ import 'app/app.dart';
 import 'app/app_coordinator.dart';
 import 'app/close_request_guard.dart';
 import 'desktop_lifecycle.dart';
+import 'desktop_tray.dart';
 import 'l10n/generated/app_localizations.dart';
 import 'runtime/desktop_backend_runtime.dart';
 import 'runtime/runtime_directories.dart';

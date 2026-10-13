@@ -24,15 +24,17 @@ jobs:
             patchelf \
             libgtk-3-dev \
             libwebkit2gtk-4.1-dev \
-            libayatana-appindicator3-dev
+            libx11-dev \
+            libxi-dev
       - name: Install packaging tools
         shell: bash
         run: |
           set -euo pipefail
           dart pub global activate fastforge
           install -d "$HOME/.local/bin"
+          release_url=https://github.com/AppImage/appimagetool/releases
           curl -fsSL \
-            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage \
+            "$release_url/download/continuous/appimagetool-x86_64.AppImage" \
             -o "$HOME/.local/bin/appimagetool"
           chmod +x "$HOME/.local/bin/appimagetool"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
@@ -76,8 +78,8 @@ jobs:
           pacman -Syu --noconfirm \
             gtk3 \
             webkit2gtk-4.1 \
-            libayatana-appindicator \
-            libayatana-indicator
+            libx11 \
+            libxi
       - uses: actions/download-artifact@v8
         with:
           name: linux-bundle
@@ -92,7 +94,9 @@ jobs:
           useradd --create-home builder
           chown -R builder:builder "$GITHUB_WORKSPACE"
       - name: Build standard Arch package
-        run: su --login builder --shell /bin/sh --command "$GITHUB_WORKSPACE/tool/package_arch.sh"
+        run: >-
+          su --login builder --shell /bin/sh
+          --command "$GITHUB_WORKSPACE/tool/package_arch.sh"
       - uses: actions/upload-artifact@v7
         with:
           name: arch-package
@@ -161,8 +165,10 @@ jobs:
             --platform macos \
             --targets dmg \
             --hook-pre '
-              tool/verify_bundle.sh "$BUILD_OUTPUT_DIRECTORY/SubDock.app/Contents/MacOS" macos &&
-              tool/thin_macos_bundle.sh "$BUILD_OUTPUT_DIRECTORY/SubDock.app" "$TARGET_ARCH"
+              tool/verify_bundle.sh \
+                "$BUILD_OUTPUT_DIRECTORY/SubDock.app/Contents/MacOS" macos &&
+              tool/thin_macos_bundle.sh \
+                "$BUILD_OUTPUT_DIRECTORY/SubDock.app" "$TARGET_ARCH"
             '
       - uses: actions/upload-artifact@v7
         with:
