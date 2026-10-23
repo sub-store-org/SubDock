@@ -25,7 +25,7 @@ void main() {
       try {
         await runtime.dispose();
       } on Object {
-        // The finalization-failure fixture intentionally rejects cleanup.
+        // A persistence-failure fixture may reject finalization once.
       }
       await temp.delete(recursive: true);
     });
@@ -140,44 +140,158 @@ void main() {
       expect(runtime.currentState.status, RuntimeStatus.crashed);
     });
 
-    test('reports finalization failure after an unexpected exit', () async {
-      runtime = await _createRuntime(
-        temp,
-        mode: 'unexpected-exit',
-        failingFinalize: true,
-      );
-      final states = <RuntimeState>[];
-      final subscription = runtime.state.listen(states.add);
-      addTearDown(subscription.cancel);
+    test(
+      'keeps an append failure incomplete through normal shutdown',
+      () async {
+        runtime = await _createRuntime(temp, failingAppend: true);
+        final updates = <RuntimeLogRunUpdate>[];
+        final subscription = runtime.logRunUpdates.listen(updates.add);
+        addTearDown(subscription.cancel);
 
-      await runtime.start();
-      await _waitFor(
-        () => states.any((state) => state.status == RuntimeStatus.crashed),
-      );
+        await runtime.start();
+        await _waitFor(() => updates.any((update) => !update.finalized));
+        final captureFailure = updates.singleWhere(
+          (update) => !update.finalized,
+        );
+        expect(captureFailure.integrity, RuntimeLogIntegrity.incomplete);
+        expect(captureFailure.persistenceConfirmed, isFalse);
+        expect(captureFailure.retryAvailable, isFalse);
 
-      expect(runtime.currentState.status, RuntimeStatus.crashed);
-      expect(runtime.currentState.message, contains('finalize'));
-    });
+        await runtime.stop();
+        final run = (await runtime.logStore.listRuns()).single;
+        expect(run.id, captureFailure.runId);
+        expect(run.integrity, RuntimeLogIntegrity.incomplete);
+        expect(runtime.currentState.status, RuntimeStatus.stopped);
+        expect(updates.last.integrity, RuntimeLogIntegrity.incomplete);
+        expect(updates.last.persistenceConfirmed, isTrue);
+      },
+    );
 
-    test('persists HTTP-META stdout and stderr in the same run', () async {
-      final httpMetaPort = await _unusedPort();
-      runtime = await _createRuntime(temp, httpMetaPort: httpMetaPort);
+    test(
+      'publishes incomplete finalization and retries before a new run',
+      () async {
+        runtime = await _createRuntime(
+          temp,
+          mode: 'unexpected-exit',
+          failingFinalize: true,
+        );
+        final states = <RuntimeState>[];
+        final updates = <RuntimeLogRunUpdate>[];
+        final stateSubscription = runtime.state.listen(states.add);
+        final updateSubscription = runtime.logRunUpdates.listen(updates.add);
+        addTearDown(stateSubscription.cancel);
+        addTearDown(updateSubscription.cancel);
 
-      await runtime.start();
-      expect(runtime.currentState.httpMetaMihomoVersion, 'fixture-mihomo');
-      await runtime.stop();
+        await runtime.start();
+        await _waitFor(
+          () => updates.any(
+            (update) => update.finalized && !update.persistenceConfirmed,
+          ),
+        );
+        final failure = updates.singleWhere(
+          (update) => update.finalized && !update.persistenceConfirmed,
+        );
+        expect(failure.integrity, RuntimeLogIntegrity.incomplete);
+        expect(failure.retryAvailable, isTrue);
+        expect(runtime.currentState.status, RuntimeStatus.crashed);
+        expect(runtime.currentState.message, contains('finalization'));
+        expect(
+          runtime.currentState.message,
+          isNot(contains('fixture failure')),
+        );
+        expect(await runtime.logStore.listRuns(), isEmpty);
 
-      final runs = await runtime.logStore.listRuns();
-      expect(runs, hasLength(1));
-      final logs = await runtime.logStore.readRun(runs.single.id);
-      expect(
-        logs.map((log) => log.source),
-        containsAll(<RuntimeLogSource>[
-          RuntimeLogSource.httpMetaStdout,
-          RuntimeLogSource.httpMetaStderr,
-        ]),
-      );
-    });
+        await runtime.retryLogFinalization(failure.runId);
+        final incomplete = (await runtime.logStore.listRuns()).single;
+        expect(incomplete.id, failure.runId);
+        expect(incomplete.integrity, RuntimeLogIntegrity.incomplete);
+        expect((await runtime.logStore.readRun(incomplete.id)), isNotEmpty);
+        final retried = updates.lastWhere(
+          (update) => update.runId == failure.runId,
+        );
+        expect(retried.integrity, RuntimeLogIntegrity.incomplete);
+        expect(retried.finalized, isTrue);
+        expect(retried.persistenceConfirmed, isTrue);
+        expect(retried.retryAvailable, isFalse);
+
+        await runtime.start();
+        await _waitFor(
+          () => updates.any(
+            (update) => update.runId != failure.runId && update.finalized,
+          ),
+        );
+        final runs = await runtime.logStore.listRuns();
+        expect(runs, hasLength(2));
+        expect(
+          runs.singleWhere((run) => run.id == failure.runId).integrity,
+          RuntimeLogIntegrity.incomplete,
+        );
+        final second = runs.singleWhere((run) => run.id != failure.runId);
+        expect(second.integrity, RuntimeLogIntegrity.complete);
+        await runtime.stop();
+      },
+    );
+
+    test(
+      'keeps one actual run identity across HTTP-META state changes',
+      () async {
+        final httpMetaPort = await _unusedPort();
+        runtime = await _createRuntime(
+          temp,
+          httpMetaPort: httpMetaPort,
+          httpMetaExitOnRequest: true,
+        );
+        final runIds = <String>[];
+        final states = <RuntimeState>[];
+        final runSubscription = runtime.logRunStarted.listen(
+          (event) => runIds.add(event.runId),
+        );
+        final stateSubscription = runtime.state.listen(states.add);
+        addTearDown(runSubscription.cancel);
+        addTearDown(stateSubscription.cancel);
+
+        await runtime.start();
+        final client = HttpClient();
+        try {
+          final request = await client.postUrl(
+            Uri(
+              scheme: 'http',
+              host: InternetAddress.loopbackIPv4.address,
+              port: httpMetaPort,
+              path: '/exit',
+            ),
+          );
+          final response = await request.close();
+          await response.drain<void>();
+        } finally {
+          client.close(force: true);
+        }
+        await _waitFor(
+          () => runtime.currentState.httpMetaStatus == HttpMetaStatus.degraded,
+        );
+        expect(runtime.currentState.httpMetaMihomoVersion, 'fixture-mihomo');
+        expect(runIds, hasLength(1));
+        expect([
+          for (var index = 1; index < states.length; index++)
+            if (states[index - 1].status == states[index].status &&
+                states[index].httpMetaStatus == HttpMetaStatus.degraded)
+              states[index],
+        ], isNotEmpty);
+        await runtime.stop();
+
+        final runs = await runtime.logStore.listRuns();
+        expect(runs, hasLength(1));
+        expect(runIds, [runs.single.id]);
+        final logs = await runtime.logStore.readRun(runs.single.id);
+        expect(
+          logs.map((log) => log.source),
+          containsAll(<RuntimeLogSource>[
+            RuntimeLogSource.httpMetaStdout,
+            RuntimeLogSource.httpMetaStderr,
+          ]),
+        );
+      },
+    );
 
     test(
       'marks a running process unhealthy when its HTTP endpoint closes',
@@ -391,10 +505,15 @@ void main() {
       expect(await runtime.logStore.listRuns(), hasLength(1));
     });
 
-    test('restarts a healthy backend', () async {
+    test('restarts a healthy backend with a new log run identity', () async {
       final states = <RuntimeState>[];
+      final runIds = <String>[];
       final subscription = runtime.state.listen(states.add);
+      final runSubscription = runtime.logRunStarted.listen(
+        (event) => runIds.add(event.runId),
+      );
       addTearDown(subscription.cancel);
+      addTearDown(runSubscription.cancel);
 
       await runtime.start();
       await runtime.restart();
@@ -402,6 +521,8 @@ void main() {
 
       final runs = await runtime.logStore.listRuns();
       expect(runs, hasLength(2));
+      expect(runIds, hasLength(2));
+      expect(runIds.toSet(), {for (final run in runs) run.id});
       for (final run in runs) {
         final messages = (await runtime.logStore.readRun(run.id))
             .map((log) => log.message)
@@ -500,7 +621,9 @@ Future<DesktopBackendRuntime> _createRuntime(
   String? activeBackendVersion,
   int? httpMetaPort,
   bool failingFinalize = false,
+  bool failingAppend = false,
   bool shutdownTail = false,
+  bool httpMetaExitOnRequest = false,
 }) async {
   final bundle = Directory.fromUri(temp.uri.resolve('bundle/'));
   final backend = Directory.fromUri(bundle.uri.resolve('data/backend/'));
@@ -571,6 +694,12 @@ console.log('http-meta stdout');
 console.error('http-meta stderr');
 const server = http.createServer((request, response) => {
   response.statusCode = 200;
+  if ($httpMetaExitOnRequest && request.url === '/exit') {
+    response.end('{}', () =>
+      setImmediate(() => server.close(() => process.exit(1))),
+    );
+    return;
+  }
   response.end('{}');
 });
 server.listen(process.env.PORT, '127.0.0.1');
@@ -579,6 +708,8 @@ process.on('SIGTERM', () => server.close(() => process.exit(0)));
   }
   final store = failingFinalize
       ? _FailingFinalizeStore(directories)
+      : failingAppend
+      ? _FailingAppendStore(directories)
       : RuntimeLogStore(directories);
   await store.initialize();
   if (activeBackendVersion != null) {
@@ -611,12 +742,37 @@ process.on('SIGTERM', () => server.close(() => process.exit(0)));
   return result;
 }
 
+class _FailingAppendStore extends RuntimeLogStore {
+  _FailingAppendStore(super.directories);
+
+  var _failNextAppend = true;
+
+  @override
+  Future<void> append(RuntimeLog log) {
+    if (_failNextAppend) {
+      _failNextAppend = false;
+      return Future<void>.error(StateError('append fixture failure'));
+    }
+    return super.append(log);
+  }
+}
+
 class _FailingFinalizeStore extends RuntimeLogStore {
   _FailingFinalizeStore(super.directories);
 
+  var _failNextFinalize = true;
+
   @override
-  Future<void> finalize({DateTime? end}) =>
-      Future<void>.error(StateError('finalize fixture failure'));
+  Future<void> finalize({
+    DateTime? end,
+    RuntimeLogIntegrity integrity = RuntimeLogIntegrity.complete,
+  }) {
+    if (_failNextFinalize) {
+      _failNextFinalize = false;
+      return Future<void>.error(StateError('finalize fixture failure'));
+    }
+    return super.finalize(end: end, integrity: integrity);
+  }
 }
 
 Future<int> _unusedPort() async {

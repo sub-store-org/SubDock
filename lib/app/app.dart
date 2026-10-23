@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -30,6 +31,7 @@ import 'about_info.dart';
 import 'close_request_guard.dart';
 import 'embedded_webview.dart';
 import 'runtime_observations.dart';
+import 'log_reader_state.dart';
 
 part 'pages/manage_page.dart';
 part 'pages/logs_page.dart';
@@ -147,13 +149,18 @@ class _SubDockAppState extends State<SubDockApp> {
   );
   late final StreamSubscription<RuntimeState> _stateSubscription;
   late final StreamSubscription<RuntimeLog> _logSubscription;
+  late final StreamSubscription<RuntimeLogRunStarted>
+  _logRunStartedSubscription;
+  late final StreamSubscription<RuntimeLogRunUpdate> _logRunUpdatesSubscription;
   late final AppLifecycleListener _lifecycleListener;
   late RuntimeState _state;
   final _observations = RuntimeObservations();
-  final _logs = <RuntimeLog>[];
+  late final LogReaderState _logReader;
   _AppPage _page = _AppPage.overview;
   final _overviewComponentStatuses = <ComponentKind, ComponentVersionStatus>{};
   final _overviewComponentUnavailable = <ComponentKind>{};
+  final _logRunUpdates = <String, RuntimeLogRunUpdate>{};
+  final _retryingLogFinalizations = <String>{};
   BackendInfo? _info;
   Object? _error;
   var _actionInProgress = false;
@@ -162,10 +169,10 @@ class _SubDockAppState extends State<SubDockApp> {
   Locale? _localeOverride;
   late DesktopPreferences _savedPreferences;
   late Future<void> _preferenceQueue;
-  late int _currentRunLogLimit;
-  var _logsEntryGeneration = 0;
   var _historyRefreshGeneration = 0;
   var _settingsChild = false;
+  var _maintenanceRefreshQueued = false;
+  var _retryingLogRecovery = false;
   CloseApprovalHandler? _previousCloseApproval;
 
   @override
@@ -174,7 +181,7 @@ class _SubDockAppState extends State<SubDockApp> {
     _preferenceQueue = Future<void>.value();
     final preferences = widget.preferences ?? DesktopPreferences.defaults;
     _savedPreferences = preferences;
-    _currentRunLogLimit = preferences.recentLogLimit;
+    _logReader = LogReaderState(limit: preferences.recentLogLimit);
     _themeMode = preferences.themeMode;
     _localeOverride = preferences.locale == null
         ? widget.locale
@@ -185,6 +192,11 @@ class _SubDockAppState extends State<SubDockApp> {
     if (_error != null) _page = _AppPage.overview;
     _stateSubscription = widget.coordinator.runtime.state.listen(_onState);
     _logSubscription = widget.coordinator.runtime.logs.listen(_appendLog);
+    _logRunStartedSubscription = widget.coordinator.runtime.logRunStarted
+        .listen(_onLogRunStarted);
+    _logRunUpdatesSubscription = widget.coordinator.runtime.logRunUpdates
+        .listen(_onLogRunUpdate);
+    widget.coordinator.maintenanceChanges.addListener(_onMaintenanceChanged);
     _lifecycleListener = AppLifecycleListener(
       onDetach: () => unawaited(widget.coordinator.dispose()),
     );
@@ -204,8 +216,11 @@ class _SubDockAppState extends State<SubDockApp> {
     if (guard != null) guard.approvalHandler = _previousCloseApproval;
     widget.desktopWarning?.removeListener(_onDesktopWarning);
     _lifecycleListener.dispose();
+    widget.coordinator.maintenanceChanges.removeListener(_onMaintenanceChanged);
     _stateSubscription.cancel();
     _logSubscription.cancel();
+    _logRunStartedSubscription.cancel();
+    _logRunUpdatesSubscription.cancel();
     super.dispose();
   }
 
@@ -226,7 +241,8 @@ class _SubDockAppState extends State<SubDockApp> {
 
   Future<void> _autoStart() async {
     final maintenance = widget.coordinator.maintenanceOperation;
-    if (widget.coordinator.maintenanceRecoveryError != null ||
+    if (widget.coordinator.logRecoveryError != null ||
+        widget.coordinator.maintenanceRecoveryError != null ||
         maintenance != null) {
       return;
     }
@@ -246,27 +262,80 @@ class _SubDockAppState extends State<SubDockApp> {
     _observations.observeState(state);
     setState(() {
       _state = state;
-      if (state.status == RuntimeStatus.starting) {
-        _currentRunLogLimit = _savedPreferences.recentLogLimit;
-        _logs.clear();
-      } else if (state.status == RuntimeStatus.stopped ||
+      if (state.status == RuntimeStatus.stopped ||
           state.status == RuntimeStatus.crashed) {
-        _logs.clear();
         _historyRefreshGeneration++;
       }
     });
     if (state.status == RuntimeStatus.running) unawaited(_loadInfo());
   }
 
+  void _onLogRunStarted(RuntimeLogRunStarted event) {
+    if (!mounted) return;
+    setState(() {
+      _logReader.beginRun(event.runId);
+      _retainVisibleLogRunUpdates();
+    });
+  }
+
+  void _onLogRunUpdate(RuntimeLogRunUpdate event) {
+    if (!mounted) return;
+    setState(() {
+      _logRunUpdates[event.runId] = event;
+      _retainVisibleLogRunUpdates();
+    });
+  }
+
+  void _retainVisibleLogRunUpdates() {
+    final retained = <String?>{_logReader.currentRunId, _logReader.frozenRunId};
+    _logRunUpdates.removeWhere((id, _) => !retained.contains(id));
+  }
+
+  Future<void> _retryLogRecovery() async {
+    if (_retryingLogRecovery) return;
+    setState(() => _retryingLogRecovery = true);
+    try {
+      await widget.coordinator.retryLogRecovery();
+    } on Object {
+      // The coordinator retains the error for the persistent recovery banner.
+    } finally {
+      if (mounted) setState(() => _retryingLogRecovery = false);
+    }
+  }
+
+  Future<void> _retryLogFinalization(String runId) async {
+    if (_retryingLogFinalizations.contains(runId)) return;
+    setState(() => _retryingLogFinalizations.add(runId));
+    try {
+      await widget.coordinator.retryLogFinalization(runId);
+    } on Object {
+      // The runtime publishes a fixed incomplete status and keeps retry ready.
+    } finally {
+      if (mounted) {
+        setState(() => _retryingLogFinalizations.remove(runId));
+      }
+    }
+  }
+
+  void _onMaintenanceChanged() {
+    if (!mounted) return;
+    if (SchedulerBinding.instance.schedulerPhase !=
+        SchedulerPhase.persistentCallbacks) {
+      setState(() {});
+      return;
+    }
+    if (_maintenanceRefreshQueued) return;
+    _maintenanceRefreshQueued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _maintenanceRefreshQueued = false;
+      if (mounted) setState(() {});
+    });
+  }
+
   void _appendLog(RuntimeLog log) {
     if (!mounted) return;
     _observations.observeLog(log);
-    setState(() {
-      _logs.add(log);
-      if (_logs.length > _currentRunLogLimit) {
-        _logs.removeRange(0, _logs.length - _currentRunLogLimit);
-      }
-    });
+    setState(() => _logReader.append(log));
   }
 
   Future<void> _loadOverviewComponentStatuses() async {
@@ -298,9 +367,6 @@ class _SubDockAppState extends State<SubDockApp> {
         !await (_settingsKey.currentState?.requestLeave() ?? true)) {
       return;
     }
-    if (_page != _AppPage.logs && page == _AppPage.logs) {
-      _logsEntryGeneration++;
-    }
     setState(() => _page = page);
     if (page == _AppPage.overview) {
       unawaited(_loadOverviewComponentStatuses());
@@ -329,6 +395,7 @@ class _SubDockAppState extends State<SubDockApp> {
       if (!mounted) return true;
       setState(() {
         _savedPreferences = next;
+        _logReader.updateLimit(next.recentLogLimit);
         _error = null;
       });
       final autostart = widget.onAutostartChanged;
@@ -649,11 +716,15 @@ class _SubDockAppState extends State<SubDockApp> {
         ),
       ),
       _LogsPage(
-        logs: _logs,
+        reader: _logReader,
         historyRefreshGeneration: _historyRefreshGeneration,
+        historyMutationsEnabled: widget.coordinator.logRecoveryError == null,
         logStore: widget.coordinator.logStore,
         sort: _savedPreferences.logSort,
-        entryGeneration: _logsEntryGeneration,
+        maintenanceActivity: widget.coordinator.maintenanceActivity,
+        logRunUpdates: Map.unmodifiable(_logRunUpdates),
+        retryingLogFinalizations: Set.unmodifiable(_retryingLogFinalizations),
+        onRetryLogFinalization: _retryLogFinalization,
         onSortChanged: _onLogSortChanged,
       ),
       _UpdatesPage(
@@ -731,6 +802,21 @@ class _SubDockAppState extends State<SubDockApp> {
               maximizeTooltip: l10n.maximizeTooltip,
               restoreTooltip: l10n.restoreTooltip,
               closeTooltip: l10n.closeTooltip,
+            ),
+          if (widget.coordinator.logRecoveryError != null)
+            MaterialBanner(
+              key: const ValueKey('log-recovery-banner'),
+              content: Text(l10n.logRecoveryFailed),
+              actions: [
+                TextButton(
+                  onPressed: _retryingLogRecovery
+                      ? null
+                      : () => unawaited(_retryLogRecovery()),
+                  child: Text(
+                    _retryingLogRecovery ? l10n.retrying : l10n.retry,
+                  ),
+                ),
+              ],
             ),
           if (widget.desktopWarning?.value case final warning?)
             Container(

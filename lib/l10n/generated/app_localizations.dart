@@ -878,11 +878,179 @@ abstract class AppLocalizations {
   /// **'无法加载历史记录'**
   String get historyLoadError;
 
+  /// No description provided for @historyActionError.
+  ///
+  /// In zh, this message translates to:
+  /// **'历史记录操作失败。重试以再次尝试。'**
+  String get historyActionError;
+
+  /// No description provided for @retry.
+  ///
+  /// In zh, this message translates to:
+  /// **'重试'**
+  String get retry;
+
+  /// No description provided for @retrying.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在重试…'**
+  String get retrying;
+
+  /// No description provided for @logRecoveryFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'日志历史恢复失败。Backend 启动和自动清理已暂停。'**
+  String get logRecoveryFailed;
+
+  /// No description provided for @logPersistenceFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'日志未能完整保存。本次运行的状态是否保存成功尚未确认。'**
+  String get logPersistenceFailed;
+
+  /// No description provided for @logIntegrityUnknown.
+  ///
+  /// In zh, this message translates to:
+  /// **'日志完整性未验证'**
+  String get logIntegrityUnknown;
+
+  /// No description provided for @logIntegrityComplete.
+  ///
+  /// In zh, this message translates to:
+  /// **'日志捕获完整'**
+  String get logIntegrityComplete;
+
+  /// No description provided for @logIntegrityIncomplete.
+  ///
+  /// In zh, this message translates to:
+  /// **'日志捕获不完整'**
+  String get logIntegrityIncomplete;
+
+  /// No description provided for @logIntegrityRecovered.
+  ///
+  /// In zh, this message translates to:
+  /// **'已从中断状态恢复'**
+  String get logIntegrityRecovered;
+
   /// No description provided for @logEvents.
   ///
   /// In zh, this message translates to:
   /// **'条日志'**
   String get logEvents;
+
+  /// No description provided for @pauseLogReading.
+  ///
+  /// In zh, this message translates to:
+  /// **'暂停阅读'**
+  String get pauseLogReading;
+
+  /// No description provided for @resumeLogReading.
+  ///
+  /// In zh, this message translates to:
+  /// **'查看最新日志'**
+  String get resumeLogReading;
+
+  /// No description provided for @newLogCount.
+  ///
+  /// In zh, this message translates to:
+  /// **'新增日志：{count}'**
+  String newLogCount(int count);
+
+  /// No description provided for @confirmDeleteRun.
+  ///
+  /// In zh, this message translates to:
+  /// **'删除这次运行记录？'**
+  String get confirmDeleteRun;
+
+  /// No description provided for @confirmDeleteRunMessage.
+  ///
+  /// In zh, this message translates to:
+  /// **'仅删除这次已结束的运行。最近一次删除可以撤销。'**
+  String get confirmDeleteRunMessage;
+
+  /// No description provided for @confirmClearHistory.
+  ///
+  /// In zh, this message translates to:
+  /// **'清空已结束的运行记录？'**
+  String get confirmClearHistory;
+
+  /// No description provided for @confirmClearHistoryMessage.
+  ///
+  /// In zh, this message translates to:
+  /// **'将删除所有已结束的运行记录。最近一次删除可以撤销。'**
+  String get confirmClearHistoryMessage;
+
+  /// No description provided for @deleteHistoryAction.
+  ///
+  /// In zh, this message translates to:
+  /// **'删除'**
+  String get deleteHistoryAction;
+
+  /// No description provided for @componentMaintenanceActivity.
+  ///
+  /// In zh, this message translates to:
+  /// **'组件维护活动'**
+  String get componentMaintenanceActivity;
+
+  /// No description provided for @maintenanceActivityPreparing.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在准备组件'**
+  String get maintenanceActivityPreparing;
+
+  /// No description provided for @maintenanceActivityStopping.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在停止 Backend'**
+  String get maintenanceActivityStopping;
+
+  /// No description provided for @maintenanceActivityUpdating.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在更新组件'**
+  String get maintenanceActivityUpdating;
+
+  /// No description provided for @maintenanceActivityStarting.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在启动 Backend'**
+  String get maintenanceActivityStarting;
+
+  /// No description provided for @maintenanceActivityCompleted.
+  ///
+  /// In zh, this message translates to:
+  /// **'维护已完成'**
+  String get maintenanceActivityCompleted;
+
+  /// No description provided for @maintenanceActivityFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'维护失败'**
+  String get maintenanceActivityFailed;
+
+  /// No description provided for @maintenanceActivityStartFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'Backend 启动失败'**
+  String get maintenanceActivityStartFailed;
+
+  /// No description provided for @maintenanceActivityInterrupted.
+  ///
+  /// In zh, this message translates to:
+  /// **'维护已中断'**
+  String get maintenanceActivityInterrupted;
+
+  /// No description provided for @maintenanceActivityAwaitingStart.
+  ///
+  /// In zh, this message translates to:
+  /// **'等待启动 Backend'**
+  String get maintenanceActivityAwaitingStart;
+
+  /// No description provided for @maintenanceActivityBlocked.
+  ///
+  /// In zh, this message translates to:
+  /// **'维护已阻止'**
+  String get maintenanceActivityBlocked;
 
   /// No description provided for @back.
   ///

@@ -30,6 +30,7 @@ import 'package:flutter/material.dart'
         Theme,
         ThemeMode,
         Text,
+        TextButton,
         TextField,
         ValueNotifier;
 import 'package:flutter/scheduler.dart' show AppLifecycleState;
@@ -640,6 +641,11 @@ void main() {
     expect(find.text('legacy entry'), findsNothing);
 
     runtime.emitState(RuntimeStatus.starting);
+    runtime.emitRunStarted('fixture-run-1');
+    runtime.emitState(
+      RuntimeStatus.running,
+      httpMetaStatus: HttpMetaStatus.running,
+    );
     for (var index = 0; index < 60; index++) {
       runtime.emitLog(
         RuntimeLog(
@@ -762,9 +768,16 @@ void main() {
     expect(find.byType(TextField), findsOneWidget);
     expect(
       tester.widget<TextField>(find.byType(TextField)).controller!.text,
-      '',
+      'panic',
     );
-    expect(find.textContaining('panic'), findsWidgets);
+    final retainedSearchResults = tester
+        .widgetList<SelectableText>(find.byType(SelectableText))
+        .map((widget) => widget.data ?? '');
+    expect(retainedSearchResults, isNotEmpty);
+    expect(
+      retainedSearchResults.every((message) => message.contains('panic')),
+      isTrue,
+    );
 
     runtime.emitLog(
       RuntimeLog(
@@ -823,12 +836,214 @@ void main() {
     await tester.pump();
     expect(tester.takeException(), isNull);
 
+    final follow = find.byKey(const ValueKey('logs-follow-toggle'));
+    await tester.ensureVisible(follow);
+    await tester.tap(follow);
+    for (var index = 0; index < 55; index++) {
+      runtime.emitLog(
+        RuntimeLog(
+          timestamp: DateTime.now(),
+          source: RuntimeLogSource.stdout,
+          message: 'paused-$index',
+        ),
+      );
+    }
+    await tester.pump();
+    expect(find.text('新增日志：55'), findsOneWidget);
+
+    runtime.emitRunStarted('fixture-run-2');
+    runtime.emitState(
+      RuntimeStatus.running,
+      httpMetaStatus: HttpMetaStatus.degraded,
+    );
+    for (var index = 0; index < 60; index++) {
+      runtime.emitLog(
+        RuntimeLog(
+          timestamp: DateTime.now(),
+          source: RuntimeLogSource.stdout,
+          message: 'new-run-$index',
+        ),
+      );
+    }
+    await tester.pump();
+    await tester.enterText(find.byKey(const ValueKey('logs-search')), 'log-59');
+    await tester.pump();
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is SelectableText && widget.data?.contains('log-59') == true,
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('新增日志：115'), findsOneWidget);
+
     runtime.emitState(RuntimeStatus.stopping);
     await tester.pump();
     expect(find.byType(SelectableText), findsWidgets);
     runtime.emitState(RuntimeStatus.stopped);
     await tester.pump();
-    expect(find.byType(SelectableText), findsNothing);
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is SelectableText && widget.data?.contains('log-59') == true,
+      ),
+      findsOneWidget,
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('logs-search')),
+      'new-run-59',
+    );
+    await tester.pump();
+    await tester.tap(follow);
+    await tester.pump();
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is SelectableText &&
+            widget.data?.contains('new-run-59') == true,
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is SelectableText && widget.data?.contains('log-59') == true,
+      ),
+      findsNothing,
+    );
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('log recovery retries without autostart or clearing blockers', (
+    WidgetTester tester,
+  ) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    final writer = RuntimeLogStore(directories!);
+    late String healthyRunId;
+    late String runId;
+    await tester.runAsync(() async {
+      await writer.initialize();
+      healthyRunId = await writer.beginRun();
+      await writer.append(
+        RuntimeLog(
+          timestamp: DateTime.utc(2026, 10, 16),
+          source: RuntimeLogSource.stdout,
+          message: 'healthy history remains readable',
+        ),
+      );
+      await writer.finalize();
+      runId = await writer.beginRun();
+      await writer.append(
+        RuntimeLog(
+          timestamp: DateTime.utc(2026, 10, 16),
+          source: RuntimeLogSource.stdout,
+          message: 'recoverable prefix',
+        ),
+      );
+    });
+    final eventFile = File.fromUri(
+      directories.logs.uri.resolve('runs/$runId/000000.jsonl'),
+    );
+    final originalEvents = await tester.runAsync(() => eventFile.readAsBytes());
+    await tester.runAsync(
+      () => eventFile.writeAsString(
+        '{malformed}\n',
+        mode: FileMode.append,
+        flush: true,
+      ),
+    );
+    final logStore = RuntimeLogStore(directories);
+    final logRecoveryError = await tester.runAsync(() async {
+      try {
+        await logStore.initialize();
+      } catch (error) {
+        return error;
+      }
+      return null;
+    });
+    expect(logRecoveryError, isA<FormatException>());
+
+    final startupBlocker = StateError('Component recovery remains required');
+    final runtime = _FakeBackendRuntime();
+    final coordinator = AppCoordinator(
+      runtime: runtime,
+      environmentStore: BackendEnvStore(directories),
+      logStore: logStore,
+      initialLogRecoveryError: logRecoveryError,
+      startupBlocker: startupBlocker,
+    );
+    await pumpApp(
+      tester,
+      SubDockApp(
+        coordinator: coordinator,
+        enableWebView: false,
+        locale: const Locale('en'),
+      ),
+    );
+    expect(find.byKey(const ValueKey('log-recovery-banner')), findsOneWidget);
+    expect(runtime.starts, 0);
+
+    await tester.tap(find.byKey(const ValueKey('nav-item-logs')));
+    await tester.pump();
+    await tester.tap(find.text('History'));
+    await _pumpRealIo(tester);
+    final healthyTile = find.byKey(ValueKey('history-run-$healthyRunId'));
+    expect(healthyTile, findsOneWidget);
+    await tester.tap(healthyTile);
+    await _pumpRealIo(tester);
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is SelectableText &&
+            widget.data?.contains('healthy history remains readable') == true,
+      ),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const ValueKey('history-back')));
+    await tester.pump();
+
+    final deleteButton = find.descendant(
+      of: healthyTile,
+      matching: find.byType(IconButton),
+    );
+    expect(tester.widget<IconButton>(deleteButton).onPressed, isNull);
+    final clearButton = find.widgetWithText(TextButton, 'Clear history');
+    expect(tester.widget<TextButton>(clearButton).onPressed, isNull);
+    expect(find.byKey(const ValueKey('recently-deleted')), findsNothing);
+    expect(find.byKey(const ValueKey('history-delete-confirm')), findsNothing);
+
+    await tester.runAsync(
+      () => eventFile.writeAsBytes(originalEvents!, flush: true),
+    );
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey('log-recovery-banner')),
+        matching: find.text('Retry'),
+      ),
+    );
+    await _pumpUntilLogRecoveryCompletes(tester);
+    expect(coordinator.logRecoveryError, isNull);
+    expect(find.byKey(const ValueKey('log-recovery-banner')), findsNothing);
+    expect(runtime.starts, 0);
+    expect(coordinator.startupBlocker, same(startupBlocker));
+
+    await tester.tap(find.text('Current'));
+    await tester.pump();
+    await tester.tap(find.text('History'));
+    await _pumpRealIo(tester);
+    final runTile = find.byKey(ValueKey('history-run-$runId'));
+    expect(runTile, findsOneWidget);
+    final subtitle = tester.widget<ListTile>(runTile).subtitle! as Text;
+    expect(subtitle.data, contains('Incomplete log capture'));
+    final storedLogs = await tester.runAsync(() => logStore.readRun(runId));
+    expect(storedLogs!.single.message, 'recoverable prefix');
+    expect(tester.widget<IconButton>(deleteButton).onPressed, isNotNull);
+    expect(tester.widget<TextButton>(clearButton).onPressed, isNotNull);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -842,9 +1057,10 @@ void main() {
       return RuntimeDirectories.fromBaseDirectory(temp);
     });
     final store = RuntimeLogStore(directories!);
+    late String runId;
     await tester.runAsync(() async {
       await store.initialize();
-      await store.beginRun();
+      runId = await store.beginRun();
       await store.append(
         RuntimeLog(
           timestamp: DateTime.now(),
@@ -907,11 +1123,442 @@ void main() {
     await tester.pump();
     expect(find.byType(ListTile), findsOneWidget);
     await tester.tap(find.byTooltip('删除运行记录'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('history-delete-confirm')));
     await _pumpRealIo(tester);
     expect(find.text('已删除'), findsWidgets);
     await tester.tap(find.text('撤销').last);
     await _pumpRealIo(tester);
+    await _pumpUntilRestoredHistoryRun(tester, runId);
     expect(find.byType(ListTile), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('history retries the displayed list read after delete failure', (
+    WidgetTester tester,
+  ) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    final store = RuntimeLogStore(directories!);
+    late String runId;
+    await tester.runAsync(() async {
+      await store.initialize();
+      runId = await store.beginRun();
+      await store.append(
+        RuntimeLog(
+          timestamp: DateTime.now(),
+          source: RuntimeLogSource.stdout,
+          message: 'retry the list read',
+        ),
+      );
+      await store.finalize();
+    });
+    final coordinator = AppCoordinator(
+      runtime: _FakeBackendRuntime(),
+      environmentStore: BackendEnvStore(directories),
+      logStore: store,
+    );
+    await pumpApp(
+      tester,
+      SubDockApp(
+        coordinator: coordinator,
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('en'),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-logs')));
+    await tester.pump();
+    await tester.tap(find.text('History'));
+    await _pumpRealIo(tester);
+
+    final runTile = find.byKey(ValueKey('history-run-$runId'));
+    expect(runTile, findsOneWidget);
+    final trashPath = directories.logs.uri.resolve('trash').toFilePath();
+    final savedTrash = Directory.fromUri(
+      directories.logs.uri.resolve('trash-saved/'),
+    );
+    await tester.runAsync(() async {
+      await Directory(trashPath).rename(savedTrash.path);
+      await File(trashPath).writeAsString('blocks trash access', flush: true);
+    });
+    await tester.tap(find.byTooltip('Delete run'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('history-delete-confirm')));
+    await _pumpRealIo(tester);
+    final actionError = find.text(
+      'A history change failed. Retry the action to try again.',
+    );
+    expect(actionError, findsOneWidget);
+
+    await tester.runAsync(() async {
+      await File(trashPath).delete();
+      await savedTrash.rename(trashPath);
+    });
+    await tester.tap(find.text('Current'));
+    await tester.pump();
+    await tester.tap(find.text('History'));
+    await _pumpRealIo(tester);
+    expect(find.text('Unable to load history'), findsNothing);
+    expect(actionError, findsOneWidget);
+
+    final metadata = File.fromUri(
+      directories.logs.uri.resolve('runs/$runId/meta.json'),
+    );
+    final savedMetadata = await tester.runAsync(() => metadata.readAsBytes());
+    await tester.runAsync(() => metadata.writeAsString('{', flush: true));
+    await tester.tap(find.text('Current'));
+    await tester.pump();
+    await tester.tap(find.text('History'));
+    await _pumpRealIo(tester);
+    expect(find.text('Unable to load history'), findsOneWidget);
+    expect(actionError, findsOneWidget);
+
+    await tester.runAsync(
+      () => metadata.writeAsBytes(savedMetadata!, flush: true),
+    );
+    await tester.tap(find.byKey(const ValueKey('history-list-retry')));
+    await _pumpRealIo(tester);
+    expect(find.text('Unable to load history'), findsNothing);
+    expect(actionError, findsOneWidget);
+    expect(find.byKey(const ValueKey('history-delete-confirm')), findsNothing);
+    expect(find.byKey(ValueKey('history-run-$runId')), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('current logs expose an incomplete run finalization retry', (
+    WidgetTester tester,
+  ) async {
+    final fixture = await _widgetRuntime(tester);
+    await pumpApp(
+      tester,
+      SubDockApp(
+        coordinator: fixture.coordinator,
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('en'),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-logs')));
+    await tester.pump();
+
+    const runId = 'failed-finalization-run';
+    fixture.runtime.emitRunStarted(runId);
+    fixture.runtime.emitLog(
+      RuntimeLog(
+        timestamp: DateTime.utc(2026, 10, 16),
+        source: RuntimeLogSource.stdout,
+        message: 'visible durable prefix',
+      ),
+    );
+    fixture.runtime.emitLogRunUpdate(
+      const RuntimeLogRunUpdate(
+        runId: runId,
+        integrity: RuntimeLogIntegrity.incomplete,
+        finalized: true,
+        persistenceConfirmed: false,
+        retryAvailable: true,
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('visible durable prefix'), findsOneWidget);
+    expect(
+      find.text(
+        'Log data could not be fully saved. Saving the status for this run could not be confirmed.',
+      ),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const ValueKey('logs-retry-finalization')));
+    await tester.pump();
+    expect(fixture.runtime.logFinalizationRetries, [runId]);
+    fixture.runtime.emitLogRunUpdate(
+      const RuntimeLogRunUpdate(
+        runId: runId,
+        integrity: RuntimeLogIntegrity.incomplete,
+        finalized: true,
+        persistenceConfirmed: true,
+        retryAvailable: false,
+      ),
+    );
+    await tester.pump();
+    expect(find.text('Incomplete log capture'), findsOneWidget);
+    expect(
+      find.text(
+        'Log data could not be fully saved. Saving the status for this run could not be confirmed.',
+      ),
+      findsNothing,
+    );
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('logs show completed maintenance while Backend is stopped', (
+    WidgetTester tester,
+  ) async {
+    final updates = _FakeComponentUpdateOperations();
+    updates.statuses[ComponentKind.backend] = const ComponentVersionStatus(
+      current: '1.0.0',
+      previous: '0.9.0',
+    );
+    final fixture = await _widgetRuntime(tester, componentUpdates: updates);
+    await pumpApp(
+      tester,
+      SubDockApp(
+        coordinator: fixture.coordinator,
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('zh'),
+      ),
+    );
+    await tester.runAsync(
+      () => fixture.coordinator.updateComponent(
+        ComponentUpdate(
+          kind: ComponentKind.backend,
+          currentVersion: '1.0.0',
+          availableVersion: '2.0.0',
+          release: GithubRelease(
+            version: '2.0.0',
+            releaseUri: Uri.parse('https://example.invalid/backend'),
+            assets: const [],
+          ),
+        ),
+      ),
+    );
+    expect(fixture.runtime.currentState.status, RuntimeStatus.stopped);
+
+    await tester.tap(find.byKey(const ValueKey('nav-item-logs')));
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('logs-maintenance-activity')),
+      findsOneWidget,
+    );
+    expect(find.text('组件维护活动'), findsOneWidget);
+    expect(find.textContaining('维护已完成'), findsOneWidget);
+    expect(find.textContaining('Backend'), findsWidgets);
+    expect(find.byKey(const ValueKey('log-row-message')), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('history read retries preserve the selected run and query', (
+    WidgetTester tester,
+  ) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    final store = RuntimeLogStore(directories!);
+    late String runId;
+    await tester.runAsync(() async {
+      await store.initialize();
+      runId = await store.beginRun();
+      await store.append(
+        RuntimeLog(
+          timestamp: DateTime.now(),
+          source: RuntimeLogSource.stdout,
+          message: 'retry-marker payload',
+        ),
+      );
+      await store.finalize();
+    });
+    final runDirectory = Directory.fromUri(
+      directories.logs.uri.resolve('runs/$runId/'),
+    );
+    final unavailableDirectory = Directory.fromUri(
+      directories.logs.uri.resolve('runs/$runId-unavailable/'),
+    );
+    final coordinator = AppCoordinator(
+      runtime: _FakeBackendRuntime(),
+      environmentStore: BackendEnvStore(directories),
+      logStore: store,
+    );
+    await pumpApp(
+      tester,
+      SubDockApp(
+        coordinator: coordinator,
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('zh'),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-logs')));
+    await tester.pump();
+    await tester.tap(find.text('历史'));
+    await _pumpRealIo(tester);
+    final runTile = find.byKey(ValueKey('history-run-$runId'));
+    expect(runTile, findsOneWidget);
+    await tester.enterText(
+      find.byKey(const ValueKey('logs-search')),
+      'retry-marker',
+    );
+    await tester.runAsync(() => runDirectory.rename(unavailableDirectory.path));
+    await tester.tap(runTile);
+    await _pumpRealIo(tester);
+
+    expect(find.text('无法加载历史记录'), findsOneWidget);
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const ValueKey('logs-search')))
+          .controller!
+          .text,
+      'retry-marker',
+    );
+    expect(find.byKey(const ValueKey('history-back')), findsOneWidget);
+
+    await tester.runAsync(() => unavailableDirectory.rename(runDirectory.path));
+    await tester.tap(find.text('重试'));
+    await _pumpRealIo(tester);
+    expect(find.textContaining('retry-marker payload'), findsOneWidget);
+    final platform =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    var copied = '';
+    platform.setMockMethodCallHandler(SystemChannels.platform, (call) {
+      if (call.method == 'Clipboard.setData') {
+        copied = (call.arguments as Map)['text'] as String;
+      }
+      return null;
+    });
+    addTearDown(
+      () => platform.setMockMethodCallHandler(SystemChannels.platform, null),
+    );
+    await Clipboard.setData(const ClipboardData(text: 'existing clipboard'));
+    expect(copied, 'existing clipboard');
+
+    await tester.runAsync(() => runDirectory.rename(unavailableDirectory.path));
+    await tester.tap(find.byKey(const ValueKey('logs-copy-filtered')));
+    await _pumpRealIo(tester);
+    expect(copied, 'existing clipboard');
+    expect(find.text('无法加载历史记录'), findsOneWidget);
+
+    await tester.runAsync(() => unavailableDirectory.rename(runDirectory.path));
+    await tester.tap(find.text('重试'));
+    await _pumpRealIo(tester);
+    await tester.tap(find.byKey(const ValueKey('logs-copy-filtered')));
+    await _pumpRealIo(tester);
+    expect(copied, contains('retry-marker payload'));
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('history copies every query match in the selected sort', (
+    WidgetTester tester,
+  ) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    final store = RuntimeLogStore(directories!);
+    late String runId;
+    await tester.runAsync(() async {
+      await store.initialize();
+      runId = await store.beginRun();
+      for (var index = 0; index < 410; index++) {
+        await store.append(
+          RuntimeLog(
+            timestamp: DateTime.now(),
+            source: RuntimeLogSource.stdout,
+            message: 'copy-entry-${index.toString().padLeft(3, '0')} info',
+          ),
+        );
+      }
+      await store.append(
+        RuntimeLog(
+          timestamp: DateTime.now(),
+          source: RuntimeLogSource.stdout,
+          message: 'copy-entry-failure error',
+        ),
+      );
+      await store.append(
+        RuntimeLog(
+          timestamp: DateTime.now(),
+          source: RuntimeLogSource.httpMetaStdout,
+          message: 'copy-entry-auxiliary info',
+        ),
+      );
+      await store.finalize();
+    });
+    final coordinator = AppCoordinator(
+      runtime: _FakeBackendRuntime(),
+      environmentStore: BackendEnvStore(directories),
+      logStore: store,
+    );
+    await pumpApp(
+      tester,
+      SubDockApp(
+        coordinator: coordinator,
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('zh'),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-logs')));
+    await tester.pump();
+    await tester.tap(find.text('历史'));
+    await _pumpRealIo(tester);
+    await tester.tap(find.byKey(ValueKey('history-run-$runId')));
+    await _pumpRealIo(tester);
+
+    await tester.enterText(
+      find.byKey(const ValueKey('logs-search')),
+      'COPY-ENTRY',
+    );
+    await _pumpRealIo(tester);
+    await tester.tap(find.byKey(const ValueKey('logs-source-filter')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Backend').last);
+    await _pumpRealIo(tester);
+    await tester.tap(find.byKey(const ValueKey('logs-level-filter')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('信息').last);
+    await _pumpRealIo(tester);
+    await tester.tap(find.byKey(const ValueKey('logs-sort-selector')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('最早在前').last);
+    await _pumpRealIo(tester);
+
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is SelectableText &&
+            widget.data?.contains('copy-entry-000 info') == true,
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is SelectableText &&
+            widget.data?.contains('copy-entry-409 info') == true,
+      ),
+      findsNothing,
+    );
+    final platform =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    String? copied;
+    platform.setMockMethodCallHandler(SystemChannels.platform, (call) {
+      if (call.method == 'Clipboard.setData') {
+        copied = (call.arguments as Map)['text'] as String;
+      }
+      return null;
+    });
+    addTearDown(
+      () => platform.setMockMethodCallHandler(SystemChannels.platform, null),
+    );
+    await tester.tap(find.byKey(const ValueKey('logs-copy-filtered')));
+    await _pumpRealIo(tester);
+
+    final copiedLines = copied!.split('\n');
+    expect(copiedLines, hasLength(410));
+    expect(copiedLines.first, contains('copy-entry-000 info'));
+    expect(copiedLines.last, contains('copy-entry-409 info'));
+    expect(copiedLines.any((line) => line.contains('auxiliary')), isFalse);
+    expect(copiedLines.any((line) => line.contains('failure error')), isFalse);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -987,12 +1634,30 @@ void main() {
     semantics.dispose();
 
     await tester.tap(delete);
+    await tester.pumpAndSettle();
+    expect(find.text('删除这次运行记录？'), findsOneWidget);
+    await tester.tap(find.text('取消'));
+    await tester.pump();
+    expect(runTile, findsOneWidget);
+    expect(find.byKey(const ValueKey('recently-deleted')), findsNothing);
+
+    await tester.tap(delete);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('history-delete-confirm')));
     await _pumpRealIo(tester);
     expect(find.byKey(const ValueKey('recently-deleted')), findsOneWidget);
     expect(find.text('撤销'), findsWidgets);
     await tester.tap(find.text('撤销').last);
     await _pumpRealIo(tester);
+    await _pumpUntilRestoredHistoryRun(tester, runId);
     expect(find.byKey(ValueKey('history-run-$runId')), findsOneWidget);
+    await tester.tap(find.text('清空历史'));
+    await tester.pumpAndSettle();
+    expect(find.text('清空已结束的运行记录？'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('history-delete-confirm')));
+    await _pumpRealIo(tester);
+    expect(find.byKey(ValueKey('history-run-$runId')), findsNothing);
+    expect(find.byKey(const ValueKey('recently-deleted')), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -4164,6 +4829,43 @@ Future<void> _pumpRealIo(WidgetTester tester, {int turns = 40}) async {
   }
 }
 
+Future<void> _pumpUntilLogRecoveryCompletes(WidgetTester tester) async {
+  final banner = find.byKey(const ValueKey('log-recovery-banner'));
+  final elapsed = Stopwatch()..start();
+  const deadline = Duration(seconds: 3);
+  while (banner.evaluate().isNotEmpty) {
+    if (elapsed.elapsed >= deadline) {
+      expect(
+        banner,
+        findsNothing,
+        reason: 'Log history recovery did not complete before the deadline.',
+      );
+      return;
+    }
+    await _pumpRealIo(tester, turns: 1);
+  }
+}
+
+Future<void> _pumpUntilRestoredHistoryRun(
+  WidgetTester tester,
+  String runId,
+) async {
+  final runTile = find.byKey(ValueKey('history-run-$runId'));
+  final elapsed = Stopwatch()..start();
+  const deadline = Duration(seconds: 3);
+  while (runTile.evaluate().isEmpty) {
+    if (elapsed.elapsed >= deadline) {
+      expect(
+        runTile,
+        findsOneWidget,
+        reason: 'The restored log run did not appear before the deadline.',
+      );
+      return;
+    }
+    await _pumpRealIo(tester, turns: 1);
+  }
+}
+
 EmbeddedWebViewController _testWebViewController({
   required Future<void> Function() initialize,
   required Future<void> Function(Uri uri) loadRequest,
@@ -4225,7 +4927,14 @@ class _BlockedDesktopPreferencesStore extends DesktopPreferencesStore {
 
 class _FakeBackendRuntime extends BackendRuntime {
   final _logs = StreamController<RuntimeLog>.broadcast(sync: true);
+  final _logRunStarted = StreamController<RuntimeLogRunStarted>.broadcast(
+    sync: true,
+  );
+  final _logRunUpdates = StreamController<RuntimeLogRunUpdate>.broadcast(
+    sync: true,
+  );
   final _states = StreamController<RuntimeState>.broadcast(sync: true);
+  final logFinalizationRetries = <String>[];
   var starts = 0;
   var stops = 0;
   var restarts = 0;
@@ -4233,6 +4942,12 @@ class _FakeBackendRuntime extends BackendRuntime {
   Object? startError;
 
   void emitLog(RuntimeLog log) => _logs.add(log);
+
+  void emitRunStarted(String runId) =>
+      _logRunStarted.add(RuntimeLogRunStarted(runId));
+
+  void emitLogRunUpdate(RuntimeLogRunUpdate update) =>
+      _logRunUpdates.add(update);
 
   void emitState(
     RuntimeStatus status, {
@@ -4262,6 +4977,12 @@ class _FakeBackendRuntime extends BackendRuntime {
 
   @override
   Stream<RuntimeLog> get logs => _logs.stream;
+
+  @override
+  Stream<RuntimeLogRunStarted> get logRunStarted => _logRunStarted.stream;
+
+  @override
+  Stream<RuntimeLogRunUpdate> get logRunUpdates => _logRunUpdates.stream;
 
   @override
   Stream<RuntimeState> get state => _states.stream;
@@ -4303,9 +5024,16 @@ class _FakeBackendRuntime extends BackendRuntime {
   }
 
   @override
+  Future<void> retryLogFinalization(String runId) async {
+    logFinalizationRetries.add(runId);
+  }
+
+  @override
   Future<void> dispose() async {
     await stop();
     await _logs.close();
+    await _logRunStarted.close();
+    await _logRunUpdates.close();
     await _states.close();
   }
 }

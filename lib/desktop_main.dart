@@ -48,7 +48,12 @@ Future<void> main() async {
         windowManager.waitUntilReadyToShow(options, callback),
   );
   final logStore = RuntimeLogStore(directories);
-  await logStore.initialize();
+  Object? logRecoveryError;
+  try {
+    await logStore.initialize();
+  } catch (error) {
+    logRecoveryError = error;
+  }
   final metadataStore = ComponentMetadataStore(directories.components);
   final dataBackups = DataBackupStore(
     backupsDirectory: directories.backups,
@@ -85,6 +90,7 @@ Future<void> main() async {
     startupBlocker: startupBlocker,
     componentRecovery: recovery.recoverPending,
     maintenanceAttemptStore: MaintenanceAttemptStore(directories),
+    initialLogRecoveryError: logRecoveryError,
     componentUpdates: ComponentUpdateService(
       runtime: runtime,
       directories: directories,
@@ -114,7 +120,9 @@ Future<void> main() async {
   );
   final closeRequestGuard = CloseRequestGuard();
   final retentionTimer = Timer.periodic(const Duration(hours: 6), (_) {
-    unawaited(logStore.pruneExpired().catchError((_) {}));
+    if (coordinator.logRecoveryError == null) {
+      unawaited(logStore.pruneExpired().catchError((_) {}));
+    }
   });
   final lifecycle = DesktopLifecycle(
     onExit: () async {
@@ -136,7 +144,7 @@ Future<void> main() async {
   runApp(
     SubDockApp(
       coordinator: coordinator,
-      autoStart: startupBlocker == null,
+      autoStart: startupBlocker == null && coordinator.logRecoveryError == null,
       initialError: startupBlocker,
       desktopWarning: lifecycle.warning,
       onMinimize: lifecycle.minimize,

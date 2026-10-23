@@ -33,6 +33,17 @@ abstract class BackendRuntime {
 
   Stream<RuntimeLog> get logs;
 
+  /// Identifies each run created by the runtime's real log store.
+  Stream<RuntimeLogRunStarted> get logRunStarted =>
+      const Stream<RuntimeLogRunStarted>.empty();
+
+  Stream<RuntimeLogRunUpdate> get logRunUpdates =>
+      const Stream<RuntimeLogRunUpdate>.empty();
+
+  Future<void> retryLogFinalization(String runId) => Future<void>.error(
+    UnsupportedError('This runtime cannot retry log finalization'),
+  );
+
   Stream<RuntimeState> get state;
 }
 
@@ -70,6 +81,30 @@ enum HttpMetaStatus {
 }
 
 enum RuntimeLogSource { stdout, stderr, httpMetaStdout, httpMetaStderr }
+
+enum RuntimeLogIntegrity { unknown, complete, incomplete, recovered }
+
+class RuntimeLogRunUpdate {
+  const RuntimeLogRunUpdate({
+    required this.runId,
+    required this.integrity,
+    required this.finalized,
+    required this.persistenceConfirmed,
+    this.retryAvailable = false,
+  });
+
+  final String runId;
+  final RuntimeLogIntegrity integrity;
+  final bool finalized;
+  final bool persistenceConfirmed;
+  final bool retryAvailable;
+}
+
+class RuntimeLogRunStarted {
+  const RuntimeLogRunStarted(this.runId);
+
+  final String runId;
+}
 
 class RuntimeLog {
   const RuntimeLog({

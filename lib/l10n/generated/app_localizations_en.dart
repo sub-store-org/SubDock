@@ -438,7 +438,98 @@ class AppLocalizationsEn extends AppLocalizations {
   String get historyLoadError => 'Unable to load history';
 
   @override
+  String get historyActionError =>
+      'A history change failed. Retry the action to try again.';
+
+  @override
+  String get retry => 'Retry';
+
+  @override
+  String get retrying => 'Retrying…';
+
+  @override
+  String get logRecoveryFailed =>
+      'Log history recovery failed. Backend startup and automatic cleanup are paused.';
+
+  @override
+  String get logPersistenceFailed =>
+      'Log data could not be fully saved. Saving the status for this run could not be confirmed.';
+
+  @override
+  String get logIntegrityUnknown => 'Log integrity unverified';
+
+  @override
+  String get logIntegrityComplete => 'Log capture complete';
+
+  @override
+  String get logIntegrityIncomplete => 'Incomplete log capture';
+
+  @override
+  String get logIntegrityRecovered => 'Recovered after interruption';
+
+  @override
   String get logEvents => 'events';
+
+  @override
+  String get pauseLogReading => 'Pause reading';
+
+  @override
+  String get resumeLogReading => 'Resume latest logs';
+
+  @override
+  String newLogCount(int count) {
+    return 'New logs: $count';
+  }
+
+  @override
+  String get confirmDeleteRun => 'Delete this run?';
+
+  @override
+  String get confirmDeleteRunMessage =>
+      'Only this completed run will be removed. You can undo the latest deletion.';
+
+  @override
+  String get confirmClearHistory => 'Clear completed history?';
+
+  @override
+  String get confirmClearHistoryMessage =>
+      'All completed runs will be removed. You can undo the latest deletion.';
+
+  @override
+  String get deleteHistoryAction => 'Delete';
+
+  @override
+  String get componentMaintenanceActivity => 'Component maintenance activity';
+
+  @override
+  String get maintenanceActivityPreparing => 'Preparing components';
+
+  @override
+  String get maintenanceActivityStopping => 'Stopping Backend';
+
+  @override
+  String get maintenanceActivityUpdating => 'Updating components';
+
+  @override
+  String get maintenanceActivityStarting => 'Starting Backend';
+
+  @override
+  String get maintenanceActivityCompleted => 'Maintenance completed';
+
+  @override
+  String get maintenanceActivityFailed => 'Maintenance failed';
+
+  @override
+  String get maintenanceActivityStartFailed => 'Backend start failed';
+
+  @override
+  String get maintenanceActivityInterrupted => 'Maintenance interrupted';
+
+  @override
+  String get maintenanceActivityAwaitingStart => 'Waiting for Backend start';
+
+  @override
+  String get maintenanceActivityBlocked => 'Maintenance blocked';
 
   @override
   String get back => 'Back';

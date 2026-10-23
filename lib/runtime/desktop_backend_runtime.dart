@@ -67,6 +67,12 @@ class DesktopBackendRuntime implements BackendRuntime {
   EffectiveRuntimeConfig? _launchConfiguration;
   EffectiveRuntimeConfig? _appliedConfiguration;
   final _logs = StreamController<RuntimeLog>.broadcast(sync: true);
+  final _logRunStarted = StreamController<RuntimeLogRunStarted>.broadcast(
+    sync: true,
+  );
+  final _logRunUpdates = StreamController<RuntimeLogRunUpdate>.broadcast(
+    sync: true,
+  );
   final _states = StreamController<RuntimeState>.broadcast(sync: true);
 
   RuntimeState _currentState = RuntimeState(
@@ -80,6 +86,7 @@ class DesktopBackendRuntime implements BackendRuntime {
   HttpClient? _httpMetaClient;
   Future<void> _logWrites = Future<void>.value();
   String? _activeLogRunId;
+  String? _logFailureRunId;
   Future<void>? _finalizeRunOperation;
   final _captureDrains = <Future<void>>[];
   Timer? _healthTimer;
@@ -122,6 +129,12 @@ class DesktopBackendRuntime implements BackendRuntime {
 
   @override
   Stream<RuntimeLog> get logs => _logs.stream;
+
+  @override
+  Stream<RuntimeLogRunStarted> get logRunStarted => _logRunStarted.stream;
+
+  @override
+  Stream<RuntimeLogRunUpdate> get logRunUpdates => _logRunUpdates.stream;
 
   @override
   Stream<RuntimeState> get state => Stream<RuntimeState>.multi((controller) {
@@ -223,6 +236,8 @@ class DesktopBackendRuntime implements BackendRuntime {
     _emit(RuntimeStatus.starting);
     try {
       _activeLogRunId = await logStore.beginRun();
+      _logFailureRunId = null;
+      _logRunStarted.add(RuntimeLogRunStarted(_activeLogRunId!));
       final resources = await _componentResources.resolve();
       await _startHttpMeta();
       await _verifyPortAvailable();
@@ -303,11 +318,26 @@ class DesktopBackendRuntime implements BackendRuntime {
         RuntimeStatus.crashed,
         finalizationError == null
             ? '$error'
-            : '$error; log finalization failed: $finalizationError',
+            : '$error; log history finalization failed',
       );
       Error.throwWithStackTrace(error, stackTrace);
     }
   }
+
+  @override
+  Future<void> retryLogFinalization(String runId) => _serialize(() async {
+    if (_activeLogRunId != runId) {
+      throw StateError('This log run is no longer available for finalization');
+    }
+    if (_process != null || _httpMetaProcess != null) {
+      throw StateError('Stop the Backend before retrying log finalization');
+    }
+    await _finalizeActiveLogRun();
+    _stopping = false;
+    if (_currentState.status != RuntimeStatus.stopped) {
+      _emit(RuntimeStatus.stopped);
+    }
+  });
 
   Future<void> _stop() async {
     _healthTimer?.cancel();
@@ -330,13 +360,18 @@ class DesktopBackendRuntime implements BackendRuntime {
       if (metaProcess != null) {
         await _stopOwnedHttpMetaChildren();
         await _terminate(metaProcess);
+        if (identical(_httpMetaProcess, metaProcess)) _httpMetaProcess = null;
       }
-      if (process != null) await _terminate(process);
+      if (process != null) {
+        await _terminate(process);
+        if (identical(_process, process)) _process = null;
+      }
       _closeHttpClient();
       _closeHttpMetaClient();
+      _httpMetaStatus = HttpMetaStatus.stopped;
+      _httpMetaMessage = null;
       await _finalizeActiveLogRun();
       _httpMetaProcess = null;
-      _httpMetaStatus = HttpMetaStatus.stopped;
       _process = null;
       _emit(RuntimeStatus.stopped);
     } catch (error, stackTrace) {
@@ -360,7 +395,12 @@ class DesktopBackendRuntime implements BackendRuntime {
     _closeHttpClient();
     await _finalizeActiveLogRun();
     _disposed = true;
-    await Future.wait(<Future<void>>[_logs.close(), _states.close()]);
+    await Future.wait(<Future<void>>[
+      _logs.close(),
+      _logRunStarted.close(),
+      _logRunUpdates.close(),
+      _states.close(),
+    ]);
     if (failure != null) {
       Error.throwWithStackTrace(failure, failureStackTrace!);
     }
@@ -712,10 +752,49 @@ class DesktopBackendRuntime implements BackendRuntime {
           final next = _logWrites.then((_) async {
             if (_activeLogRunId == runId) await logStore.append(log);
           });
-          _logWrites = next.catchError((Object _) {});
+          _logWrites = next.catchError((Object _) {
+            _recordLogPersistenceFailure(runId);
+          });
         })
-        .asFuture<void>();
+        .asFuture<void>()
+        .catchError((Object _) {
+          _recordLogPersistenceFailure(runId);
+        });
     _captureDrains.add(drain);
+  }
+
+  void _recordLogPersistenceFailure(String runId) {
+    if (_logFailureRunId == runId) return;
+    _logFailureRunId = runId;
+    if (!_logRunUpdates.isClosed) {
+      _logRunUpdates.add(
+        RuntimeLogRunUpdate(
+          runId: runId,
+          integrity: RuntimeLogIntegrity.incomplete,
+          finalized: false,
+          persistenceConfirmed: false,
+        ),
+      );
+    }
+  }
+
+  void _publishLogRunUpdate(
+    String runId, {
+    required RuntimeLogIntegrity integrity,
+    required bool finalized,
+    required bool persistenceConfirmed,
+    bool retryAvailable = false,
+  }) {
+    if (_logRunUpdates.isClosed) return;
+    _logRunUpdates.add(
+      RuntimeLogRunUpdate(
+        runId: runId,
+        integrity: integrity,
+        finalized: finalized,
+        persistenceConfirmed: persistenceConfirmed,
+        retryAvailable: retryAvailable,
+      ),
+    );
   }
 
   Future<void> _finalizeActiveLogRun() {
@@ -731,8 +810,30 @@ class DesktopBackendRuntime implements BackendRuntime {
       }
       await _logWrites;
       if (_activeLogRunId == id) {
-        await logStore.finalize(end: DateTime.now());
+        final integrity = _logFailureRunId == id
+            ? RuntimeLogIntegrity.incomplete
+            : RuntimeLogIntegrity.complete;
+        try {
+          await logStore.finalize(end: DateTime.now(), integrity: integrity);
+        } on Object {
+          _logFailureRunId = id;
+          _publishLogRunUpdate(
+            id,
+            integrity: RuntimeLogIntegrity.incomplete,
+            finalized: true,
+            persistenceConfirmed: false,
+            retryAvailable: _process == null && _httpMetaProcess == null,
+          );
+          throw const _LogFinalizationException();
+        }
+        _publishLogRunUpdate(
+          id,
+          integrity: integrity,
+          finalized: true,
+          persistenceConfirmed: true,
+        );
         _activeLogRunId = null;
+        _logFailureRunId = null;
         _captureDrains.clear();
       }
     }();
@@ -872,4 +973,11 @@ class _RuntimeManifest {
 
   final String testedNode;
   final List<String> externalBinaries;
+}
+
+class _LogFinalizationException implements Exception {
+  const _LogFinalizationException();
+
+  @override
+  String toString() => 'Log history finalization failed';
 }

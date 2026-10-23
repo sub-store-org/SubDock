@@ -27,6 +27,7 @@ class AppCoordinator {
     this.componentUpdates,
     MaintenanceAttemptStore? maintenanceAttemptStore,
     this.logStore,
+    Object? initialLogRecoveryError,
     RuntimeConfigurationStore? runtimeConfigurationStore,
   }) : maintenanceAttemptStore =
            maintenanceAttemptStore ??
@@ -39,7 +40,8 @@ class AppCoordinator {
                    directories: environmentStore.directories,
                    environmentStore: environmentStore,
                    configurationStore: configurationStore,
-                 ));
+                 )),
+       _logRecoveryError = initialLogRecoveryError;
 
   final BackendRuntime runtime;
   final BackendEnvStore environmentStore;
@@ -52,8 +54,10 @@ class AppCoordinator {
   final RuntimeConfigurationStore? runtimeConfigurationStore;
   Object? _startupBlocker;
   final Future<void> Function()? _componentRecovery;
+  Object? _logRecoveryError;
 
   Object? get startupBlocker => _startupBlocker;
+  Object? get logRecoveryError => _logRecoveryError;
   Object? get maintenanceRecoveryError => _maintenanceRecoveryError;
   MaintenanceOperation? get maintenanceOperation => _maintenanceOperation;
   List<MaintenanceActivity> get maintenanceActivity =>
@@ -398,6 +402,28 @@ class AppCoordinator {
     _ensureNoMaintenanceOperation();
     return _serialize(runtime.stop);
   }
+
+  Future<void> retryLogRecovery() {
+    _ensureNoMaintenanceOperation();
+    return _serialize(() async {
+      if (_logRecoveryError == null) return;
+      if (runtime.currentState.status != RuntimeStatus.stopped) {
+        throw StateError('Stop the Backend before recovering log history');
+      }
+      final store = logStore;
+      if (store == null) throw StateError('Log history is unavailable');
+      try {
+        await store.initialize();
+        _logRecoveryError = null;
+      } catch (error) {
+        _logRecoveryError = error;
+        rethrow;
+      }
+    });
+  }
+
+  Future<void> retryLogFinalization(String runId) =>
+      runtime.retryLogFinalization(runId);
 
   Future<void> restart() {
     _ensureNoMaintenanceOperation();
@@ -1246,6 +1272,9 @@ class AppCoordinator {
 
   void _ensureStartupAllowed() {
     if (startupBlocker != null) throw startupBlocker!;
+    if (_logRecoveryError != null) {
+      throw StateError('Log history recovery must succeed before starting');
+    }
     final maintenanceBlocker = _maintenanceRecoveryError;
     if (maintenanceBlocker != null) throw maintenanceBlocker;
   }

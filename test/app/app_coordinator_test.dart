@@ -6,6 +6,7 @@ import 'package:subdock/app/app_coordinator.dart';
 import 'package:subdock/app/maintenance_operation.dart';
 import 'package:subdock/runtime/backend_runtime.dart';
 import 'package:subdock/runtime/runtime_directories.dart';
+import 'package:subdock/runtime/runtime_log_store.dart';
 import 'package:subdock/settings/backend_env.dart';
 import 'package:subdock/settings/backend_env_store.dart';
 import 'package:subdock/settings/config_error.dart';
@@ -537,6 +538,58 @@ void main() {
       expect(observedBlockers.last, isNull);
     },
   );
+
+  test('log recovery alone blocks startup until recovery succeeds', () async {
+    final temp = await Directory.systemTemp.createTemp('subdock_coordinator_');
+    addTearDown(() => temp.delete(recursive: true));
+    final directories = await RuntimeDirectories.fromBaseDirectory(temp);
+    final writer = RuntimeLogStore(directories);
+    await writer.initialize();
+    final runId = await writer.beginRun();
+    await writer.append(
+      RuntimeLog(
+        timestamp: DateTime.utc(2026, 10, 16),
+        source: RuntimeLogSource.stdout,
+        message: 'recoverable log prefix',
+      ),
+    );
+    final metadata = File.fromUri(
+      directories.logs.uri.resolve('runs/$runId/meta.json'),
+    );
+    final savedMetadata = await metadata.readAsBytes();
+    await metadata.writeAsString('{', flush: true);
+
+    final logStore = RuntimeLogStore(directories);
+    Object? recoveryError;
+    try {
+      await logStore.initialize();
+    } catch (error) {
+      recoveryError = error;
+    }
+    expect(recoveryError, isA<FormatException>());
+
+    final runtime = _FakeRuntime();
+    final coordinator = AppCoordinator(
+      runtime: runtime,
+      environmentStore: BackendEnvStore(directories),
+      logStore: logStore,
+      initialLogRecoveryError: recoveryError,
+    );
+    addTearDown(coordinator.dispose);
+
+    await expectLater(coordinator.start(), throwsA(isA<StateError>()));
+    expect(runtime.operations, isEmpty);
+    expect(coordinator.logRecoveryError, same(recoveryError));
+
+    await metadata.writeAsBytes(savedMetadata, flush: true);
+    await coordinator.retryLogRecovery();
+    expect(coordinator.logRecoveryError, isNull);
+    await coordinator.start();
+    expect(runtime.operations.last, 'start');
+    expect(runtime.operations.where((operation) => operation == 'start'), [
+      'start',
+    ]);
+  });
 
   test(
     'reserves maintenance and rejects conflicting runtime and save intents',

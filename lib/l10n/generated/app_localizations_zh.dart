@@ -423,7 +423,93 @@ class AppLocalizationsZh extends AppLocalizations {
   String get historyLoadError => '无法加载历史记录';
 
   @override
+  String get historyActionError => '历史记录操作失败。重试以再次尝试。';
+
+  @override
+  String get retry => '重试';
+
+  @override
+  String get retrying => '正在重试…';
+
+  @override
+  String get logRecoveryFailed => '日志历史恢复失败。Backend 启动和自动清理已暂停。';
+
+  @override
+  String get logPersistenceFailed => '日志未能完整保存。本次运行的状态是否保存成功尚未确认。';
+
+  @override
+  String get logIntegrityUnknown => '日志完整性未验证';
+
+  @override
+  String get logIntegrityComplete => '日志捕获完整';
+
+  @override
+  String get logIntegrityIncomplete => '日志捕获不完整';
+
+  @override
+  String get logIntegrityRecovered => '已从中断状态恢复';
+
+  @override
   String get logEvents => '条日志';
+
+  @override
+  String get pauseLogReading => '暂停阅读';
+
+  @override
+  String get resumeLogReading => '查看最新日志';
+
+  @override
+  String newLogCount(int count) {
+    return '新增日志：$count';
+  }
+
+  @override
+  String get confirmDeleteRun => '删除这次运行记录？';
+
+  @override
+  String get confirmDeleteRunMessage => '仅删除这次已结束的运行。最近一次删除可以撤销。';
+
+  @override
+  String get confirmClearHistory => '清空已结束的运行记录？';
+
+  @override
+  String get confirmClearHistoryMessage => '将删除所有已结束的运行记录。最近一次删除可以撤销。';
+
+  @override
+  String get deleteHistoryAction => '删除';
+
+  @override
+  String get componentMaintenanceActivity => '组件维护活动';
+
+  @override
+  String get maintenanceActivityPreparing => '正在准备组件';
+
+  @override
+  String get maintenanceActivityStopping => '正在停止 Backend';
+
+  @override
+  String get maintenanceActivityUpdating => '正在更新组件';
+
+  @override
+  String get maintenanceActivityStarting => '正在启动 Backend';
+
+  @override
+  String get maintenanceActivityCompleted => '维护已完成';
+
+  @override
+  String get maintenanceActivityFailed => '维护失败';
+
+  @override
+  String get maintenanceActivityStartFailed => 'Backend 启动失败';
+
+  @override
+  String get maintenanceActivityInterrupted => '维护已中断';
+
+  @override
+  String get maintenanceActivityAwaitingStart => '等待启动 Backend';
+
+  @override
+  String get maintenanceActivityBlocked => '维护已阻止';
 
   @override
   String get back => '返回';
