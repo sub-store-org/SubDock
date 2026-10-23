@@ -71,7 +71,7 @@ foreach(backend_file sub-store.bundle.js runtime-manifest.json version)
     message(FATAL_ERROR "Missing ${backend_file}. Run tool/prepare_backend.sh before building Windows.")
   endif()
 endforeach()
-foreach(runtime_file node.exe bin/shoutrrr.exe)
+foreach(runtime_file node.exe)
   if(NOT EXISTS "${SUBDOCK_RUNTIME_DIR}/${runtime_file}")
     message(FATAL_ERROR
       "Missing ${runtime_file}. Run tool/prepare_runtime.sh windows-x64 before building Windows.")
@@ -102,11 +102,6 @@ set(INSTALL_BUNDLE_LIB_DIR "${CMAKE_INSTALL_PREFIX}")
 install(PROGRAMS
   "${SUBDOCK_RUNTIME_DIR}/node.exe"
   DESTINATION "${INSTALL_BUNDLE_DATA_DIR}/runtime"
-  COMPONENT Runtime)
-
-install(PROGRAMS
-  "${SUBDOCK_RUNTIME_DIR}/bin/shoutrrr.exe"
-  DESTINATION "${INSTALL_BUNDLE_DATA_DIR}/runtime/bin"
   COMPONENT Runtime)
 
 install(FILES

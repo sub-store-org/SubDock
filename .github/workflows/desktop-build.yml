@@ -143,11 +143,6 @@ jobs:
           channel: stable
           flutter-version-file: .fvmrc
           cache: true
-      - uses: actions/setup-go@v7
-        with:
-          go-version: stable
-          check-latest: true
-          cache: false
       - name: Prepare latest stable runtime resources
         run: |
           tool/prepare_backend.sh

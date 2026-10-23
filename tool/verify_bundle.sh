@@ -17,7 +17,6 @@ fi
 
 for file in \
   "$bundle_dir/data/runtime/node$suffix" \
-  "$bundle_dir/data/runtime/bin/shoutrrr$suffix" \
   "$bundle_dir/data/backend/sub-store.bundle.js" \
   "$bundle_dir/data/backend/runtime-manifest.json" \
   "$bundle_dir/data/backend/version" \
@@ -35,7 +34,6 @@ done
 
 if test "$platform" != windows; then
   test -x "$bundle_dir/data/runtime/node"
-  test -x "$bundle_dir/data/runtime/bin/shoutrrr"
   test -x "$bundle_dir/data/http-meta/meta/mihomo"
 else
   test -f "$bundle_dir/data/http-meta/meta/mihomo.exe"

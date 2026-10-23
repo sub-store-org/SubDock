@@ -173,8 +173,9 @@ fvm flutter run -d windows
 ```
 
 For Apple Silicon macOS, use `darwin-arm64`; for Intel macOS, use
-`darwin-x64`. The macOS runtime preparation builds its bundled Shoutrrr binary
-from source and requires Go.
+`darwin-x64`. Runtime preparation bundles Node.js only. Notifications are
+provided by the Backend's in-process `shoutrrr-ts`; no separate notification
+executable or Go toolchain is needed.
 
 ```sh
 tool/prepare_backend.sh

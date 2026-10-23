@@ -18,7 +18,6 @@ destination="${TARGET_BUILD_DIR:?}/${WRAPPER_NAME:?}/Contents/MacOS/data"
 
 for file in \
   "$runtime_dir/node" \
-  "$runtime_dir/bin/shoutrrr" \
   "$resources_dir/backend/sub-store.bundle.js" \
   "$resources_dir/backend/runtime-manifest.json" \
   "$resources_dir/backend/version" \
@@ -34,7 +33,8 @@ done
 
 rm -rf "$destination"
 mkdir -p "$destination"
-cp -R "$runtime_dir" "$destination/runtime"
+mkdir -p "$destination/runtime"
+cp "$runtime_dir/node" "$destination/runtime/node"
 cp -R "$resources_dir/backend" "$destination/backend"
 cp -R "$resources_dir/frontend" "$destination/frontend"
 cp -R "$http_meta_dir" "$destination/http-meta"

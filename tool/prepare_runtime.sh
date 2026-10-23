@@ -15,21 +15,6 @@ if test -z "$SUBDOCK_NODE_VERSION"; then
 fi
 node_version=${SUBDOCK_NODE_VERSION#v}
 test -n "$node_version"
-shoutrrr_repository=containrrr/shoutrrr
-case "$target" in
-  darwin-*)
-    shoutrrr_tag=$(subdock_resolve_tag "$SUBDOCK_SHOUTRRR_VERSION" \
-      "https://github.com/$shoutrrr_repository.git")
-    ;;
-  *)
-    shoutrrr_tag=$(subdock_resolve_release_tag "$SUBDOCK_SHOUTRRR_VERSION" \
-      "$shoutrrr_repository" shoutrrr_linux_amd64.tar.gz)
-    ;;
-esac
-case "$shoutrrr_tag" in
-  v*) shoutrrr_version=${shoutrrr_tag#v} ;;
-  *) shoutrrr_version=$shoutrrr_tag; shoutrrr_tag="v$shoutrrr_tag" ;;
-esac
 
 cleanup() {
   rm -rf "$work_dir"
@@ -54,12 +39,10 @@ case "$target" in
   linux-x64)
     node_archive="node-v$node_version-linux-x64.tar.xz"
     node_path="node-v$node_version-linux-x64/bin/node"
-    shoutrrr_archive=shoutrrr_linux_amd64.tar.gz
     ;;
   windows-x64)
     node_archive="node-v$node_version-win-x64.zip"
     node_path="node-v$node_version-win-x64/node.exe"
-    shoutrrr_archive=shoutrrr_windows_amd64.zip
     ;;
   darwin-arm64)
     node_archive="node-v$node_version-darwin-arm64.tar.xz"
@@ -88,45 +71,15 @@ case "$node_archive" in
 esac
 
 staging_dir="$work_dir/runtime"
-mkdir -p "$staging_dir/bin"
+mkdir -p "$staging_dir"
 node_suffix=
 if test "$target" = windows-x64; then
   node_suffix=.exe
 fi
 install -m 0755 "$work_dir/$node_path" "$staging_dir/node$node_suffix"
 
-case "$target" in
-  darwin-*)
-    git clone --depth 1 --branch "$shoutrrr_tag" \
-      https://github.com/containrrr/shoutrrr.git "$work_dir/shoutrrr"
-    (cd "$work_dir/shoutrrr" && go build -trimpath -o "$staging_dir/bin/shoutrrr" ./shoutrrr)
-    ;;
-  *)
-    shoutrrr_checksums="$work_dir/shoutrrr_checksums.txt"
-    curl --fail --location --retry 3 --retry-all-errors --output "$shoutrrr_checksums" \
-      "$(subdock_release_asset_url "$shoutrrr_repository" "$shoutrrr_tag" "shoutrrr_${shoutrrr_version}_checksums.txt")"
-    shoutrrr_sha=$(awk -v asset="$shoutrrr_archive" '$2 == asset { print $1 }' "$shoutrrr_checksums")
-    test -n "$shoutrrr_sha"
-    download_verified "$shoutrrr_archive" \
-      "$(subdock_release_asset_url "$shoutrrr_repository" "$shoutrrr_tag" "$shoutrrr_archive")" \
-      "$shoutrrr_sha"
-    mkdir -p "$work_dir/shoutrrr-bin"
-    case "$shoutrrr_archive" in
-      *.zip) unzip -q "$work_dir/$shoutrrr_archive" -d "$work_dir/shoutrrr-bin" ;;
-      *) tar -xzf "$work_dir/$shoutrrr_archive" -C "$work_dir/shoutrrr-bin" ;;
-    esac
-    binary_suffix=
-    if test "$target" = windows-x64; then
-      binary_suffix=.exe
-    fi
-    shoutrrr_path=$(find "$work_dir/shoutrrr-bin" -type f -name "shoutrrr$binary_suffix" -print -quit)
-    test -n "$shoutrrr_path"
-    install -m 0755 "$shoutrrr_path" "$staging_dir/bin/shoutrrr$binary_suffix"
-    ;;
-esac
-
 rm -rf "$output_dir"
 mkdir -p "$(dirname -- "$output_dir")"
 mv "$staging_dir" "$output_dir"
-printf 'Prepared %s runtime (Node %s, Shoutrrr %s) at %s\n' \
-  "$target" "$node_version" "$shoutrrr_tag" "$output_dir"
+printf 'Prepared %s runtime (Node %s) at %s\n' \
+  "$target" "$node_version" "$output_dir"
