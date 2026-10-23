@@ -272,6 +272,14 @@ class AppCoordinator {
     }
     var document = load.configuration.environment;
     var configuration = load.configuration.configuration;
+    final issues = BackendEnvPolicy.validate(document);
+    if (issues.isNotEmpty) {
+      _environment = document;
+      _configuration = configuration;
+      final error = _environmentError(issues.first);
+      _configurationError = error;
+      throw error;
+    }
     if (configuration.backend.frontendBackendPath == null) {
       configuration = configuration.copyWith(
         backend: configuration.backend.copyWith(
@@ -284,12 +292,6 @@ class AppCoordinator {
           configuration: configuration,
         ),
       );
-    }
-    final issues = BackendEnvPolicy.validate(document);
-    if (issues.isNotEmpty) {
-      _environment = document;
-      _configuration = configuration;
-      throw _environmentError(issues.first);
     }
     _runtimeConfigurationError = null;
     _configurationError = null;

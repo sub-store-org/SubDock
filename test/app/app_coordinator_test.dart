@@ -280,6 +280,99 @@ void main() {
     );
   }
 
+  test(
+    'preserves invalid first-run ENV and blocks startup until saved repair',
+    () async {
+      final temp = await Directory.systemTemp.createTemp(
+        'subdock_coordinator_',
+      );
+      addTearDown(() => temp.delete(recursive: true));
+      final directories = await RuntimeDirectories.fromBaseDirectory(temp);
+      final environmentStore = BackendEnvStore(directories);
+      final configurationStore = SubDockConfigStore(directories);
+      final runtime = _FakeRuntime();
+      const originalEnvironment = 'SUB_STORE_BACKEND_API_PORT=invalid\n';
+      await environmentStore.file.writeAsString(
+        originalEnvironment,
+        flush: true,
+      );
+      final pairStore = RuntimeConfigurationStore(
+        directories: directories,
+        environmentStore: environmentStore,
+        configurationStore: configurationStore,
+      );
+      final coordinator = AppCoordinator(
+        runtime: runtime,
+        environmentStore: environmentStore,
+        configurationStore: configurationStore,
+        runtimeConfigurationStore: pairStore,
+      );
+
+      await expectLater(
+        coordinator.loadEnvironment(),
+        throwsA(
+          isA<AppConfigError>().having(
+            (error) => error.code,
+            'code',
+            AppConfigErrorCode.environmentInvalid,
+          ),
+        ),
+      );
+      await expectLater(
+        coordinator.start(),
+        throwsA(
+          isA<AppConfigError>().having(
+            (error) => error.code,
+            'code',
+            AppConfigErrorCode.environmentInvalid,
+          ),
+        ),
+      );
+
+      expect(coordinator.environment.rawText, originalEnvironment);
+      expect(
+        coordinator.configurationError?.code,
+        AppConfigErrorCode.environmentInvalid,
+      );
+      expect(await environmentStore.readRaw(), originalEnvironment);
+      expect(await configurationStore.file.exists(), isFalse);
+      expect(await pairStore.recoveryFile.exists(), isFalse);
+      expect(runtime.operations, isEmpty);
+      expect(runtime.currentState.status, RuntimeStatus.stopped);
+
+      await coordinator.saveRuntimeConfiguration(
+        BackendEnvDocument.parse('SUB_STORE_BACKEND_API_PORT=3200\n'),
+        const SubDockConfig(
+          backend: SubDockBackendConfig(frontendBackendPath: '/repaired'),
+        ),
+      );
+
+      expect(coordinator.configurationError, isNull);
+      expect(coordinator.savedRevision, 1);
+      expect(
+        (await environmentStore.load()).rawText,
+        'SUB_STORE_BACKEND_API_PORT=3200\n',
+      );
+      expect(
+        (await configurationStore.load()).backend.frontendBackendPath,
+        '/repaired',
+      );
+      await coordinator.start();
+
+      expect(runtime.operations, ['configuration:3200', 'start']);
+      expect(
+        runtime.appliedConfiguration?.environment['SUB_STORE_BACKEND_API_PORT'],
+        '3200',
+      );
+      expect(
+        runtime
+            .appliedConfiguration
+            ?.environment['SUB_STORE_FRONTEND_BACKEND_PATH'],
+        '/repaired',
+      );
+    },
+  );
+
   test('loads the pair through its recovery owner on startup', () async {
     final temp = await Directory.systemTemp.createTemp('subdock_coordinator_');
     addTearDown(() => temp.delete(recursive: true));
