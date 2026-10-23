@@ -93,6 +93,7 @@ jobs:
           done < <(find dist -type f \( \
             -name '*.deb' -o \
             -name '*.rpm' -o \
+            -name '*.AppImage' -o \
             -name '*.pkg.tar.zst' -o \
             -name '*.exe' -o \
             -name '*.dmg' \
