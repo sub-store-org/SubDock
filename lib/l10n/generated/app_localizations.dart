@@ -632,6 +632,24 @@ abstract class AppLocalizations {
   /// **'关闭'**
   String get closeTooltip;
 
+  /// No description provided for @exitConfirmationTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'退出 SubDock？'**
+  String get exitConfirmationTitle;
+
+  /// No description provided for @exitConfirmationMessage.
+  ///
+  /// In zh, this message translates to:
+  /// **'SubDock 会先停止 Backend 再退出。你可以取消并继续当前工作。'**
+  String get exitConfirmationMessage;
+
+  /// No description provided for @retryExit.
+  ///
+  /// In zh, this message translates to:
+  /// **'重试退出'**
+  String get retryExit;
+
   /// No description provided for @webView2Missing.
   ///
   /// In zh, this message translates to:
@@ -1973,6 +1991,12 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'系统托盘不可用；关闭窗口会退出 SubDock。'**
   String get configErrorTrayUnavailable;
+
+  /// No description provided for @configErrorExitFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'SubDock 未能完成退出。窗口仍保持打开，可以重试。{detail}'**
+  String configErrorExitFailed(Object detail);
 
   /// No description provided for @trayShowWindow.
   ///

@@ -649,6 +649,192 @@ void main() {
   });
 
   test(
+    'waits for admitted maintenance and rejects new intents during exit',
+    () async {
+      final temp = await Directory.systemTemp.createTemp(
+        'subdock_coordinator_',
+      );
+      addTearDown(() => temp.delete(recursive: true));
+      final directories = await RuntimeDirectories.fromBaseDirectory(temp);
+      final runtime = _FakeRuntime()..blockDispose = true;
+      final updates = _FakeUpdates(runtime.operations, blockUpdates: true);
+      final coordinator = AppCoordinator(
+        runtime: runtime,
+        environmentStore: BackendEnvStore(directories),
+        componentUpdates: updates,
+        maintenanceAttemptStore: MaintenanceAttemptStore(directories),
+      );
+      final confirmed = await coordinator.checkComponent(
+        ComponentKind.frontend,
+      );
+      final maintenance = coordinator.runComponentUpdates({
+        ComponentKind.frontend: confirmed,
+      });
+      await updates.updateEntered.future;
+
+      final disposal = coordinator.dispose();
+      expect(runtime.disposeEntered.isCompleted, isFalse);
+      updates.releaseUpdate.complete();
+      await maintenance;
+      await runtime.disposeEntered.future;
+      Future<void>? acceptedSave;
+      Future<void>? acceptedStart;
+      Object? saveAdmissionError;
+      Object? startAdmissionError;
+      try {
+        expect(runtime.operations, ['update:frontend:2.32.0']);
+        try {
+          acceptedSave = coordinator.saveEnvironment(
+            BackendEnvDocument.parse('SUB_STORE_BACKEND_API_PORT=4000\n'),
+          );
+        } on StateError catch (error) {
+          saveAdmissionError = error;
+        }
+        try {
+          acceptedStart = coordinator.start();
+        } on StateError catch (error) {
+          startAdmissionError = error;
+        }
+      } finally {
+        runtime.releaseDispose.complete();
+      }
+      await disposal;
+      if (acceptedSave != null) await acceptedSave;
+      if (acceptedStart != null) await acceptedStart;
+
+      expect(saveAdmissionError, isA<StateError>());
+      expect(startAdmissionError, isA<StateError>());
+      expect(runtime.operations, ['update:frontend:2.32.0']);
+      expect(runtime.disposeCalls, 1);
+    },
+  );
+
+  test(
+    'runtime disposal failure leaves the coordinator available to retry',
+    () async {
+      final temp = await Directory.systemTemp.createTemp(
+        'subdock_coordinator_',
+      );
+      addTearDown(() => temp.delete(recursive: true));
+      final directories = await RuntimeDirectories.fromBaseDirectory(temp);
+      final disposalError = StateError('runtime disposal failed');
+      final runtime = _FakeRuntime()..disposeError = disposalError;
+      final coordinator = AppCoordinator(
+        runtime: runtime,
+        environmentStore: BackendEnvStore(directories),
+        componentUpdates: _FakeUpdates(runtime.operations),
+      );
+      addTearDown(() async {
+        runtime.disposeError = null;
+        if (!runtime._states.isClosed) await runtime._states.close();
+      });
+      var configurationNotifications = 0;
+      var maintenanceNotifications = 0;
+      coordinator.configurationChanges.addListener(
+        () => configurationNotifications++,
+      );
+      coordinator.maintenanceChanges.addListener(
+        () => maintenanceNotifications++,
+      );
+
+      final firstDisposal = coordinator.dispose();
+      final concurrentDisposal = coordinator.dispose();
+      await expectLater(firstDisposal, throwsA(same(disposalError)));
+      await expectLater(concurrentDisposal, throwsA(same(disposalError)));
+      expect(runtime.disposeCalls, 1);
+
+      runtime.disposeError = null;
+      await coordinator.saveEnvironment(
+        BackendEnvDocument.parse('SUB_STORE_BACKEND_API_PORT=4000\n'),
+      );
+      await coordinator.componentStatus(ComponentKind.frontend);
+      expect(configurationNotifications, greaterThan(0));
+      expect(maintenanceNotifications, greaterThan(0));
+
+      await coordinator.dispose();
+      expect(runtime.disposeCalls, 2);
+      await coordinator.dispose();
+      expect(runtime.disposeCalls, 2);
+    },
+  );
+
+  test(
+    'finishes rollback admitted before exit before runtime disposal',
+    () async {
+      final temp = await Directory.systemTemp.createTemp(
+        'subdock_coordinator_',
+      );
+      addTearDown(() => temp.delete(recursive: true));
+      final directories = await RuntimeDirectories.fromBaseDirectory(temp);
+      final runtime = _FakeRuntime()..blockDispose = true;
+      final updates = _FakeUpdates(
+        runtime.operations,
+        blockStatus: true,
+        blockRollbacks: true,
+      );
+      final coordinator = AppCoordinator(
+        runtime: runtime,
+        environmentStore: BackendEnvStore(directories),
+        componentUpdates: updates,
+        maintenanceAttemptStore: MaintenanceAttemptStore(directories),
+      );
+
+      final rollback = coordinator.rollbackComponent(ComponentKind.frontend);
+      await updates.statusEntered.future;
+      final disposal = coordinator.dispose();
+      Future<void>? acceptedSave;
+      Future<void>? acceptedStart;
+      var saveRejectedBeforeStatusRelease = false;
+      var startRejectedBeforeStatusRelease = false;
+      try {
+        try {
+          acceptedSave = coordinator
+              .saveEnvironment(
+                BackendEnvDocument.parse('SUB_STORE_BACKEND_API_PORT=4000\n'),
+              )
+              .catchError((Object _) {});
+        } on Object catch (error) {
+          saveRejectedBeforeStatusRelease = error is StateError;
+        }
+        try {
+          acceptedStart = coordinator.start().catchError((Object _) {});
+        } on Object catch (error) {
+          startRejectedBeforeStatusRelease = error is StateError;
+        }
+      } finally {
+        updates.releaseStatus.complete();
+      }
+      await Future.any([
+        updates.rollbackEntered.future,
+        runtime.disposeEntered.future,
+      ]);
+      final rollbackStartedBeforeDisposal =
+          updates.rollbackEntered.isCompleted &&
+          !runtime.disposeEntered.isCompleted;
+
+      updates.releaseRollback.complete();
+      runtime.releaseDispose.complete();
+      Object? rollbackError;
+      try {
+        await rollback;
+      } on Object catch (error) {
+        rollbackError = error;
+      }
+      await disposal;
+      if (acceptedSave != null) await acceptedSave;
+      if (acceptedStart != null) await acceptedStart;
+
+      expect(saveRejectedBeforeStatusRelease, isTrue);
+      expect(startRejectedBeforeStatusRelease, isTrue);
+      expect(rollbackStartedBeforeDisposal, isTrue);
+      expect(rollbackError, isNull);
+      expect(updates.rollbackCalls, [ComponentKind.frontend]);
+      expect(runtime.operations, ['rollback:frontend']);
+      expect(runtime.disposeCalls, 1);
+    },
+  );
+
+  test(
     'reserves maintenance and rejects conflicting runtime and save intents',
     () async {
       final temp = await Directory.systemTemp.createTemp(
@@ -1207,12 +1393,23 @@ void main() {
 }
 
 class _FakeUpdates implements ComponentUpdateOperations {
-  _FakeUpdates(this.operations, {this.blockUpdates = false});
+  _FakeUpdates(
+    this.operations, {
+    this.blockUpdates = false,
+    this.blockStatus = false,
+    this.blockRollbacks = false,
+  });
 
   final List<String> operations;
   final bool blockUpdates;
+  final bool blockStatus;
+  final bool blockRollbacks;
   final updateEntered = Completer<void>();
   final releaseUpdate = Completer<void>();
+  final statusEntered = Completer<void>();
+  final releaseStatus = Completer<void>();
+  final rollbackEntered = Completer<void>();
+  final releaseRollback = Completer<void>();
   final currentVersions = <ComponentKind, String>{
     ComponentKind.frontend: '2.31.3',
     ComponentKind.backend: '2.38.4',
@@ -1257,6 +1454,10 @@ class _FakeUpdates implements ComponentUpdateOperations {
     statusCalls[kind] = count;
     final error = statusErrors[kind];
     if (failStatusOnCall[kind] == count && error != null) throw error;
+    if (blockStatus) {
+      if (!statusEntered.isCompleted) statusEntered.complete();
+      await releaseStatus.future;
+    }
     return ComponentVersionStatus(
       current: currentVersions[kind]!,
       previous: previousVersions[kind],
@@ -1275,6 +1476,10 @@ class _FakeUpdates implements ComponentUpdateOperations {
   Future<void> rollback(ComponentKind kind) async {
     rollbackCalls.add(kind);
     operations.add('rollback:${kind.name}');
+    if (blockRollbacks) {
+      if (!rollbackEntered.isCompleted) rollbackEntered.complete();
+      await releaseRollback.future;
+    }
     final previous = previousVersions[kind];
     if (previous == null) throw StateError('No previous component');
     previousVersions[kind] = currentVersions[kind];
@@ -1306,6 +1511,11 @@ class _FakeRuntime extends BackendRuntime {
   EffectiveRuntimeConfig? _applied;
   Object? stopError;
   Object? startError;
+  Object? disposeError;
+  var blockDispose = false;
+  final disposeEntered = Completer<void>();
+  final releaseDispose = Completer<void>();
+  var disposeCalls = 0;
 
   @override
   RuntimeState get currentState =>
@@ -1354,7 +1564,13 @@ class _FakeRuntime extends BackendRuntime {
   }
 
   @override
-  Future<void> dispose() => _states.close();
+  Future<void> dispose() async {
+    disposeCalls++;
+    if (!disposeEntered.isCompleted) disposeEntered.complete();
+    if (blockDispose) await releaseDispose.future;
+    if (disposeError != null) throw disposeError!;
+    await _states.close();
+  }
 
   @override
   Future<BackendInfo> info() => throw UnimplementedError();

@@ -299,6 +299,16 @@ class AppLocalizationsEn extends AppLocalizations {
   String get closeTooltip => 'Close';
 
   @override
+  String get exitConfirmationTitle => 'Exit SubDock?';
+
+  @override
+  String get exitConfirmationMessage =>
+      'SubDock will stop Backend before it exits. You can cancel and keep working.';
+
+  @override
+  String get retryExit => 'Retry exit';
+
+  @override
   String get webView2Missing =>
       'Microsoft Edge WebView2 Runtime was not detected. Install it and try again.';
 
@@ -1073,6 +1083,11 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get configErrorTrayUnavailable =>
       'System tray unavailable; closing the window exits SubDock.';
+
+  @override
+  String configErrorExitFailed(Object detail) {
+    return 'SubDock could not finish exiting. The window remains open so you can retry. $detail';
+  }
 
   @override
   String get trayShowWindow => 'Show window';

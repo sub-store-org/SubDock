@@ -126,8 +126,8 @@ Future<void> main() async {
   });
   final lifecycle = DesktopLifecycle(
     onExit: () async {
-      retentionTimer.cancel();
       await coordinator.dispose();
+      retentionTimer.cancel();
     },
     closeRequestGuard: closeRequestGuard,
     closeBehavior: () async => (await preferencesStore.load()).closeBehavior,
@@ -152,6 +152,7 @@ Future<void> main() async {
       onClose: lifecycle.closeToTray,
       isMaximized: lifecycle.isMaximized,
       closeRequestGuard: closeRequestGuard,
+      onRetryExit: lifecycle.requestExit,
       onAutostartChanged: (enabled) =>
           enabled ? autostart.enable() : autostart.disable(),
       onStartDragging: windowManager.startDragging,

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:collection';
 import 'dart:io';
 
@@ -84,7 +85,11 @@ class AppCoordinator {
   var _savedRevision = 0;
   var _appliedRevision = 0;
   var _cleanupPending = false;
+  var _shutdownRequested = false;
   var _disposed = false;
+  Future<void>? _disposal;
+  var _rollbackPreflightCount = 0;
+  Completer<void>? _rollbackPreflightsDrained;
   var _maintenanceReserved = false;
   Object? _maintenanceRecoveryError;
   MaintenanceOperation? _maintenanceOperation;
@@ -224,31 +229,34 @@ class AppCoordinator {
     );
   }
 
-  Future<void> loadEnvironment() => _serialize(() async {
-    final pairStore = runtimeConfigurationStore;
-    if (pairStore != null) {
-      await _loadPaired(pairStore);
-      return;
-    }
-    final document = await environmentStore.load();
-    SubDockConfig configuration;
-    try {
-      configuration = await _loadConfiguration();
-      _configurationError = null;
-    } on AppConfigError catch (error) {
-      _configuration = const SubDockConfig();
-      _configurationError = error;
-      rethrow;
-    }
-    final firstRunConfiguration = await _initializeBackendPath(configuration);
-    configuration = firstRunConfiguration;
-    final issues = BackendEnvPolicy.validate(document);
-    if (issues.isNotEmpty) {
-      _environment = document;
-      throw _environmentError(issues.first);
-    }
-    await _adoptSaved(document, configuration);
-  });
+  Future<void> loadEnvironment() {
+    _ensureExitIsNotPending();
+    return _serialize(() async {
+      final pairStore = runtimeConfigurationStore;
+      if (pairStore != null) {
+        await _loadPaired(pairStore);
+        return;
+      }
+      final document = await environmentStore.load();
+      SubDockConfig configuration;
+      try {
+        configuration = await _loadConfiguration();
+        _configurationError = null;
+      } on AppConfigError catch (error) {
+        _configuration = const SubDockConfig();
+        _configurationError = error;
+        rethrow;
+      }
+      final firstRunConfiguration = await _initializeBackendPath(configuration);
+      configuration = firstRunConfiguration;
+      final issues = BackendEnvPolicy.validate(document);
+      if (issues.isNotEmpty) {
+        _environment = document;
+        throw _environmentError(issues.first);
+      }
+      await _adoptSaved(document, configuration);
+    });
+  }
 
   /// Loads the pair through its recovery owner, then generates the first-run
   /// backend path as part of the same committed pair.
@@ -458,8 +466,10 @@ class AppCoordinator {
     });
   }
 
-  Future<void> retryLogFinalization(String runId) =>
-      runtime.retryLogFinalization(runId);
+  Future<void> retryLogFinalization(String runId) {
+    _ensureExitIsNotPending();
+    return _serialize(() => runtime.retryLogFinalization(runId));
+  }
 
   Future<void> restart() {
     _ensureNoMaintenanceOperation();
@@ -545,8 +555,16 @@ class AppCoordinator {
   Future<MaintenanceOperation> runComponentRollback(
     ComponentKind kind, {
     required ComponentVersionStatus confirmedStatus,
+  }) => _reserveRollback(kind, confirmedStatus: confirmedStatus);
+
+  Future<MaintenanceOperation> _reserveRollback(
+    ComponentKind kind, {
+    required ComponentVersionStatus confirmedStatus,
+    bool allowAdmittedExit = false,
   }) {
-    _ensureMaintenanceCanBeReserved([kind]);
+    _ensureMaintenanceCanBeReserved([
+      kind,
+    ], allowAdmittedExit: allowAdmittedExit);
     final status = _componentStatuses[kind];
     final targetVersion = confirmedStatus.previous;
     if (!identical(status, confirmedStatus) ||
@@ -603,10 +621,13 @@ class AppCoordinator {
     );
   }
 
-  Future<void> restoreMaintenanceAttempt() => _serialize(() async {
-    if (_startupBlocker != null) return;
-    await _restoreMaintenanceAttemptUnqueued();
-  });
+  Future<void> restoreMaintenanceAttempt() {
+    _ensureExitIsNotPending();
+    return _serialize(() async {
+      if (_startupBlocker != null) return;
+      await _restoreMaintenanceAttemptUnqueued();
+    });
+  }
 
   Future<void> _restoreMaintenanceAttemptUnqueued() async {
     final store = maintenanceAttemptStore;
@@ -1200,8 +1221,11 @@ class AppCoordinator {
     });
   }
 
-  void _ensureMaintenanceCanBeReserved(Iterable<ComponentKind> kinds) {
-    _ensureNoMaintenanceOperation();
+  void _ensureMaintenanceCanBeReserved(
+    Iterable<ComponentKind> kinds, {
+    bool allowAdmittedExit = false,
+  }) {
+    _ensureNoMaintenanceOperation(allowAdmittedExit: allowAdmittedExit);
     if (kinds.any(_checksInProgress.contains)) {
       throw StateError(
         'Wait for the component check to finish before maintenance',
@@ -1209,9 +1233,16 @@ class AppCoordinator {
     }
   }
 
-  void _ensureNoMaintenanceOperation() {
+  void _ensureNoMaintenanceOperation({bool allowAdmittedExit = false}) {
+    _ensureExitIsNotPending(allowAdmittedExit: allowAdmittedExit);
     if (_maintenanceReserved) {
       throw StateError('A component maintenance operation is in progress');
+    }
+  }
+
+  void _ensureExitIsNotPending({bool allowAdmittedExit = false}) {
+    if (_disposed || (_shutdownRequested && !allowAdmittedExit)) {
+      throw StateError('The application is closing');
     }
   }
 
@@ -1233,13 +1264,34 @@ class AppCoordinator {
     maintenanceChanges.value = maintenanceChanges.value + 1;
   }
 
-  Future<void> dispose() => _serialize(() async {
-    if (_disposed) return;
-    _disposed = true;
-    configurationChanges.dispose();
-    maintenanceChanges.dispose();
-    await runtime.dispose();
-  });
+  Future<void> dispose() {
+    if (_disposed) return Future<void>.value();
+    final disposal = _disposal;
+    if (disposal != null) return disposal;
+
+    _shutdownRequested = true;
+    final pending = _disposeAfterAdmittedOperations();
+    _disposal = pending;
+    return pending;
+  }
+
+  Future<void> _disposeAfterAdmittedOperations() async {
+    try {
+      final rollbackPreflights = _rollbackPreflightsDrained;
+      if (rollbackPreflights != null) await rollbackPreflights.future;
+      await _serialize(() async {
+        if (_disposed) return;
+        await runtime.dispose();
+        _disposed = true;
+        configurationChanges.dispose();
+        maintenanceChanges.dispose();
+      });
+    } on Object {
+      _shutdownRequested = false;
+      _disposal = null;
+      rethrow;
+    }
+  }
 
   /// Retries pending component recovery while the service is stopped.
   /// A successful repair clears the blocker without automatically starting.
@@ -1282,8 +1334,27 @@ class AppCoordinator {
 
   Future<void> rollbackComponent(ComponentKind kind) async {
     _ensureNoMaintenanceOperation();
+    if (_rollbackPreflightCount++ == 0) {
+      _rollbackPreflightsDrained = Completer<void>();
+    }
+    try {
+      await _rollbackComponentAdmitted(kind);
+    } finally {
+      _rollbackPreflightCount--;
+      if (_rollbackPreflightCount == 0) {
+        _rollbackPreflightsDrained!.complete();
+        _rollbackPreflightsDrained = null;
+      }
+    }
+  }
+
+  Future<void> _rollbackComponentAdmitted(ComponentKind kind) async {
     final status = await componentStatus(kind);
-    await runComponentRollback(kind, confirmedStatus: status);
+    await _reserveRollback(
+      kind,
+      confirmedStatus: status,
+      allowAdmittedExit: true,
+    );
   }
 
   Future<void> _serialize(Future<void> Function() action) {

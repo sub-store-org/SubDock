@@ -79,6 +79,7 @@ class SubDockApp extends StatefulWidget {
     this.onMinimize,
     this.onToggleMaximize,
     this.onClose,
+    this.onRetryExit,
     this.isMaximized,
     this.closeRequestGuard,
     this.onStartDragging,
@@ -101,6 +102,7 @@ class SubDockApp extends StatefulWidget {
   final Future<void> Function()? onMinimize;
   final Future<void> Function()? onToggleMaximize;
   final Future<void> Function()? onClose;
+  final Future<void> Function()? onRetryExit;
   final ValueListenable<bool>? isMaximized;
   final CloseRequestGuard? closeRequestGuard;
   final Future<void> Function()? onStartDragging;
@@ -357,10 +359,39 @@ class _SubDockAppState extends State<SubDockApp> {
   }
 
   Future<bool> _approveCloseRequest() async {
+    final dialogContext = _settingsKey.currentContext;
+    if (!mounted || dialogContext == null) return false;
+    final l10n = AppLocalizations.of(dialogContext);
+    if (l10n == null) return false;
+    final confirmed = await showDialog<bool>(
+      context: dialogContext,
+      builder: (context) => AlertDialog(
+        title: Text(l10n.exitConfirmationTitle),
+        content: Text(l10n.exitConfirmationMessage),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(l10n.cancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(l10n.exitApp),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || confirmed != true) return false;
+
     final previous = _previousCloseApproval;
     if (previous != null && !await previous()) return false;
     if (_page != _AppPage.settings) return true;
     return _settingsKey.currentState?.requestLeave() ?? true;
+  }
+
+  Future<void> _retryDesktopExit() async {
+    try {
+      await widget.onRetryExit?.call();
+    } catch (_) {}
   }
 
   Future<void> _selectPage(_AppPage page) async {
@@ -872,9 +903,22 @@ class _SubDockAppState extends State<SubDockApp> {
               width: double.infinity,
               color: colors.errorSurface,
               padding: const EdgeInsets.all(12),
-              child: Text(
-                _localizedError(l10n, warning),
-                style: TextStyle(color: colors.error),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      _localizedError(l10n, warning),
+                      style: TextStyle(color: colors.error),
+                    ),
+                  ),
+                  if (warning is AppConfigError &&
+                      warning.code == AppConfigErrorCode.exitFailed &&
+                      widget.onRetryExit != null)
+                    TextButton(
+                      onPressed: () => unawaited(_retryDesktopExit()),
+                      child: Text(l10n.retryExit),
+                    ),
+                ],
               ),
             ),
           Expanded(
@@ -1333,6 +1377,9 @@ String _localizedConfigError(AppLocalizations l10n, AppConfigError error) {
       error.issue!,
     ),
     AppConfigErrorCode.trayUnavailable => l10n.configErrorTrayUnavailable,
+    AppConfigErrorCode.exitFailed => l10n.configErrorExitFailed(
+      error.detail ?? '',
+    ),
   };
 }
 

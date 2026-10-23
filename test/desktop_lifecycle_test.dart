@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -113,7 +114,7 @@ void main() {
     },
   );
 
-  test('a failed exit can be retried', () async {
+  test('a failed exit remains visible and can be retried', () async {
     final calls = <String>[];
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
@@ -124,6 +125,7 @@ void main() {
     });
     addTearDown(() => messenger.setMockMethodCallHandler(windowChannel, null));
     var attempts = 0;
+    final tray = _FakeTray();
     final lifecycle = DesktopLifecycle(
       onExit: () async {
         attempts++;
@@ -131,16 +133,25 @@ void main() {
           throw StateError('fixture cleanup failure');
         }
       },
+      tray: tray,
+      closeBehavior: () async => CloseBehavior.exitApp,
     );
+    await lifecycle.initialize();
+    calls.clear();
 
-    await expectLater(lifecycle.exit(), throwsStateError);
+    await lifecycle.closeToTray();
+
     expect(attempts, 1);
+    expect(calls, containsAllInOrder(['show', 'focus']));
     expect(calls, isNot(contains('destroy')));
+    expect(tray.disposals, 0);
+    expect(lifecycle.warning.value, isNotNull);
 
-    await lifecycle.exit();
+    await lifecycle.closeToTray();
 
     expect(attempts, 2);
     expect(calls.where((method) => method == 'destroy'), hasLength(1));
+    expect(tray.disposals, 1);
   });
 
   test('hides a ready tray instead of exiting', () async {
@@ -154,10 +165,17 @@ void main() {
       return true;
     });
     addTearDown(() => messenger.setMockMethodCallHandler(windowChannel, null));
+    var approvals = 0;
     var exits = 0;
     final lifecycle = DesktopLifecycle(
       onExit: () async => exits++,
       closeBehavior: () async => CloseBehavior.closeToTray,
+      closeRequestGuard: CloseRequestGuard(
+        approvalHandler: () async {
+          approvals++;
+          return false;
+        },
+      ),
       tray: _FakeTray(),
     );
     addTearDown(lifecycle.exit);
@@ -168,6 +186,7 @@ void main() {
     await Future<void>.delayed(Duration.zero);
 
     expect(calls, contains('hide'));
+    expect(approvals, 0);
     expect(exits, 0);
   });
 
@@ -205,14 +224,18 @@ void main() {
         return true;
       });
       addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+      final exitStarted = Completer<void>();
+      final finishExit = Completer<void>();
       var approvals = 0;
       var exits = 0;
+      var secondCompleted = false;
       final tray = _FakeTray();
       final lifecycle = DesktopLifecycle(
         tray: tray,
         onExit: () async {
           exits++;
-          await Future<void>.delayed(Duration.zero);
+          exitStarted.complete();
+          await finishExit.future;
         },
         closeRequestGuard: CloseRequestGuard(
           approvalHandler: () async {
@@ -226,14 +249,95 @@ void main() {
       await lifecycle.initialize();
       calls.clear();
       final first = tray.onExit();
-      final second = tray.onExit();
+      await exitStarted.future;
+      final second = tray.onExit().whenComplete(() => secondCompleted = true);
+      await Future<void>.value();
+      expect(secondCompleted, isFalse);
+      finishExit.complete();
       await Future.wait([first, second]);
-      await Future<void>.delayed(const Duration(milliseconds: 10));
 
+      expect(secondCompleted, isTrue);
       expect(approvals, 1);
       expect(exits, 1);
       expect(calls, contains('destroy'));
       expect(tray.disposals, 1);
+    },
+  );
+
+  test(
+    'terminal exit ignores delayed close behavior results and later requests',
+    () async {
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      const channel = MethodChannel('window_manager');
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+      for (final lateError in [false, true]) {
+        final calls = <String>[];
+        messenger.setMockMethodCallHandler(channel, (call) async {
+          calls.add(call.method);
+          return true;
+        });
+        final closeBehaviorStarted = Completer<void>();
+        final releaseCloseBehavior = Completer<CloseBehavior>();
+        var closeBehaviorReads = 0;
+        var approvals = 0;
+        var exits = 0;
+        final tray = _FakeTray();
+        final lifecycle = DesktopLifecycle(
+          tray: tray,
+          closeBehavior: () {
+            closeBehaviorReads++;
+            if (closeBehaviorReads == 1) closeBehaviorStarted.complete();
+            return releaseCloseBehavior.future;
+          },
+          closeRequestGuard: CloseRequestGuard(
+            approvalHandler: () async {
+              approvals++;
+              return true;
+            },
+          ),
+          onExit: () async => exits++,
+        );
+        addTearDown(() {
+          if (!releaseCloseBehavior.isCompleted) {
+            releaseCloseBehavior.complete(CloseBehavior.exitApp);
+          }
+        });
+        await lifecycle.initialize();
+        final delayedClose = lifecycle.closeToTray();
+        await closeBehaviorStarted.future;
+
+        await tray.onExit();
+        final callsAfterExit = List<String>.of(calls);
+        if (lateError) {
+          releaseCloseBehavior.completeError(
+            StateError('late close behavior failure'),
+          );
+        } else {
+          releaseCloseBehavior.complete(CloseBehavior.exitApp);
+        }
+        await delayedClose;
+
+        expect(lifecycle.warning.value, isNull, reason: 'lateError=$lateError');
+        expect(calls, callsAfterExit, reason: 'lateError=$lateError');
+        expect(closeBehaviorReads, 1);
+        expect(approvals, 1);
+        expect(exits, 1);
+        expect(calls.where((method) => method == 'destroy'), hasLength(1));
+        expect(tray.disposals, 1);
+
+        await lifecycle.closeToTray();
+        await lifecycle.requestExit();
+        await lifecycle.exit();
+        await tray.onExit();
+
+        expect(closeBehaviorReads, 1);
+        expect(approvals, 1);
+        expect(exits, 1);
+        expect(calls.where((method) => method == 'destroy'), hasLength(1));
+        expect(tray.disposals, 1);
+      }
     },
   );
 
@@ -265,6 +369,7 @@ void main() {
           AppConfigErrorCode.trayUnavailable,
         ),
       );
+      expect(methods, containsAllInOrder(['show', 'focus']));
       methods.clear();
       await lifecycle.closeToTray();
 
@@ -301,7 +406,22 @@ void main() {
     expect(tray.labels, ['显示窗口', '退出']);
     tray.updateError = StateError('update failed');
     await lifecycle.updateTray();
-    expect(lifecycle.warning.value, isA<AppConfigError>());
+    expect(
+      lifecycle.warning.value,
+      isA<AppConfigError>().having(
+        (error) => error.code,
+        'code',
+        AppConfigErrorCode.trayUnavailable,
+      ),
+    );
+
+    final exitFailure = AppConfigError(
+      AppConfigErrorCode.exitFailed,
+      detail: 'fixture shutdown failure',
+    );
+    lifecycle.warning.value = exitFailure;
+    await lifecycle.updateTray();
+    expect(lifecycle.warning.value, same(exitFailure));
   });
 
   test(
@@ -354,7 +474,8 @@ void main() {
     await tray.onExit();
 
     expect(exits, 0);
-    expect(methods, isEmpty);
+    expect(methods, containsAllInOrder(['isMinimized', 'show', 'focus']));
+    expect(methods, isNot(contains('destroy')));
     expect(tray.disposals, 0);
   });
 

@@ -340,6 +340,7 @@ class DesktopBackendRuntime implements BackendRuntime {
   });
 
   Future<void> _stop() async {
+    final resumeHealthMonitor = _healthTimer != null;
     _healthTimer?.cancel();
     _healthTimer = null;
     final process = _process;
@@ -376,24 +377,19 @@ class DesktopBackendRuntime implements BackendRuntime {
       _emit(RuntimeStatus.stopped);
     } catch (error, stackTrace) {
       _stopping = false;
+      if (resumeHealthMonitor && _process != null) {
+        _startHealthMonitor();
+      }
       _emit(RuntimeStatus.crashed, 'Unable to stop backend: $error');
       Error.throwWithStackTrace(error, stackTrace);
     }
   }
 
   Future<void> _dispose() async {
-    Object? failure;
-    StackTrace? failureStackTrace;
-    try {
-      await _stop();
-    } catch (error, stackTrace) {
-      failure = error;
-      failureStackTrace = stackTrace;
-    }
+    await _stop();
     _healthTimer?.cancel();
     _healthTimer = null;
     _closeHttpClient();
-    await _finalizeActiveLogRun();
     _disposed = true;
     await Future.wait(<Future<void>>[
       _logs.close(),
@@ -401,9 +397,6 @@ class DesktopBackendRuntime implements BackendRuntime {
       _logRunUpdates.close(),
       _states.close(),
     ]);
-    if (failure != null) {
-      Error.throwWithStackTrace(failure, failureStackTrace!);
-    }
   }
 
   Future<void> _verifyPortAvailable() async {

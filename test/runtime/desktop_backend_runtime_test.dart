@@ -498,6 +498,57 @@ void main() {
       expect(stateDone, isTrue);
     });
 
+    test('keeps finalization retryable when disposal fails', () async {
+      runtime = await _createRuntime(temp, failingFinalize: true);
+      final states = <RuntimeState>[];
+      final logs = <RuntimeLog>[];
+      final runIds = <String>[];
+      final stateSubscription = runtime.state.listen(states.add);
+      final logSubscription = runtime.logs.listen(logs.add);
+      final runSubscription = runtime.logRunStarted.listen(
+        (event) => runIds.add(event.runId),
+      );
+      addTearDown(stateSubscription.cancel);
+      addTearDown(logSubscription.cancel);
+      addTearDown(runSubscription.cancel);
+
+      await runtime.start();
+      await expectLater(runtime.dispose(), throwsA(isA<Exception>()));
+
+      final runId = runIds.single;
+      final failure = runtime.currentState;
+      expect(failure.status, RuntimeStatus.crashed);
+      expect(failure.message, contains('Unable to stop backend'));
+      expect(await runtime.logStore.listRuns(), isEmpty);
+
+      await runtime.retryLogFinalization(runId);
+      final recoveredRun = (await runtime.logStore.listRuns()).single;
+      expect(recoveredRun.id, runId);
+      expect(recoveredRun.integrity, RuntimeLogIntegrity.incomplete);
+      expect(runtime.currentState.status, RuntimeStatus.stopped);
+
+      await runtime.start();
+      await runtime.stop();
+      await _waitFor(
+        () =>
+            states
+                .where((state) => state.status == RuntimeStatus.running)
+                .length ==
+            2,
+      );
+
+      expect(
+        states.where((state) => state.status == RuntimeStatus.running),
+        hasLength(2),
+      );
+      expect(
+        logs.where((log) => log.message == 'fixture stdout'),
+        hasLength(2),
+      );
+      expect(await runtime.logStore.listRuns(), hasLength(2));
+      await runtime.dispose();
+    });
+
     test('finalizes a run before disposing a running runtime', () async {
       await runtime.start();
       await runtime.dispose();

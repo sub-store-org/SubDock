@@ -24,6 +24,7 @@ enum AppConfigErrorCode {
   componentRecoveryFailed,
   environmentInvalid,
   trayUnavailable,
+  exitFailed,
 }
 
 class AppConfigError implements Exception {
@@ -72,5 +73,6 @@ class AppConfigError implements Exception {
     AppConfigErrorCode.environmentInvalid => issue?.message ?? 'Invalid environment',
     AppConfigErrorCode.trayUnavailable =>
       'System tray unavailable; closing the window exits SubDock.',
+    AppConfigErrorCode.exitFailed => 'SubDock exit failed: $detail',
   };
 }

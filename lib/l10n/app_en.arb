@@ -100,6 +100,9 @@
   "maximizeTooltip": "Maximize",
   "restoreTooltip": "Restore",
   "closeTooltip": "Close",
+  "exitConfirmationTitle": "Exit SubDock?",
+  "exitConfirmationMessage": "SubDock will stop Backend before it exits. You can cancel and keep working.",
+  "retryExit": "Retry exit",
   "webView2Missing": "Microsoft Edge WebView2 Runtime was not detected. Install it and try again.",
   "webViewUnavailable": "Embedded browsing is unavailable on this platform. Open Sub-Store in your system browser instead.",
   "webViewMainFrameFailure": "Sub-Store could not load. The backend is still running; retry or use the system browser.",
@@ -333,6 +336,12 @@
   "configErrorUpdaterDisabled": "The component updater is not enabled on this platform",
   "configErrorRecoveryFailed": "Component update recovery failed: {detail}",
   "configErrorTrayUnavailable": "System tray unavailable; closing the window exits SubDock.",
+  "configErrorExitFailed": "SubDock could not finish exiting. The window remains open so you can retry. {detail}",
+  "@configErrorExitFailed": {
+    "placeholders": {
+      "detail": {}
+    }
+  },
   "trayShowWindow": "Show window",
   "trayExit": "Exit"
 }

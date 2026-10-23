@@ -4483,6 +4483,7 @@ void main() {
 
       tester.binding.platformDispatcher.platformBrightnessTestValue =
           Brightness.dark;
+      var retryAttempts = 0;
       await pumpApp(
         tester,
         SubDockApp(
@@ -4490,8 +4491,12 @@ void main() {
           autoStart: false,
           enableWebView: false,
           desktopWarning: ValueNotifier<AppConfigError>(
-            const AppConfigError(AppConfigErrorCode.trayUnavailable),
+            const AppConfigError(
+              AppConfigErrorCode.exitFailed,
+              detail: 'fixture shutdown failure',
+            ),
           ),
+          onRetryExit: () async => retryAttempts++,
           locale: const Locale('zh'),
         ),
       );
@@ -4501,6 +4506,12 @@ void main() {
         Theme.of(tester.element(find.text('SubDock'))).brightness,
         Brightness.dark,
       );
+      expect(find.textContaining('SubDock 未能完成退出'), findsOneWidget);
+      final retryExit = find.text('重试退出');
+      expect(retryExit, findsOneWidget);
+      await tester.tap(retryExit);
+      await tester.pump();
+      expect(retryAttempts, 1);
 
       for (final key in [
         'nav-item-overview',

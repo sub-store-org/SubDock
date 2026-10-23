@@ -100,6 +100,9 @@
   "maximizeTooltip": "最大化",
   "restoreTooltip": "还原",
   "closeTooltip": "关闭",
+  "exitConfirmationTitle": "退出 SubDock？",
+  "exitConfirmationMessage": "SubDock 会先停止 Backend 再退出。你可以取消并继续当前工作。",
+  "retryExit": "重试退出",
   "webView2Missing": "未检测到 Microsoft Edge WebView2 Runtime。请安装后重试。",
   "webViewUnavailable": "此平台无法使用嵌入式浏览器，可改用系统浏览器打开 Sub-Store。",
   "webViewMainFrameFailure": "Sub-Store 页面加载失败。后端仍在运行；请重试或改用系统浏览器。",
@@ -333,6 +336,12 @@
   "configErrorUpdaterDisabled": "组件更新器尚未在当前平台启用",
   "configErrorRecoveryFailed": "组件更新恢复失败：{detail}",
   "configErrorTrayUnavailable": "系统托盘不可用；关闭窗口会退出 SubDock。",
+  "configErrorExitFailed": "SubDock 未能完成退出。窗口仍保持打开，可以重试。{detail}",
+  "@configErrorExitFailed": {
+    "placeholders": {
+      "detail": {}
+    }
+  },
   "trayShowWindow": "显示窗口",
   "trayExit": "退出"
 }

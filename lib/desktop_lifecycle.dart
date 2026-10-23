@@ -26,7 +26,9 @@ class DesktopLifecycle with WindowListener {
   final warning = ValueNotifier<Object?>(null);
   final isMaximized = ValueNotifier<bool>(false);
   var _trayReady = false;
-  var _exiting = false;
+  var _exitCompleted = false;
+  Future<void>? _exitRequestPending;
+  Future<void>? _exitPending;
 
   Future<void> initialize() async {
     await windowManager.setPreventClose(true);
@@ -41,6 +43,9 @@ class DesktopLifecycle with WindowListener {
       _trayReady = true;
     } catch (_) {
       warning.value = const AppConfigError(AppConfigErrorCode.trayUnavailable);
+      try {
+        await _showWindow();
+      } catch (_) {}
     }
   }
 
@@ -50,13 +55,46 @@ class DesktopLifecycle with WindowListener {
     try {
       _tray.updateLabels(trayLabels);
     } catch (_) {
-      warning.value = const AppConfigError(AppConfigErrorCode.trayUnavailable);
+      final currentWarning = warning.value;
+      if (currentWarning is! AppConfigError ||
+          currentWarning.code != AppConfigErrorCode.exitFailed) {
+        warning.value = const AppConfigError(
+          AppConfigErrorCode.trayUnavailable,
+        );
+      }
     }
   }
 
-  Future<void> exit() async {
-    if (_exiting) return;
-    _exiting = true;
+  Future<void> exit() {
+    if (_exitCompleted) return Future<void>.value();
+    final pending = _exitPending;
+    if (pending != null) return pending;
+
+    late final Future<void> operation;
+    operation = _finishExit().whenComplete(() {
+      if (identical(_exitPending, operation)) _exitPending = null;
+    });
+    _exitPending = operation;
+    return operation;
+  }
+
+  /// Requests approval and shares the complete exit operation with other routes.
+  Future<void> requestExit() => _startExitRequest(revealWindow: true);
+
+  Future<void> _startExitRequest({required bool revealWindow}) {
+    if (_exitCompleted) return Future<void>.value();
+    final pending = _exitRequestPending;
+    if (pending != null) return pending;
+
+    late final Future<void> request;
+    request = _requestExit(revealWindow: revealWindow).whenComplete(() {
+      if (identical(_exitRequestPending, request)) _exitRequestPending = null;
+    });
+    _exitRequestPending = request;
+    return request;
+  }
+
+  Future<void> _finishExit() async {
     try {
       await onExit();
       if (_trayReady) {
@@ -64,11 +102,43 @@ class DesktopLifecycle with WindowListener {
         _trayReady = false;
       }
       await windowManager.destroy();
-    } catch (_) {
-      _exiting = false;
+      windowManager.removeListener(this);
+      _exitCompleted = true;
+    } catch (error) {
+      await _reportExitFailure(error);
       rethrow;
     }
-    windowManager.removeListener(this);
+  }
+
+  Future<void> _requestExit({required bool revealWindow}) async {
+    try {
+      if (_exitCompleted) return;
+      if (revealWindow) await _showWindow();
+      if (_exitCompleted || !await closeRequestGuard.request()) return;
+      if (_exitCompleted) return;
+      await exit();
+    } catch (error) {
+      await _reportExitFailure(error);
+      rethrow;
+    }
+  }
+
+  Future<void> _reportExitFailure(Object error) async {
+    if (_exitCompleted) return;
+    final detail = '$error';
+    final previous = warning.value;
+    if (previous is AppConfigError &&
+        previous.code == AppConfigErrorCode.exitFailed &&
+        previous.detail == detail) {
+      return;
+    }
+    warning.value = AppConfigError(
+      AppConfigErrorCode.exitFailed,
+      detail: detail,
+    );
+    try {
+      await _showWindow();
+    } catch (_) {}
   }
 
   Future<void> minimize() => windowManager.minimize();
@@ -81,10 +151,10 @@ class DesktopLifecycle with WindowListener {
     }
   }
 
-  Future<void> closeToTray() => _closeWindow();
+  Future<void> closeToTray() => _handleCloseRequest();
 
   @override
-  void onWindowClose() => unawaited(_closeWindow());
+  void onWindowClose() => unawaited(_handleCloseRequest());
 
   @override
   void onWindowMaximize() => isMaximized.value = true;
@@ -92,19 +162,34 @@ class DesktopLifecycle with WindowListener {
   @override
   void onWindowUnmaximize() => isMaximized.value = false;
 
+  Future<void> _handleCloseRequest() async {
+    try {
+      await _closeWindow();
+    } catch (error) {
+      await _reportExitFailure(error);
+    }
+  }
+
   Future<void> _closeWindow() async {
-    if (_exiting) return;
-    if (!await closeRequestGuard.request()) return;
-    if (_exiting) return;
-    if (await closeBehavior() == CloseBehavior.exitApp) {
-      await exit();
+    if (_exitCompleted) return;
+    final activeExit = _exitRequestPending;
+    if (activeExit != null) {
+      await activeExit;
       return;
     }
-    if (_trayReady) {
+
+    final behavior = await closeBehavior();
+    if (_exitCompleted) return;
+    final pendingExit = _exitRequestPending;
+    if (pendingExit != null) {
+      await pendingExit;
+      return;
+    }
+    if (behavior == CloseBehavior.closeToTray && _trayReady) {
       await windowManager.hide();
       return;
     }
-    await exit();
+    await _startExitRequest(revealWindow: false);
   }
 
   Future<void> _showWindow() async {
@@ -116,8 +201,11 @@ class DesktopLifecycle with WindowListener {
   }
 
   Future<void> _exitFromTray() async {
-    if (_exiting || !await closeRequestGuard.request()) return;
-    await exit();
+    try {
+      await requestExit();
+    } catch (error) {
+      await _reportExitFailure(error);
+    }
   }
 }
 

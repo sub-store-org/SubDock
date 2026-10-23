@@ -286,6 +286,16 @@ class AppLocalizationsZh extends AppLocalizations {
   String get closeTooltip => '关闭';
 
   @override
+  String get exitConfirmationTitle => '退出 SubDock？';
+
+  @override
+  String get exitConfirmationMessage =>
+      'SubDock 会先停止 Backend 再退出。你可以取消并继续当前工作。';
+
+  @override
+  String get retryExit => '重试退出';
+
+  @override
   String get webView2Missing => '未检测到 Microsoft Edge WebView2 Runtime。请安装后重试。';
 
   @override
@@ -1017,6 +1027,11 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get configErrorTrayUnavailable => '系统托盘不可用；关闭窗口会退出 SubDock。';
+
+  @override
+  String configErrorExitFailed(Object detail) {
+    return 'SubDock 未能完成退出。窗口仍保持打开，可以重试。$detail';
+  }
 
   @override
   String get trayShowWindow => '显示窗口';

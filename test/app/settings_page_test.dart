@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:subdock/app/app.dart';
 import 'package:subdock/app/app_coordinator.dart';
+import 'package:subdock/app/close_request_guard.dart';
 import 'package:subdock/runtime/backend_runtime.dart';
 import 'package:subdock/runtime/runtime_directories.dart';
 import 'package:subdock/settings/backend_env_store.dart';
@@ -477,6 +478,7 @@ void main() {
       await tester.pump();
       await disposal;
     });
+    final closeRequestGuard = CloseRequestGuard();
     await tester.runAsync(coordinator.loadEnvironment);
     await tester.binding.setSurfaceSize(const Size(1024, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -487,6 +489,7 @@ void main() {
         autoStart: false,
         enableWebView: false,
         locale: const Locale('en'),
+        closeRequestGuard: closeRequestGuard,
       ),
     );
     await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
@@ -515,6 +518,17 @@ void main() {
       find.text('Runtime configuration draft has not been saved.'),
       findsOneWidget,
     );
+    final closeApproval = closeRequestGuard.request();
+    await tester.pumpAndSettle();
+    expect(find.text('Exit SubDock?'), findsOneWidget);
+    await tester.tap(find.text('Cancel').last);
+    await tester.pumpAndSettle();
+    expect(await closeApproval, isFalse);
+    expect(
+      find.text('Runtime configuration draft has not been saved.'),
+      findsOneWidget,
+    );
+
     await tester.tap(find.byKey(const ValueKey('nav-item-overview')));
     await tester.pumpAndSettle();
     expect(find.text('You have unsaved changes. Continue?'), findsOneWidget);
