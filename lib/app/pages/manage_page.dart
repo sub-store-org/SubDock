@@ -2,16 +2,22 @@ part of '../app.dart';
 
 class _ManagePage extends StatefulWidget {
   const _ManagePage({
+    super.key,
     required this.state,
     required this.coordinator,
     required this.appliedWebUiUri,
     required this.appliedWebUiApiUri,
     required this.runtimeRunId,
     required this.sessionIdentity,
+    required this.isDarkMode,
     required this.error,
     required this.enabled,
+    required this.actionInProgress,
+    required this.componentRecoveryBlocked,
     required this.onOpenExternalUri,
     this.webViewControllerFactory,
+    required this.onStartAndEnter,
+    required this.onOpenServiceDetails,
     required this.onRecover,
   });
 
@@ -21,17 +27,15 @@ class _ManagePage extends StatefulWidget {
   final Uri? appliedWebUiApiUri;
   final String? runtimeRunId;
   final String sessionIdentity;
+  final bool isDarkMode;
   final Object? error;
   final bool enabled;
+  final bool actionInProgress;
+  final bool componentRecoveryBlocked;
   final Future<bool> Function(Uri uri) onOpenExternalUri;
-  final EmbeddedWebViewController Function({
-    required EmbeddedNavigationHandler onNavigationRequest,
-    required void Function(String message) onBlobMessage,
-    required String bridgeScript,
-    EmbeddedPageChangeHandler? onPageChanged,
-    EmbeddedMainFrameFailureHandler? onMainFrameFailure,
-  })?
-  webViewControllerFactory;
+  final EmbeddedWebViewControllerFactory? webViewControllerFactory;
+  final void Function(BuildContext context) onStartAndEnter;
+  final VoidCallback onOpenServiceDetails;
   final VoidCallback onRecover;
 
   @override
@@ -45,14 +49,21 @@ class _ManagePageState extends State<_ManagePage> {
   );
 
   EmbeddedWebViewController? _controller;
+  final _addressController = TextEditingController();
+  final _addressFocusNode = FocusNode(
+    debugLabel: 'manage-current-address',
+    canRequestFocus: true,
+  );
   Uri? _currentUri;
   var _canGoBack = false;
   var _canGoForward = false;
   var _webViewInitialized = false;
+  var _hideNativeViewForExit = false;
   var _webViewLoading = false;
   var _webViewLoaded = false;
   var _mainFrameFailurePending = false;
   String? _webViewError;
+  String? _themeSyncError;
   String? _fallbackBrowserError;
   var _missingWebView2 = false;
   var _sessionGeneration = 0;
@@ -72,6 +83,22 @@ class _ManagePageState extends State<_ManagePage> {
 
   bool get _ready => widget.enabled && _fallbackAvailable;
 
+  Future<void> _hideNativeViewForExitConfirmation() async {
+    if (!Platform.isLinux || _hideNativeViewForExit || !mounted) return;
+    setState(() => _hideNativeViewForExit = true);
+    await WidgetsBinding.instance.endOfFrame;
+  }
+
+  Future<void> _restoreNativeViewAfterExitConfirmation() async {
+    if (!Platform.isLinux || !_hideNativeViewForExit || !mounted) return;
+    setState(() => _hideNativeViewForExit = false);
+    await WidgetsBinding.instance.endOfFrame;
+  }
+
+  Widget _retainHiddenWebView(Widget webView) => Platform.isLinux
+      ? Offstage(offstage: _hideNativeViewForExit, child: webView)
+      : webView;
+
   @override
   void initState() {
     super.initState();
@@ -87,6 +114,8 @@ class _ManagePageState extends State<_ManagePage> {
   @override
   void dispose() {
     _runStartedSubscription.cancel();
+    _addressFocusNode.dispose();
+    _addressController.dispose();
     super.dispose();
   }
 
@@ -115,6 +144,9 @@ class _ManagePageState extends State<_ManagePage> {
       if (_ready) unawaited(_ensureController());
       return;
     }
+    if (oldWidget.isDarkMode != widget.isDarkMode) {
+      unawaited(_syncColorScheme());
+    }
     unawaited(_ensureController());
   }
 
@@ -125,6 +157,7 @@ class _ManagePageState extends State<_ManagePage> {
     _activeWebUiUri = null;
     _activeWebUiApiUri = null;
     _currentUri = null;
+    _addressController.clear();
     _canGoBack = false;
     _canGoForward = false;
     _webViewInitialized = false;
@@ -132,6 +165,7 @@ class _ManagePageState extends State<_ManagePage> {
     _webViewLoaded = false;
     _mainFrameFailurePending = false;
     _webViewError = null;
+    _themeSyncError = null;
     _fallbackBrowserError = null;
     _missingWebView2 = false;
   }
@@ -154,6 +188,61 @@ class _ManagePageState extends State<_ManagePage> {
       apiUri == _activeWebUiApiUri &&
       apiUri == widget.appliedWebUiApiUri &&
       apiUri == widget.coordinator.appliedWebUiApiUri;
+
+  Future<void> _syncColorScheme() async {
+    if (!EmbeddedWebViewController.supportsEffectiveColorSchemeSync) {
+      return;
+    }
+    final controller = _controller;
+    final identity = _activeSessionIdentity;
+    final webUiUri = _activeWebUiUri;
+    final apiUri = _activeWebUiApiUri;
+    final generation = _sessionGeneration;
+    if (controller == null ||
+        identity == null ||
+        webUiUri == null ||
+        apiUri == null ||
+        !_isCurrentController(
+          controller,
+          generation,
+          identity,
+          webUiUri,
+          apiUri,
+        )) {
+      return;
+    }
+    try {
+      final synchronized = await controller.setColorScheme(
+        isDark: widget.isDarkMode,
+        trustedOrigin: webUiUri,
+      );
+      if (synchronized &&
+          _isCurrentController(
+            controller,
+            generation,
+            identity,
+            webUiUri,
+            apiUri,
+          ) &&
+          _themeSyncError != null) {
+        setState(() => _themeSyncError = null);
+      }
+    } on Object {
+      if (_isCurrentController(
+        controller,
+        generation,
+        identity,
+        webUiUri,
+        apiUri,
+      )) {
+        setState(
+          () =>
+              _themeSyncError = AppLocalizations.of(context)!
+                  .webViewActionFailure,
+        );
+      }
+    }
+  }
 
   bool _isCurrentController(
     EmbeddedWebViewController controller,
@@ -198,6 +287,8 @@ class _ManagePageState extends State<_ManagePage> {
           ),
         ),
         bridgeScript: _blobDownloadBridge,
+        trustedOrigin: webUiUri,
+        initialDarkMode: widget.isDarkMode,
         onPageChanged: (uri) => unawaited(
           _onPageChanged(
             controller,
@@ -221,6 +312,7 @@ class _ManagePageState extends State<_ManagePage> {
       setState(() {
         _controller = controller;
         _currentUri = webUiUri;
+        _addressController.text = webUiUri.toString();
         _canGoBack = false;
         _canGoForward = false;
         _webViewInitialized = false;
@@ -314,11 +406,13 @@ class _ManagePageState extends State<_ManagePage> {
     }
     setState(() {
       _currentUri = uri;
+      _addressController.text = uri.toString();
       _webViewLoading = false;
       _webViewLoaded = true;
       _webViewError = null;
       _missingWebView2 = false;
     });
+    unawaited(_syncColorScheme());
     await _refreshHistory(controller, generation, identity, webUiUri, apiUri);
   }
 
@@ -1016,92 +1110,438 @@ class _ManagePageState extends State<_ManagePage> {
     final l10n = AppLocalizations.of(context)!;
     final colors = Theme.of(context).extension<AppColors>()!;
     final typography = Theme.of(context).extension<AppTypography>()!;
-    if (widget.state.status == RuntimeStatus.starting ||
-        widget.state.status == RuntimeStatus.stopping) {
-      return Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420),
-          child: Padding(
-            padding: EdgeInsets.all(typography.spacingLg),
-            child: _SurfacePanel(
-              key: const ValueKey('manage-transition'),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const CircularProgressIndicator(),
-                  SizedBox(height: typography.spacingMd),
-                  Text(
-                    widget.state.status == RuntimeStatus.starting
-                        ? l10n.starting
-                        : l10n.stopping,
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-    if (!_ready) {
-      final issues = widget.coordinator.environmentIssues;
-      final hasAppliedAddress = widget.appliedWebUiUri != null;
-      final canOpenInBrowser =
-          widget.state.status == RuntimeStatus.running &&
-          widget.coordinator.canOpenWebUi &&
-          hasAppliedAddress;
-      final reason =
-          _webViewError ??
-          _fallbackBrowserError ??
-          (issues.isNotEmpty
-              ? _localizedIssue(l10n, issues.first)
-              : widget.state.status == RuntimeStatus.running && !widget.enabled
-              ? l10n.webViewUnavailable
-              : widget.error == null
-              ? widget.state.message ?? l10n.backendNotRunning
-              : _localizedError(l10n, widget.error));
-      return Center(
-        child: Padding(
-          padding: EdgeInsets.all(typography.spacingLg),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 420),
-            child: _SurfacePanel(
-              key: const ValueKey('manage-recovery'),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.web_asset_off_outlined, size: 48),
-                  SizedBox(height: typography.spacingSm),
-                  Text(reason, textAlign: TextAlign.center),
-                  SizedBox(height: typography.spacingSm),
-                  if (canOpenInBrowser) ...[
-                    OutlinedButton.icon(
-                      key: const ValueKey('manage-open-fallback-browser'),
-                      onPressed: () => unawaited(_openFallbackBrowser()),
-                      icon: const Icon(Icons.open_in_browser),
-                      label: Text(l10n.openInSystemBrowser),
-                    ),
-                    SizedBox(height: typography.spacingXs),
-                  ],
-                  FilledButton(
-                    onPressed: widget.onRecover,
-                    child: Text(
-                      widget.coordinator.canOpenWebUi
-                          ? l10n.viewOverview
-                          : l10n.fixConfiguration,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-    final compact = MediaQuery.sizeOf(context).width < navigationBreakpoint;
     final controller = _controller;
     final webView = controller == null || !_webViewInitialized
         ? null
         : controller.build();
+    final issues = widget.coordinator.environmentIssues;
+    final canOpenInBrowser =
+        widget.state.status == RuntimeStatus.running &&
+        widget.coordinator.canOpenWebUi &&
+        widget.appliedWebUiUri != null;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < navigationBreakpoint;
+        return Column(
+          children: [
+            _buildHeader(l10n, colors, typography, canOpenInBrowser),
+            if (_themeSyncError case final themeError?)
+              Container(
+                key: const ValueKey('manage-theme-sync-error'),
+                width: double.infinity,
+                padding: EdgeInsets.symmetric(
+                  horizontal: typography.spacingMd,
+                  vertical: typography.spacingSm,
+                ),
+                color: colors.errorSurface,
+                child: Semantics(
+                  liveRegion: true,
+                  child: Text(
+                    themeError,
+                    style: TextStyle(color: colors.error),
+                  ),
+                ),
+              ),
+            if (_auxiliaryFailure)
+              Container(
+                key: const ValueKey('manage-auxiliary-warning'),
+                width: double.infinity,
+                padding: EdgeInsets.symmetric(
+                  horizontal: typography.spacingMd,
+                  vertical: typography.spacingSm,
+                ),
+                color: colors.surfaceHigh,
+                child: Text(
+                  l10n.manageAuxiliaryUnavailable,
+                  style: typography.bodySmall,
+                ),
+              ),
+            if (_fallbackBrowserError case final error?)
+              Container(
+                key: const ValueKey('manage-fallback-browser-error'),
+                width: double.infinity,
+                padding: EdgeInsets.symmetric(
+                  horizontal: typography.spacingMd,
+                  vertical: typography.spacingSm,
+                ),
+                color: colors.errorSurface,
+                child: Semantics(
+                  liveRegion: true,
+                  child: Text(error, style: TextStyle(color: colors.error)),
+                ),
+              ),
+            Expanded(
+              child: _buildContent(
+                context,
+                l10n,
+                colors,
+                typography,
+                compact,
+                issues,
+                canOpenInBrowser,
+                webView,
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  bool get _auxiliaryFailure =>
+      widget.state.status == RuntimeStatus.running &&
+      (widget.state.httpMetaStatus == HttpMetaStatus.unavailable ||
+          widget.state.httpMetaStatus == HttpMetaStatus.degraded);
+
+  Widget _manageHeaderAction({
+    required Key key,
+    required IconData icon,
+    required String label,
+    required bool enabled,
+    required VoidCallback? onPressed,
+    bool outline = false,
+  }) {
+    final semanticsIcon = Semantics(
+      label: label,
+      button: true,
+      enabled: enabled,
+      child: Icon(icon),
+    );
+    return ShadTooltip(
+      builder: (_) => Text(label),
+      child: outline
+          ? ShadIconButton.outline(
+              key: key,
+              enabled: enabled,
+              onPressed: enabled ? onPressed : null,
+              icon: semanticsIcon,
+            )
+          : ShadIconButton.ghost(
+              key: key,
+              enabled: enabled,
+              onPressed: enabled ? onPressed : null,
+              icon: semanticsIcon,
+            ),
+    );
+  }
+
+  Widget _buildHeader(
+    AppLocalizations l10n,
+    AppColors colors,
+    AppTypography typography,
+    bool canOpenInBrowser,
+  ) {
+    final canReload =
+        widget.state.status == RuntimeStatus.running &&
+        widget.coordinator.canOpenWebUi &&
+        _controller != null &&
+        !_webViewLoading;
+    final actions = Wrap(
+      spacing: typography.spacingXs,
+      alignment: WrapAlignment.end,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        if (_controller != null && _webViewInitialized) ...[
+          _manageHeaderAction(
+            key: const ValueKey('manage-back'),
+            icon: Icons.arrow_back,
+            label: l10n.back,
+            enabled: _canGoBack,
+            onPressed: _canGoBack ? () => unawaited(_goBack()) : null,
+          ),
+          _manageHeaderAction(
+            key: const ValueKey('manage-forward'),
+            icon: Icons.arrow_forward,
+            label: l10n.forward,
+            enabled: _canGoForward,
+            onPressed: _canGoForward ? () => unawaited(_goForward()) : null,
+          ),
+        ],
+        _manageHeaderAction(
+          key: const ValueKey('manage-reload'),
+          icon: Icons.refresh,
+          label: l10n.refresh,
+          enabled: canReload,
+          onPressed: canReload ? () => unawaited(_reloadCurrentPage()) : null,
+          outline: true,
+        ),
+        _manageHeaderAction(
+          key: const ValueKey('manage-open-external'),
+          icon: Icons.open_in_browser,
+          label: l10n.openInSystemBrowser,
+          enabled: canOpenInBrowser,
+          onPressed: canOpenInBrowser
+              ? () => unawaited(
+                  _controller == null
+                      ? _openFallbackBrowser()
+                      : _openCurrentPage(),
+                )
+              : null,
+          outline: true,
+        ),
+        _manageHeaderAction(
+          key: const ValueKey('manage-service-details'),
+          icon: Icons.dashboard_outlined,
+          label: l10n.manageServiceDetails,
+          enabled: true,
+          onPressed: widget.onOpenServiceDetails,
+        ),
+      ],
+    );
+    final identity = Container(
+      key: const ValueKey('manage-page-identity'),
+      padding: EdgeInsets.symmetric(
+        horizontal: typography.spacingSm,
+        vertical: typography.spacingXs,
+      ),
+      decoration: BoxDecoration(
+        color: colors.surfaceHigh,
+        borderRadius: BorderRadius.circular(typography.radiusSm),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Semantics(
+            header: true,
+            child: Text(l10n.manage, style: typography.titleSmall),
+          ),
+          SizedBox(width: typography.spacingSm),
+          Text(
+            _runtimeLabel(l10n),
+            style: typography.bodySmall.copyWith(color: colors.disabled),
+          ),
+        ],
+      ),
+    );
+    final address = ShadInput(
+      key: const ValueKey('manage-current-address'),
+      controller: _addressController,
+      focusNode: _addressFocusNode,
+      readOnly: true,
+      enableInteractiveSelection: true,
+      showCursor: false,
+      style: typography.codeSmall.copyWith(color: colors.onSurface),
+      leading: Icon(Icons.link, color: colors.disabled),
+    );
+
+    return Container(
+      key: const ValueKey('manage-browser-toolbar'),
+      width: double.infinity,
+      padding: EdgeInsets.symmetric(
+        horizontal: typography.spacingMd,
+        vertical: typography.spacingXs,
+      ),
+      decoration: BoxDecoration(
+        color: colors.surfaceLowest,
+        border: Border(bottom: BorderSide(color: colors.divider)),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final secondRow = constraints.maxWidth < 760;
+          if (secondRow) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    identity,
+                    SizedBox(width: typography.spacingSm),
+                    Expanded(child: address),
+                  ],
+                ),
+                SizedBox(height: typography.spacingXs),
+                Align(alignment: Alignment.centerRight, child: actions),
+              ],
+            );
+          }
+          return Row(
+            children: [
+              identity,
+              SizedBox(width: typography.spacingSm),
+              Expanded(child: address),
+              SizedBox(width: typography.spacingSm),
+              actions,
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  String _runtimeLabel(AppLocalizations l10n) => switch (widget.state.status) {
+    RuntimeStatus.starting => l10n.starting,
+    RuntimeStatus.running => l10n.running,
+    RuntimeStatus.stopping => l10n.stopping,
+    RuntimeStatus.unhealthy => l10n.unhealthy,
+    RuntimeStatus.crashed => l10n.crashed,
+    RuntimeStatus.stopped => l10n.stopped,
+  };
+
+  Widget _buildContent(
+    BuildContext context,
+    AppLocalizations l10n,
+    AppColors colors,
+    AppTypography typography,
+    bool compact,
+    List<BackendEnvIssue> issues,
+    bool canOpenInBrowser,
+    Widget? webView,
+  ) {
+    final status = widget.state.status;
+    if (status == RuntimeStatus.starting || status == RuntimeStatus.stopping) {
+      return Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: Padding(
+            padding: EdgeInsets.all(typography.spacingLg),
+            child: SingleChildScrollView(
+              key: const ValueKey('manage-transition'),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    width: 240,
+                    child: ShadProgress(
+                      minHeight: 5,
+                      semanticsLabel: _runtimeLabel(l10n),
+                    ),
+                  ),
+                  SizedBox(height: typography.spacingMd),
+                  Text(_runtimeLabel(l10n)),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+    if (status != RuntimeStatus.running || !_ready) {
+      final stopped = status == RuntimeStatus.stopped;
+      final maintenanceOperation = widget.coordinator.maintenanceOperation;
+      final maintenanceBlocksStart =
+          maintenanceOperation != null &&
+          maintenanceOperation.phase != MaintenancePhase.completed;
+      final blocked =
+          issues.isNotEmpty ||
+          widget.coordinator.configurationError != null ||
+          widget.coordinator.runtimeConfigurationError != null ||
+          widget.coordinator.startupBlocker != null ||
+          widget.coordinator.logRecoveryError != null ||
+          widget.coordinator.maintenanceRecoveryError != null ||
+          maintenanceBlocksStart;
+      final reason = issues.isNotEmpty
+          ? _localizedIssue(l10n, issues.first)
+          : widget.coordinator.configurationError != null ||
+                widget.coordinator.runtimeConfigurationError != null ||
+                widget.coordinator.startupBlocker != null ||
+                widget.coordinator.logRecoveryError != null ||
+                widget.coordinator.maintenanceRecoveryError != null
+          ? _localizedError(
+              l10n,
+              widget.coordinator.configurationError ??
+                  widget.coordinator.runtimeConfigurationError ??
+                  widget.coordinator.startupBlocker ??
+                  widget.coordinator.logRecoveryError ??
+                  widget.coordinator.maintenanceRecoveryError,
+            )
+          : maintenanceBlocksStart
+          ? l10n.operationInProgress
+          : widget.error == null
+          ? widget.state.message ??
+                switch (status) {
+                  RuntimeStatus.stopped => l10n.serviceStoppedDescription,
+                  RuntimeStatus.unhealthy => l10n.serviceUnhealthyDescription,
+                  RuntimeStatus.crashed => l10n.serviceCrashedDescription,
+                  RuntimeStatus.running => l10n.webViewUnavailable,
+                  RuntimeStatus.starting ||
+                  RuntimeStatus.stopping => l10n.operationInProgress,
+                }
+          : _localizedError(l10n, widget.error);
+      final title = switch (status) {
+        RuntimeStatus.stopped => l10n.serviceStoppedTitle,
+        RuntimeStatus.unhealthy => l10n.serviceUnhealthyTitle,
+        RuntimeStatus.running => l10n.manageUnavailableTitle,
+        RuntimeStatus.crashed => l10n.serviceCrashedTitle,
+        RuntimeStatus.starting ||
+        RuntimeStatus.stopping => l10n.manageUnavailableTitle,
+      };
+      final canStart =
+          stopped &&
+          !blocked &&
+          widget.coordinator.canOpenWebUi &&
+          !widget.actionInProgress;
+      return Center(
+        child: Padding(
+          padding: EdgeInsets.all(typography.spacingLg),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 580),
+            child: SingleChildScrollView(
+              key: const ValueKey('manage-recovery'),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    stopped
+                        ? Icons.web_asset_outlined
+                        : Icons.web_asset_off_outlined,
+                    size: 40,
+                    color: colors.onSurface,
+                  ),
+                  SizedBox(height: typography.spacingSm),
+                  Text(
+                    title,
+                    style: typography.titleMedium,
+                    textAlign: TextAlign.center,
+                  ),
+                  SizedBox(height: typography.spacingXs),
+                  Text(reason, textAlign: TextAlign.center),
+                  SizedBox(height: typography.spacingMd),
+                  Wrap(
+                    spacing: typography.spacingXs,
+                    runSpacing: typography.spacingXs,
+                    alignment: WrapAlignment.center,
+                    children: [
+                      if (stopped)
+                        ShadButton(
+                          key: const ValueKey('manage-start-and-enter'),
+                          enabled: canStart,
+                          onPressed: canStart
+                              ? () => widget.onStartAndEnter(context)
+                              : null,
+                          child: Text(l10n.manageStartAndEnter),
+                        )
+                      else if (canOpenInBrowser)
+                        ShadButton.outline(
+                          key: const ValueKey('manage-open-fallback-browser'),
+                          onPressed: () => unawaited(_openFallbackBrowser()),
+                          child: Text(l10n.openInSystemBrowser),
+                        ),
+                      if (blocked || !widget.coordinator.canOpenWebUi)
+                        ShadButton.outline(
+                          onPressed: widget.onRecover,
+                          child: Text(
+                            widget.componentRecoveryBlocked
+                                ? l10n.updates
+                                : widget.coordinator.canOpenWebUi
+                                ? l10n.viewOverview
+                                : l10n.fixConfiguration,
+                          ),
+                        ),
+                      ShadButton.ghost(
+                        onPressed: widget.onOpenServiceDetails,
+                        child: Text(l10n.serviceTitle),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     return Padding(
       padding: compact ? EdgeInsets.zero : EdgeInsets.all(typography.spacingMd),
       child: DecoratedBox(
@@ -1115,142 +1555,56 @@ class _ManagePageState extends State<_ManagePage> {
         // webview_all renders Linux WebViews as native GTK overlays. A
         // non-rectangular Flutter clip hides that overlay, leaving a blank
         // surface even after navigation reports success.
-        child: Stack(
+        child: Column(
           children: [
-            Positioned.fill(
-              child: Column(
-                children: [
-                  Material(
-                    key: const ValueKey('manage-browser-toolbar'),
-                    color: colors.surfaceLow,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        border: Border(
-                          bottom: BorderSide(color: colors.divider),
-                        ),
+            if (_webViewError != null)
+              Expanded(
+                child: _manageWebViewState(
+                  key: const ValueKey('manage-webview-error'),
+                  icon: Icons.web_asset_off_outlined,
+                  message: _webViewError!,
+                  action: Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: typography.spacingS,
+                    runSpacing: typography.spacingS,
+                    children: [
+                      ShadButton(
+                        key: const ValueKey('manage-retry-load'),
+                        onPressed: () => unawaited(_retryWebView()),
+                        child: Text(l10n.retry),
                       ),
-                      child: Padding(
-                        padding: EdgeInsets.symmetric(
-                          horizontal: typography.spacingXs,
-                        ),
-                        child: Row(
-                          children: [
-                            IconButton(
-                              key: const ValueKey('manage-back'),
-                              tooltip: l10n.back,
-                              onPressed: _canGoBack
-                                  ? () => unawaited(_goBack())
-                                  : null,
-                              icon: const Icon(Icons.arrow_back),
-                            ),
-                            SizedBox(width: typography.spacingXs),
-                            IconButton(
-                              key: const ValueKey('manage-forward'),
-                              tooltip: l10n.forward,
-                              onPressed: _canGoForward
-                                  ? () => unawaited(_goForward())
-                                  : null,
-                              icon: const Icon(Icons.arrow_forward),
-                            ),
-                            SizedBox(width: typography.spacingXs),
-                            IconButton(
-                              key: const ValueKey('manage-reload'),
-                              tooltip: l10n.refresh,
-                              onPressed: () => unawaited(_reloadCurrentPage()),
-                              icon: const Icon(Icons.refresh),
-                            ),
-                            SizedBox(width: typography.spacingXs),
-                            if (!compact)
-                              Expanded(
-                                child: Container(
-                                  key: const ValueKey('manage-url'),
-                                  height: 32,
-                                  alignment: Alignment.centerLeft,
-                                  margin: EdgeInsets.symmetric(
-                                    vertical: typography.spacingXs,
-                                  ),
-                                  padding: EdgeInsets.symmetric(
-                                    horizontal: typography.spacingSm,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: colors.surfaceLowest,
-                                    border: Border.all(color: colors.divider),
-                                    borderRadius: BorderRadius.circular(
-                                      typography.radiusMd,
-                                    ),
-                                  ),
-                                  child: Text(
-                                    _currentUri?.toString() ?? '',
-                                    overflow: TextOverflow.ellipsis,
-                                    maxLines: 1,
-                                    style: typography.bodySmall.copyWith(
-                                      color: colors.disabled,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            if (!compact) SizedBox(width: typography.spacingXs),
-                            IconButton(
-                              key: const ValueKey('manage-open-external'),
-                              tooltip: l10n.openInSystemBrowser,
-                              onPressed: () => unawaited(_openCurrentPage()),
-                              icon: const Icon(Icons.open_in_browser),
-                            ),
-                          ],
-                        ),
+                      ShadButton.outline(
+                        key: const ValueKey('manage-open-failed-browser'),
+                        enabled: canOpenInBrowser,
+                        onPressed: canOpenInBrowser
+                            ? () => unawaited(_openCurrentPage())
+                            : null,
+                        child: Text(l10n.openInSystemBrowser),
                       ),
+                      ShadButton.ghost(
+                        onPressed: widget.onOpenServiceDetails,
+                        child: Text(l10n.serviceTitle),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else if (!_webViewLoading && _webViewLoaded && webView != null)
+              Expanded(child: _retainHiddenWebView(webView))
+            else
+              Expanded(
+                child: Stack(
+                  children: [
+                    if (webView != null)
+                      Positioned.fill(child: _retainHiddenWebView(webView)),
+                    _manageWebViewState(
+                      key: const ValueKey('manage-webview-loading'),
+                      icon: Icons.hourglass_top,
+                      message: l10n.manageLoadingSubStore,
                     ),
-                  ),
-                  Expanded(
-                    child: _webViewError != null
-                        ? _manageWebViewState(
-                            key: const ValueKey('manage-webview-error'),
-                            icon: Icons.web_asset_off_outlined,
-                            message: _webViewError!,
-                            action: Wrap(
-                              alignment: WrapAlignment.center,
-                              spacing: typography.spacingS,
-                              runSpacing: typography.spacingS,
-                              children: [
-                                FilledButton.icon(
-                                  key: const ValueKey('manage-retry-load'),
-                                  onPressed: () => unawaited(_retryWebView()),
-                                  icon: const Icon(Icons.refresh),
-                                  label: Text(l10n.retry),
-                                ),
-                                OutlinedButton.icon(
-                                  key: const ValueKey(
-                                    'manage-open-failed-browser',
-                                  ),
-                                  onPressed: () =>
-                                      unawaited(_openCurrentPage()),
-                                  icon: const Icon(Icons.open_in_browser),
-                                  label: Text(l10n.openInSystemBrowser),
-                                ),
-                                TextButton(
-                                  onPressed: widget.onRecover,
-                                  child: Text(l10n.viewOverview),
-                                ),
-                              ],
-                            ),
-                          )
-                        : !_webViewLoading && _webViewLoaded && webView != null
-                        ? webView
-                        : Stack(
-                            children: [
-                              if (webView != null)
-                                Positioned.fill(child: webView),
-                              _manageWebViewState(
-                                key: const ValueKey('manage-webview-loading'),
-                                icon: Icons.hourglass_top,
-                                message: l10n.processing,
-                              ),
-                            ],
-                          ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
           ],
         ),
       ),
@@ -1270,24 +1624,35 @@ class _ManagePageState extends State<_ManagePage> {
         padding: EdgeInsets.all(typography.spacingLg),
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 720),
-          child: _SurfacePanel(
+          child: SingleChildScrollView(
             key: key,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(icon, size: 40, color: colors.onSurface),
                 SizedBox(height: typography.spacingSm),
-                Text(
-                  message,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: _webViewError == null
-                        ? colors.onSurface
-                        : colors.error,
+                Semantics(
+                  liveRegion: _webViewError != null,
+                  child: Text(
+                    message,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: _webViewError == null
+                          ? colors.onSurface
+                          : colors.error,
+                    ),
                   ),
                 ),
+                if (_webViewError != null &&
+                    widget.state.status == RuntimeStatus.running) ...[
+                  SizedBox(height: typography.spacingXs),
+                  Text(
+                    AppLocalizations.of(context)!.manageBackendStillRunning,
+                    textAlign: TextAlign.center,
+                  ),
+                ],
                 if (_missingWebView2)
-                  TextButton(
+                  ShadButton.ghost(
                     onPressed: () => unawaited(_openWebView2Download()),
                     child: Text(
                       AppLocalizations.of(context)!.openWebView2DownloadPage,

@@ -2,7 +2,13 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart' show ValueListenable;
+import 'package:flutter/foundation.dart'
+    show
+        LicenseEntry,
+        LicenseParagraph,
+        LicenseRegistry,
+        mapEquals,
+        ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/scheduler.dart';
@@ -46,7 +52,7 @@ final _notMaximized = ValueNotifier<bool>(false);
 Future<bool> _launchExternalUri(Uri uri) =>
     launchUrl(uri, mode: LaunchMode.externalApplication);
 
-enum _AppPage { overview, manage, logs, updates, settings, about }
+enum _AppPage { overview, manage, logs, updates, settings }
 
 typedef _PreferenceMutation = DesktopPreferences Function(
   DesktopPreferences current,
@@ -123,14 +129,7 @@ class SubDockApp extends StatefulWidget {
   final Future<void> Function(bool enabled)? onAutostartChanged;
   final Future<bool> Function(Uri uri)? onOpenExternalUri;
   final AboutInfoLoader? aboutInfoLoader;
-  final EmbeddedWebViewController Function({
-    required EmbeddedNavigationHandler onNavigationRequest,
-    required void Function(String message) onBlobMessage,
-    required String bridgeScript,
-    EmbeddedPageChangeHandler? onPageChanged,
-    EmbeddedMainFrameFailureHandler? onMainFrameFailure,
-  })?
-  webViewControllerFactory;
+  final EmbeddedWebViewControllerFactory? webViewControllerFactory;
   final bool showCustomDesktopChrome;
 
   @override
@@ -138,8 +137,11 @@ class SubDockApp extends StatefulWidget {
 }
 
 class _SubDockAppState extends State<SubDockApp> {
+  final _manageKey = GlobalKey<_ManagePageState>();
+  final _serviceKey = GlobalKey<_OverviewPageState>();
   final _settingsKey = GlobalKey<_SettingsPageState>();
   final _updatesKey = GlobalKey<_UpdatesPageState>();
+  final _logsKey = GlobalKey<_LogsPageState>();
   late final _lightShadTheme = _buildShadTheme(
     Brightness.light,
     AppColors.light,
@@ -160,8 +162,6 @@ class _SubDockAppState extends State<SubDockApp> {
   final _observations = RuntimeObservations();
   late final LogReaderState _logReader;
   _AppPage _page = _AppPage.overview;
-  final _overviewComponentStatuses = <ComponentKind, ComponentVersionStatus>{};
-  final _overviewComponentUnavailable = <ComponentKind>{};
   final _logRunUpdates = <String, RuntimeLogRunUpdate>{};
   final _retryingLogFinalizations = <String>{};
   BackendInfo? _info;
@@ -201,6 +201,7 @@ class _SubDockAppState extends State<SubDockApp> {
     _logRunUpdatesSubscription = widget.coordinator.runtime.logRunUpdates
         .listen(_onLogRunUpdate);
     widget.coordinator.maintenanceChanges.addListener(_onMaintenanceChanged);
+    widget.coordinator.configurationChanges.addListener(_onMaintenanceChanged);
     _lifecycleListener = AppLifecycleListener(
       onDetach: () => unawaited(widget.coordinator.dispose()),
     );
@@ -221,6 +222,9 @@ class _SubDockAppState extends State<SubDockApp> {
     widget.desktopWarning?.removeListener(_onDesktopWarning);
     _lifecycleListener.dispose();
     widget.coordinator.maintenanceChanges.removeListener(_onMaintenanceChanged);
+    widget.coordinator.configurationChanges.removeListener(
+      _onMaintenanceChanged,
+    );
     _stateSubscription.cancel();
     _logSubscription.cancel();
     _logRunStartedSubscription.cancel();
@@ -345,47 +349,69 @@ class _SubDockAppState extends State<SubDockApp> {
   Future<void> _loadOverviewComponentStatuses() async {
     for (final kind in ComponentKind.values) {
       try {
-        final status = await widget.coordinator.componentStatus(kind);
-        if (!mounted) return;
-        setState(() {
-          _overviewComponentStatuses[kind] = status;
-          _overviewComponentUnavailable.remove(kind);
-        });
+        await widget.coordinator.componentStatus(kind);
       } catch (_) {
-        if (!mounted) return;
-        setState(() => _overviewComponentUnavailable.add(kind));
+        // Shared status errors are published by the coordinator. A maintenance
+        // reservation can also temporarily prevent this initial local read.
       }
+      if (!mounted) return;
     }
   }
 
   Future<bool> _approveCloseRequest() async {
+    final manageState = _manageKey.currentState;
     final dialogContext = _settingsKey.currentContext;
-    if (!mounted || dialogContext == null) return false;
-    final l10n = AppLocalizations.of(dialogContext);
-    if (l10n == null) return false;
-    final confirmed = await showDialog<bool>(
-      context: dialogContext,
-      builder: (context) => AlertDialog(
-        title: Text(l10n.exitConfirmationTitle),
-        content: Text(l10n.exitConfirmationMessage),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: Text(l10n.cancel),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: Text(l10n.exitApp),
-          ),
-        ],
-      ),
-    );
-    if (!mounted || confirmed != true) return false;
+    TransitionRoute<dynamic>? dialogRoute;
+    var nativeViewRestored = false;
 
-    final previous = _previousCloseApproval;
-    if (previous != null && !await previous()) return false;
-    if (_page != _AppPage.settings) return true;
-    return _settingsKey.currentState?.requestLeave() ?? true;
+    Future<void> restoreAfterDialog() async {
+      try {
+        await dialogRoute?.completed;
+      } finally {
+        await manageState?._restoreNativeViewAfterExitConfirmation();
+        nativeViewRestored = true;
+      }
+    }
+
+    try {
+      await manageState?._hideNativeViewForExitConfirmation();
+      if (!mounted || dialogContext?.mounted != true) return false;
+      final l10n = AppLocalizations.of(dialogContext!);
+      if (l10n == null) return false;
+      final confirmed = await showShadDialog<bool>(
+        context: dialogContext,
+        builder: (context) {
+          dialogRoute = ModalRoute.of(context);
+          return ShadDialog(
+            key: const ValueKey('desktop-exit-confirmation'),
+            title: Text(l10n.exitConfirmationTitle),
+            description: Text(l10n.exitConfirmationMessage),
+            actions: [
+              ShadButton.outline(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: Text(l10n.cancel),
+              ),
+              ShadButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: Text(l10n.exitApp),
+              ),
+            ],
+          );
+        },
+      );
+      await restoreAfterDialog();
+      if (!mounted || confirmed != true) return false;
+
+      final previous = _previousCloseApproval;
+      if (previous != null && !await previous()) return false;
+      if (_page == _AppPage.settings &&
+          !await (_settingsKey.currentState?.requestLeave() ?? true)) {
+        return false;
+      }
+      return true;
+    } finally {
+      if (!nativeViewRestored) await restoreAfterDialog();
+    }
   }
 
   Future<void> _retryDesktopExit() async {
@@ -399,6 +425,12 @@ class _SubDockAppState extends State<SubDockApp> {
     if (_page == _AppPage.settings &&
         !await (_settingsKey.currentState?.requestLeave() ?? true)) {
       return;
+    }
+    if (_page == _AppPage.overview) {
+      _serviceKey.currentState?._dismissFeedback();
+    }
+    if (_page == _AppPage.logs) {
+      _logsKey.currentState?._dismissFeedback();
     }
     setState(() => _page = page);
     if (page == _AppPage.overview) {
@@ -474,33 +506,66 @@ class _SubDockAppState extends State<SubDockApp> {
   }) async {
     if (_actionInProgress) return;
     final l10n = AppLocalizations.of(actionContext)!;
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showShadDialog<bool>(
       context: actionContext,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => ShadDialog(
         title: Text(
           restart
               ? l10n.confirmRestartServiceTitle
               : l10n.confirmStopServiceTitle,
         ),
-        content: Text(
+        description: Text(
           restart
               ? l10n.confirmRestartServiceMessage
               : l10n.confirmStopServiceMessage,
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
+          ShadButton.outline(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
             child: Text(l10n.cancel),
           ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
+          ShadButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
             child: Text(restart ? l10n.restart : l10n.stop),
           ),
         ],
       ),
     );
-    if (!mounted || confirmed != true) return;
-    await _run(restart ? widget.coordinator.restart : widget.coordinator.stop);
+    if (!mounted || !actionContext.mounted || confirmed != true) return;
+    await _runServiceAction(
+      actionContext,
+      restart ? widget.coordinator.restart : widget.coordinator.stop,
+      restart ? RuntimeStatus.running : RuntimeStatus.stopped,
+    );
+  }
+
+  Future<void> _runServiceAction(
+    BuildContext actionContext,
+    Future<void> Function() action,
+    RuntimeStatus expectedStatus,
+  ) async {
+    if (_actionInProgress) return;
+    await _run(action);
+    if (!mounted ||
+        !actionContext.mounted ||
+        _page != _AppPage.overview ||
+        _error != null ||
+        widget.coordinator.runtime.currentState.status != expectedStatus) {
+      return;
+    }
+    ShadToaster.of(actionContext).show(
+      ShadToast(
+        alignment: Alignment.bottomRight,
+        duration: const Duration(seconds: 4),
+        showCloseIconOnlyWhenHovered: false,
+        title: Semantics(
+          liveRegion: true,
+          child: Text(
+            AppLocalizations.of(actionContext)!.serviceOperationCompleted,
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _run(Future<void> Function() action) async {
@@ -723,12 +788,17 @@ class _SubDockAppState extends State<SubDockApp> {
 
   Widget _buildHome(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final startupBlocker = widget.coordinator.startupBlocker;
+    final manageComponentRecoveryBlocked =
+        widget.coordinator.maintenanceRecoveryError != null ||
+        (startupBlocker is AppConfigError &&
+            startupBlocker.code == AppConfigErrorCode.componentRecoveryFailed);
     final colors = Theme.of(context).extension<AppColors>()!;
     final destinations = <_ShellDestination>[
       _ShellDestination(
         icon: const Icon(Icons.dashboard_outlined),
         selectedIcon: const Icon(Icons.dashboard),
-        label: l10n.overview,
+        label: l10n.serviceTitle,
       ),
       _ShellDestination(
         icon: const Icon(Icons.web_asset_outlined),
@@ -750,30 +820,39 @@ class _SubDockAppState extends State<SubDockApp> {
         selectedIcon: const Icon(Icons.settings),
         label: l10n.settings,
       ),
-      _ShellDestination(
-        icon: const Icon(Icons.info_outline),
-        selectedIcon: const Icon(Icons.info),
-        label: l10n.aboutSubDock,
-      ),
     ];
     final pages = <Widget>[
-      _OverviewPage(
-        state: _state,
-        info: _info,
-        error: _error,
-        observations: _observations.snapshot(),
-        endpoint: widget.coordinator.webUiApiUri.toString(),
-        componentStatuses: _overviewComponentStatuses,
-        unavailableComponents: _overviewComponentUnavailable,
-        actionInProgress: _actionInProgress,
-        onStart: () => _run(widget.coordinator.start),
-        onStop: (BuildContext actionContext) =>
-            unawaited(_confirmServiceAction(actionContext, restart: false)),
-        onRestart: (BuildContext actionContext) =>
-            unawaited(_confirmServiceAction(actionContext, restart: true)),
-        onOpenLogs: () => unawaited(_selectPage(_AppPage.logs)),
+      TickerMode(
+        enabled: _page == _AppPage.overview,
+        child: _OverviewPage(
+          key: _serviceKey,
+          state: _state,
+          info: _info,
+          error: _error,
+          observations: _observations.snapshot(),
+          endpoint: widget.coordinator.webUiApiUri.toString(),
+          componentStatuses: widget.coordinator.componentStatuses,
+          unavailableComponents: widget.coordinator.componentStatusErrors.keys
+              .toSet(),
+          actionInProgress: _actionInProgress,
+          hasPendingConfiguration: widget.coordinator.hasPendingConfiguration,
+          onStart: (actionContext) => unawaited(
+            _runServiceAction(
+              actionContext,
+              widget.coordinator.start,
+              RuntimeStatus.running,
+            ),
+          ),
+          onStop: (BuildContext actionContext) =>
+              unawaited(_confirmServiceAction(actionContext, restart: false)),
+          onRestart: (BuildContext actionContext) =>
+              unawaited(_confirmServiceAction(actionContext, restart: true)),
+          onOpenLogs: () => unawaited(_selectPage(_AppPage.logs)),
+          onOpenManage: () => unawaited(_selectPage(_AppPage.manage)),
+        ),
       ),
       _ManagePage(
+        key: _manageKey,
         state: _state,
         coordinator: widget.coordinator,
         appliedWebUiUri: widget.coordinator.appliedWebUiUri,
@@ -782,27 +861,44 @@ class _SubDockAppState extends State<SubDockApp> {
         sessionIdentity:
             _logReader.currentRunId ??
             'revision-${widget.coordinator.appliedRevision}',
+        isDarkMode: Theme.of(context).brightness == Brightness.dark,
         error: _error,
         enabled: widget.enableWebView,
+        actionInProgress: _actionInProgress,
+        componentRecoveryBlocked: manageComponentRecoveryBlocked,
         onOpenExternalUri: widget.onOpenExternalUri ?? _launchExternalUri,
         webViewControllerFactory: widget.webViewControllerFactory,
+        onStartAndEnter: (context) => unawaited(
+          _runServiceAction(
+            context,
+            widget.coordinator.start,
+            RuntimeStatus.running,
+          ),
+        ),
+        onOpenServiceDetails: () => unawaited(_selectPage(_AppPage.overview)),
         onRecover: () => _selectPage(
-          widget.coordinator.canOpenWebUi
+          manageComponentRecoveryBlocked
+              ? _AppPage.updates
+              : widget.coordinator.canOpenWebUi
               ? _AppPage.overview
               : _AppPage.settings,
         ),
       ),
-      _LogsPage(
-        reader: _logReader,
-        historyRefreshGeneration: _historyRefreshGeneration,
-        historyMutationsEnabled: widget.coordinator.logRecoveryError == null,
-        logStore: widget.coordinator.logStore,
-        sort: _savedPreferences.logSort,
-        maintenanceActivity: widget.coordinator.maintenanceActivity,
-        logRunUpdates: Map.unmodifiable(_logRunUpdates),
-        retryingLogFinalizations: Set.unmodifiable(_retryingLogFinalizations),
-        onRetryLogFinalization: _retryLogFinalization,
-        onSortChanged: _onLogSortChanged,
+      TickerMode(
+        enabled: _page == _AppPage.logs,
+        child: _LogsPage(
+          key: _logsKey,
+          reader: _logReader,
+          historyRefreshGeneration: _historyRefreshGeneration,
+          historyMutationsEnabled: widget.coordinator.logRecoveryError == null,
+          logStore: widget.coordinator.logStore,
+          sort: _savedPreferences.logSort,
+          maintenanceActivity: widget.coordinator.maintenanceActivity,
+          logRunUpdates: Map.unmodifiable(_logRunUpdates),
+          retryingLogFinalizations: Set.unmodifiable(_retryingLogFinalizations),
+          onRetryLogFinalization: _retryLogFinalization,
+          onSortChanged: _onLogSortChanged,
+        ),
       ),
       _UpdatesPage(
         key: _updatesKey,
@@ -814,6 +910,8 @@ class _SubDockAppState extends State<SubDockApp> {
       ),
       _SettingsPage(
         key: _settingsKey,
+        active: _page == _AppPage.settings,
+        runtimeState: _state,
         environment: widget.coordinator.environment,
         configuration: widget.coordinator.configuration,
         configurationError: widget.coordinator.configurationError,
@@ -833,14 +931,8 @@ class _SubDockAppState extends State<SubDockApp> {
         onResetConfiguration: () => _run(widget.coordinator.resetConfiguration),
         onChildStateChanged: (child) => setState(() => _settingsChild = child),
         onOpenExternalUri: widget.onOpenExternalUri ?? _launchExternalUri,
+        onOpenServiceDetails: () => unawaited(_selectPage(_AppPage.overview)),
         aboutInfoLoader: widget.aboutInfoLoader,
-      ),
-      _ShellAboutPage(
-        key: const ValueKey('about-page'),
-        loader: widget.aboutInfoLoader,
-        coordinator: widget.coordinator,
-        runtimeState: _state,
-        onOpenExternalUri: widget.onOpenExternalUri ?? _launchExternalUri,
       ),
     ];
     final body = Stack(
@@ -858,14 +950,17 @@ class _SubDockAppState extends State<SubDockApp> {
     );
     final pageFrame = _PageFrame(
       title: destinations[_page.index].label,
+      showHeader: _page != _AppPage.manage,
       trailing: _page == _AppPage.updates
-          ? OutlinedButton.icon(
+          ? _updatesButton(
+              context,
               key: const ValueKey('updates-check-all'),
+              label: l10n.checkForUpdates,
               onPressed: () => unawaited(
                 _updatesKey.currentState?.checkAll() ?? Future<void>.value(),
               ),
-              icon: const Icon(Icons.refresh),
-              label: Text(l10n.checkForUpdates),
+              outline: true,
+              icon: Icons.refresh,
             )
           : null,
       child: body,
@@ -887,19 +982,29 @@ class _SubDockAppState extends State<SubDockApp> {
               closeTooltip: l10n.closeTooltip,
             ),
           if (widget.coordinator.logRecoveryError != null)
-            MaterialBanner(
+            Padding(
               key: const ValueKey('log-recovery-banner'),
-              content: Text(l10n.logRecoveryFailed),
-              actions: [
-                TextButton(
-                  onPressed: _retryingLogRecovery
-                      ? null
-                      : () => unawaited(_retryLogRecovery()),
-                  child: Text(
-                    _retryingLogRecovery ? l10n.retrying : l10n.retry,
-                  ),
+              padding: const EdgeInsets.all(8),
+              child: ShadCard(
+                child: Row(
+                  children: [
+                    Expanded(child: Text(l10n.logRecoveryFailed)),
+                    ShadButton.outline(
+                      enabled: !_retryingLogRecovery,
+                      onPressed: _retryingLogRecovery
+                          ? null
+                          : () => unawaited(_retryLogRecovery()),
+                      child: Semantics(
+                        button: true,
+                        enabled: !_retryingLogRecovery,
+                        child: Text(
+                          _retryingLogRecovery ? l10n.retrying : l10n.retry,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           if (widget.desktopWarning?.value case final warning?)
             Container(
@@ -917,7 +1022,7 @@ class _SubDockAppState extends State<SubDockApp> {
                   if (warning is AppConfigError &&
                       warning.code == AppConfigErrorCode.exitFailed &&
                       widget.onRetryExit != null)
-                    TextButton(
+                    ShadButton.outline(
                       onPressed: () => unawaited(_retryDesktopExit()),
                       child: Text(l10n.retryExit),
                     ),
@@ -1218,25 +1323,51 @@ class _DesktopChrome extends StatelessWidget {
               ),
             ),
             if (onMinimize != null)
-              IconButton(
-                tooltip: minimizeTooltip,
-                onPressed: () => unawaited(onMinimize!()),
-                icon: const Icon(Icons.minimize),
+              ShadTooltip(
+                builder: (_) => Text(minimizeTooltip),
+                child: ShadIconButton.ghost(
+                  width: 48,
+                  height: 44,
+                  onPressed: () => unawaited(onMinimize!()),
+                  icon: Semantics(
+                    label: minimizeTooltip,
+                    child: const Icon(Icons.minimize),
+                  ),
+                ),
               ),
             if (onToggleMaximize != null)
               ValueListenableBuilder<bool>(
                 valueListenable: isMaximized ?? _notMaximized,
-                builder: (context, maximized, child) => IconButton(
-                  tooltip: maximized ? restoreTooltip : maximizeTooltip,
-                  onPressed: () => unawaited(onToggleMaximize!()),
-                  icon: Icon(maximized ? Icons.filter_none : Icons.crop_square),
-                ),
+                builder: (context, maximized, child) {
+                  final label = maximized ? restoreTooltip : maximizeTooltip;
+                  return ShadTooltip(
+                    builder: (_) => Text(label),
+                    child: ShadIconButton.ghost(
+                      width: 48,
+                      height: 44,
+                      onPressed: () => unawaited(onToggleMaximize!()),
+                      icon: Semantics(
+                        label: label,
+                        child: Icon(
+                          maximized ? Icons.filter_none : Icons.crop_square,
+                        ),
+                      ),
+                    ),
+                  );
+                },
               ),
             if (onClose != null)
-              IconButton(
-                tooltip: closeTooltip,
-                onPressed: () => unawaited(onClose!()),
-                icon: const Icon(Icons.close),
+              ShadTooltip(
+                builder: (_) => Text(closeTooltip),
+                child: ShadIconButton.ghost(
+                  width: 48,
+                  height: 44,
+                  onPressed: () => unawaited(onClose!()),
+                  icon: Semantics(
+                    label: closeTooltip,
+                    child: const Icon(Icons.close),
+                  ),
+                ),
               ),
           ],
         ),
@@ -1246,15 +1377,21 @@ class _DesktopChrome extends StatelessWidget {
 }
 
 class _PageFrame extends StatelessWidget {
-  const _PageFrame({required this.title, this.trailing, required this.child});
+  const _PageFrame({
+    required this.title,
+    this.trailing,
+    this.showHeader = true,
+    required this.child,
+  });
   final String title;
   final Widget? trailing;
+  final bool showHeader;
   final Widget child;
 
   @override
   Widget build(BuildContext context) => Column(
     children: [
-      _PageHeader(title: title, trailing: trailing),
+      if (showHeader) _PageHeader(title: title, trailing: trailing),
       Expanded(child: child),
     ],
   );
@@ -1295,41 +1432,6 @@ class _PageHeader extends StatelessWidget {
             ?trailing,
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _SurfacePanel extends StatelessWidget {
-  const _SurfacePanel({
-    super.key,
-    required this.child,
-    this.padding,
-    this.radius,
-    this.borderColor,
-    this.clipBehavior = Clip.hardEdge,
-  });
-
-  final Widget child;
-  final EdgeInsetsGeometry? padding;
-  final double? radius;
-  final Color? borderColor;
-  final Clip clipBehavior;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).extension<AppColors>()!;
-    final typography = Theme.of(context).extension<AppTypography>()!;
-    return Material(
-      color: colors.surfaceLow,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(radius ?? typography.radiusLg),
-        side: BorderSide(color: borderColor ?? colors.divider),
-      ),
-      clipBehavior: clipBehavior,
-      child: Padding(
-        padding: padding ?? EdgeInsets.all(typography.spacingMd),
-        child: child,
       ),
     );
   }

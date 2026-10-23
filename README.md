@@ -7,7 +7,8 @@ for Linux, Windows, and macOS.
 
 ## Desktop workspace
 
-The desktop workspace has six pages:
+The desktop workspace has five main pages. About SubDock is a subpage within
+Settings.
 
 - **Overview** shows Backend and HTTP-META status, component versions, runtime
   details, recent activity, and service controls.
@@ -17,9 +18,9 @@ The desktop workspace has six pages:
 - **Updates** checks the Sub-Store Backend and Frontend and manages their
   updates and rollbacks.
 - **Settings** contains desktop preferences, Backend Configuration, Advanced
-  ENV, and the HTTP-META preference.
-- **About** shows SubDock version and platform details, copies runtime and
-  component diagnostics, and opens the application and bundled font licenses.
+  ENV, and the HTTP-META preference. Its **About SubDock** subpage shows the
+  SubDock version and platform details, copies runtime and component diagnostics,
+  and opens the application and bundled font licenses.
 
 The pages share the current service and component state. SubDock keeps
 preferences, configuration, log history, component state, and backups in
@@ -116,8 +117,12 @@ SubDock pauses automatic cleanup and Backend startup until recovery succeeds.
 The embedded Sub-Store page uses different WebView implementations by
 platform. macOS uses `webview_flutter`; Linux and Windows use `webview_all`.
 Windows requires Microsoft Edge WebView2 Runtime. The Manage page can open the
-local UI in the system browser when the embedded view is unavailable. Linux
-source builds need GTK, X11, Xi, and WebKitGTK development libraries.
+local UI in the system browser when the embedded view is unavailable. The
+embedded Sub-Store page follows SubDock's effective light/dark appearance when
+its theme is automatic; a manual theme selected in the website takes
+precedence. This synchronization applies only to the embedded view; the system
+browser uses its own theme settings. Linux source builds need GTK, X11, Xi, and
+WebKitGTK development libraries.
 
 The mobile entry point is a placeholder. It does not automatically start a
 runtime and does not enable the WebView.
@@ -187,7 +192,13 @@ Replace `darwin-arm64` with `darwin-x64` for an Intel macOS build.
 ```sh
 fvm flutter analyze
 fvm flutter test
+node --test test/embedded_webview_color_scheme_bridge.test.cjs
 ```
+
+The Node behavior check uses only Node's built-in test and VM modules; no npm
+package or additional install is needed. If Node is not on `PATH`, run it with
+the existing prepared runtime at `.subdock/runtime/<target>/node` (or
+`node.exe` on Windows).
 
 ## Packaging
 

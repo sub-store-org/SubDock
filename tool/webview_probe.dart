@@ -26,7 +26,7 @@ class _ProbePage extends StatefulWidget {
 }
 
 class _ProbePageState extends State<_ProbePage> {
-  late final EmbeddedWebViewController _controller;
+  EmbeddedWebViewController? _controller;
   HttpServer? _server;
   var _pageLoaded = false;
   var _bridgeInstalled = false;
@@ -48,11 +48,6 @@ class _ProbePageState extends State<_ProbePage> {
   @override
   void initState() {
     super.initState();
-    _controller = EmbeddedWebViewController.create(
-      onNavigationRequest: _onNavigationRequest,
-      onBlobMessage: _onMessage,
-      bridgeScript: _bridgeScript,
-    );
     unawaited(_start());
   }
 
@@ -110,14 +105,25 @@ class _ProbePageState extends State<_ProbePage> {
 
   Future<void> _start() async {
     try {
-      await _controller.initialize();
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       _server = server;
+      final origin = Uri(
+        scheme: 'http',
+        host: server.address.address,
+        port: server.port,
+      );
+      final controller = EmbeddedWebViewController.create(
+        onNavigationRequest: _onNavigationRequest,
+        onBlobMessage: _onMessage,
+        bridgeScript: _bridgeScript,
+        trustedOrigin: origin,
+      );
+      _controller = controller;
+      _set(() {});
+      await controller.initialize();
       unawaited(_serve(server));
       _set(() => _started = true);
-      await _controller.loadRequest(
-        Uri.parse('http://${server.address.address}:${server.port}/'),
-      );
+      await controller.loadRequest(origin);
     } catch (error) {
       _set(() => _error = '$error');
     }
@@ -349,7 +355,7 @@ SubDockBlob.postMessage('bridge-installed');
               title: Text(check.key),
             ),
           if (!_started) const LinearProgressIndicator(),
-          Expanded(child: _controller.build()),
+          Expanded(child: _controller?.build() ?? const SizedBox.shrink()),
         ],
       ),
     );

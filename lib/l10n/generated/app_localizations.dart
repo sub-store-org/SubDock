@@ -107,8 +107,44 @@ abstract class AppLocalizations {
   /// No description provided for @manage.
   ///
   /// In zh, this message translates to:
-  /// **'管理'**
+  /// **'Sub-Store'**
   String get manage;
+
+  /// No description provided for @manageStartAndEnter.
+  ///
+  /// In zh, this message translates to:
+  /// **'启动并进入'**
+  String get manageStartAndEnter;
+
+  /// No description provided for @manageLoadingSubStore.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在加载 Sub-Store…'**
+  String get manageLoadingSubStore;
+
+  /// No description provided for @manageAuxiliaryUnavailable.
+  ///
+  /// In zh, this message translates to:
+  /// **'辅助服务不可用；订阅管理仍可使用。'**
+  String get manageAuxiliaryUnavailable;
+
+  /// No description provided for @manageBackendStillRunning.
+  ///
+  /// In zh, this message translates to:
+  /// **'本地服务仍在运行；可以重试加载 Sub-Store，或在系统浏览器中打开。'**
+  String get manageBackendStillRunning;
+
+  /// No description provided for @manageServiceDetails.
+  ///
+  /// In zh, this message translates to:
+  /// **'服务详情'**
+  String get manageServiceDetails;
+
+  /// No description provided for @manageUnavailableTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'嵌入式 Sub-Store 暂不可用'**
+  String get manageUnavailableTitle;
 
   /// No description provided for @overview.
   ///
@@ -181,6 +217,102 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'组件'**
   String get components;
+
+  /// No description provided for @componentInstalled.
+  ///
+  /// In zh, this message translates to:
+  /// **'已安装'**
+  String get componentInstalled;
+
+  /// No description provided for @serviceComponentsHeading.
+  ///
+  /// In zh, this message translates to:
+  /// **'组件与辅助服务'**
+  String get serviceComponentsHeading;
+
+  /// No description provided for @serviceOperationCompleted.
+  ///
+  /// In zh, this message translates to:
+  /// **'服务操作已完成。'**
+  String get serviceOperationCompleted;
+
+  /// No description provided for @serviceTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'服务'**
+  String get serviceTitle;
+
+  /// No description provided for @serviceOpenSubStore.
+  ///
+  /// In zh, this message translates to:
+  /// **'进入 Sub-Store'**
+  String get serviceOpenSubStore;
+
+  /// No description provided for @serviceStoppedTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'本地服务尚未启动'**
+  String get serviceStoppedTitle;
+
+  /// No description provided for @serviceStartingTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在启动本地服务'**
+  String get serviceStartingTitle;
+
+  /// No description provided for @serviceRunningTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'本地服务正在运行'**
+  String get serviceRunningTitle;
+
+  /// No description provided for @serviceStoppingTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在停止本地服务'**
+  String get serviceStoppingTitle;
+
+  /// No description provided for @serviceUnhealthyTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'服务响应异常'**
+  String get serviceUnhealthyTitle;
+
+  /// No description provided for @serviceCrashedTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'服务意外退出'**
+  String get serviceCrashedTitle;
+
+  /// No description provided for @serviceStoppedDescription.
+  ///
+  /// In zh, this message translates to:
+  /// **'启动后可使用订阅管理；已有配置与订阅数据仍保留。'**
+  String get serviceStoppedDescription;
+
+  /// No description provided for @serviceRunningDescription.
+  ///
+  /// In zh, this message translates to:
+  /// **'可以进入 Sub-Store 管理订阅。'**
+  String get serviceRunningDescription;
+
+  /// No description provided for @serviceTransitionDescription.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在处理，请稍候；切换页面不会重复执行操作。'**
+  String get serviceTransitionDescription;
+
+  /// No description provided for @serviceUnhealthyDescription.
+  ///
+  /// In zh, this message translates to:
+  /// **'进程仍存在，但健康检查没有通过；不要重复启动。可以重启或先查看日志。'**
+  String get serviceUnhealthyDescription;
+
+  /// No description provided for @serviceCrashedDescription.
+  ///
+  /// In zh, this message translates to:
+  /// **'进程已退出，订阅处理暂不可用；查看原因后可重新启动。'**
+  String get serviceCrashedDescription;
 
   /// No description provided for @latest.
   ///
@@ -289,6 +421,12 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'可用版本'**
   String get availableVersion;
+
+  /// No description provided for @availableVersionUnconfirmed.
+  ///
+  /// In zh, this message translates to:
+  /// **'尚未确认'**
+  String get availableVersionUnconfirmed;
 
   /// No description provided for @componentStatusUnavailable.
   ///
@@ -463,6 +601,12 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'维护记录无效或与已安装组件文件不匹配。记录已保留以便恢复，不会自动更新组件或启动服务。'**
   String get maintenanceRecoveryBlocked;
+
+  /// No description provided for @maintenanceRecoveryRevalidate.
+  ///
+  /// In zh, this message translates to:
+  /// **'重新验证恢复'**
+  String get maintenanceRecoveryRevalidate;
 
   /// No description provided for @stopBackend.
   ///
@@ -770,6 +914,18 @@ abstract class AppLocalizations {
   /// **'不可回滚'**
   String get rollbackUnavailable;
 
+  /// No description provided for @rollbackDataSnapshotMissing.
+  ///
+  /// In zh, this message translates to:
+  /// **'缺少此版本关联的数据快照；使用其他快照可能覆盖订阅数据。'**
+  String get rollbackDataSnapshotMissing;
+
+  /// No description provided for @rollbackComponentFilesMissing.
+  ///
+  /// In zh, this message translates to:
+  /// **'缺少此版本的组件文件。'**
+  String get rollbackComponentFilesMissing;
+
   /// No description provided for @refresh.
   ///
   /// In zh, this message translates to:
@@ -866,6 +1022,18 @@ abstract class AppLocalizations {
   /// **'筛选'**
   String get logFilters;
 
+  /// No description provided for @logResetFilters.
+  ///
+  /// In zh, this message translates to:
+  /// **'重置筛选'**
+  String get logResetFilters;
+
+  /// No description provided for @logClearFilters.
+  ///
+  /// In zh, this message translates to:
+  /// **'清空全部筛选'**
+  String get logClearFilters;
+
   /// No description provided for @logSources.
   ///
   /// In zh, this message translates to:
@@ -902,6 +1070,36 @@ abstract class AppLocalizations {
   /// **'最早在前'**
   String get logOldest;
 
+  /// No description provided for @logLoading.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在读取日志…'**
+  String get logLoading;
+
+  /// No description provided for @logVisibleCount.
+  ///
+  /// In zh, this message translates to:
+  /// **'显示 {count} 条日志'**
+  String logVisibleCount(int count);
+
+  /// No description provided for @logRecordedCount.
+  ///
+  /// In zh, this message translates to:
+  /// **'本次运行共记录 {count} 条日志'**
+  String logRecordedCount(int count);
+
+  /// No description provided for @logRangeLabel.
+  ///
+  /// In zh, this message translates to:
+  /// **'第 {start}–{end} 条 / 共 {total} 条匹配'**
+  String logRangeLabel(int start, int end, int total);
+
+  /// No description provided for @logPageLabel.
+  ///
+  /// In zh, this message translates to:
+  /// **'第 {page} 页'**
+  String logPageLabel(int page);
+
   /// No description provided for @copyLog.
   ///
   /// In zh, this message translates to:
@@ -913,6 +1111,24 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'复制筛选结果'**
   String get copyFilteredLogs;
+
+  /// No description provided for @logCopySucceeded.
+  ///
+  /// In zh, this message translates to:
+  /// **'日志已复制到剪贴板。'**
+  String get logCopySucceeded;
+
+  /// No description provided for @logCopyFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'无法将日志复制到剪贴板。'**
+  String get logCopyFailed;
+
+  /// No description provided for @logReadingPaused.
+  ///
+  /// In zh, this message translates to:
+  /// **'已暂停跟随，日志仍在记录；正在查看的列表暂不变动。'**
+  String get logReadingPaused;
 
   /// No description provided for @noFilteredLogs.
   ///
@@ -961,6 +1177,12 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'暂无历史记录'**
   String get noHistory;
+
+  /// No description provided for @historyCompletedCount.
+  ///
+  /// In zh, this message translates to:
+  /// **'已结束的运行 · {count} 次'**
+  String historyCompletedCount(int count);
 
   /// No description provided for @historyLoadError.
   ///
@@ -1183,6 +1405,12 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'已删除'**
   String get recentlyDeleted;
+
+  /// No description provided for @logRunIdentity.
+  ///
+  /// In zh, this message translates to:
+  /// **'运行 {runId}'**
+  String logRunIdentity(Object runId);
 
   /// No description provided for @previousPage.
   ///
@@ -1464,6 +1692,18 @@ abstract class AppLocalizations {
   /// **'即时预览界面语言变化，使用保存按钮保留当前设置。'**
   String get languageSubtitle;
 
+  /// No description provided for @themeSubtitleAutomatic.
+  ///
+  /// In zh, this message translates to:
+  /// **'选择后立即预览并自动记住，无需整页保存。'**
+  String get themeSubtitleAutomatic;
+
+  /// No description provided for @languageSubtitleAutomatic.
+  ///
+  /// In zh, this message translates to:
+  /// **'选择后立即切换并自动记住，无需整页保存。'**
+  String get languageSubtitleAutomatic;
+
   /// No description provided for @closeBehaviorHeading.
   ///
   /// In zh, this message translates to:
@@ -1487,6 +1727,36 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'全部保存'**
   String get saveAll;
+
+  /// No description provided for @settingsLocalServiceHeading.
+  ///
+  /// In zh, this message translates to:
+  /// **'本地服务'**
+  String get settingsLocalServiceHeading;
+
+  /// No description provided for @settingsRuntimeConfigurationEntry.
+  ///
+  /// In zh, this message translates to:
+  /// **'编辑运行配置'**
+  String get settingsRuntimeConfigurationEntry;
+
+  /// No description provided for @settingsQuickAppearanceHeading.
+  ///
+  /// In zh, this message translates to:
+  /// **'界面与记录'**
+  String get settingsQuickAppearanceHeading;
+
+  /// No description provided for @settingsQuickDesktopHeading.
+  ///
+  /// In zh, this message translates to:
+  /// **'窗口与启动'**
+  String get settingsQuickDesktopHeading;
+
+  /// No description provided for @settingsConfirmChangesTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'确认设置更改'**
+  String get settingsConfirmChangesTitle;
 
   /// No description provided for @autoSavePreferencesHeading.
   ///
@@ -1583,6 +1853,72 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'下次启动 Backend 时将使用已保存的运行配置。'**
   String get runtimeConfigSavedForNextStart;
+
+  /// No description provided for @runtimeCurrentConfiguration.
+  ///
+  /// In zh, this message translates to:
+  /// **'当前已应用'**
+  String get runtimeCurrentConfiguration;
+
+  /// No description provided for @runtimeProposedConfiguration.
+  ///
+  /// In zh, this message translates to:
+  /// **'本次配置'**
+  String get runtimeProposedConfiguration;
+
+  /// No description provided for @runtimeNoAppliedConfiguration.
+  ///
+  /// In zh, this message translates to:
+  /// **'当前没有已应用的运行配置。'**
+  String get runtimeNoAppliedConfiguration;
+
+  /// No description provided for @runtimePreviewUnavailable.
+  ///
+  /// In zh, this message translates to:
+  /// **'修正配置错误后即可预览本次运行配置。'**
+  String get runtimePreviewUnavailable;
+
+  /// No description provided for @runtimeSharedDraftScope.
+  ///
+  /// In zh, this message translates to:
+  /// **'连接配置、HTTP-META 与高级 ENV 共用同一份草稿，并由同一组保存和撤销操作管理。'**
+  String get runtimeSharedDraftScope;
+
+  /// No description provided for @revertRuntimeDraft.
+  ///
+  /// In zh, this message translates to:
+  /// **'撤销运行草稿'**
+  String get revertRuntimeDraft;
+
+  /// No description provided for @confirmRevertRuntimeDraft.
+  ///
+  /// In zh, this message translates to:
+  /// **'要将连接配置、HTTP-META 与高级 ENV 的修改全部恢复为上次保存的配置吗？'**
+  String get confirmRevertRuntimeDraft;
+
+  /// No description provided for @saveAndStartBackend.
+  ///
+  /// In zh, this message translates to:
+  /// **'保存并启动 Backend'**
+  String get saveAndStartBackend;
+
+  /// No description provided for @saveAndRestartBackend.
+  ///
+  /// In zh, this message translates to:
+  /// **'保存并重启 Backend'**
+  String get saveAndRestartBackend;
+
+  /// No description provided for @confirmSaveAndStartBackend.
+  ///
+  /// In zh, this message translates to:
+  /// **'保存连接配置、HTTP-META 与 ENV 草稿，然后使用该配置启动 Backend？'**
+  String get confirmSaveAndStartBackend;
+
+  /// No description provided for @confirmSaveAndRestartBackend.
+  ///
+  /// In zh, this message translates to:
+  /// **'保存连接配置、HTTP-META 与 ENV 草稿，然后使用该配置重启 Backend？'**
+  String get confirmSaveAndRestartBackend;
 
   /// No description provided for @applySavedConfiguration.
   ///
@@ -1824,6 +2160,12 @@ abstract class AppLocalizations {
   /// **'诊断摘要'**
   String get aboutDiagnosticsTitle;
 
+  /// No description provided for @aboutDiagnosticsPrivacy.
+  ///
+  /// In zh, this message translates to:
+  /// **'摘要仅包含允许公开的版本、平台、运行、维护和组件状态；不包含原始 ENV、订阅内容、入口密钥或原始异常。'**
+  String get aboutDiagnosticsPrivacy;
+
   /// No description provided for @aboutDiagnosticsCopied.
   ///
   /// In zh, this message translates to:
@@ -1835,6 +2177,60 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'无法复制诊断摘要。'**
   String get aboutClipboardFailed;
+
+  /// No description provided for @aboutProjectLinkOpened.
+  ///
+  /// In zh, this message translates to:
+  /// **'已请求打开项目页面。'**
+  String get aboutProjectLinkOpened;
+
+  /// No description provided for @aboutLicensesLoading.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在加载许可证信息…'**
+  String get aboutLicensesLoading;
+
+  /// No description provided for @aboutLicensesUnavailable.
+  ///
+  /// In zh, this message translates to:
+  /// **'无法获取许可证信息。'**
+  String get aboutLicensesUnavailable;
+
+  /// No description provided for @aboutRetryLicenses.
+  ///
+  /// In zh, this message translates to:
+  /// **'重试加载许可证'**
+  String get aboutRetryLicenses;
+
+  /// No description provided for @aboutLicenseBack.
+  ///
+  /// In zh, this message translates to:
+  /// **'返回关于'**
+  String get aboutLicenseBack;
+
+  /// No description provided for @runtimeValueCopied.
+  ///
+  /// In zh, this message translates to:
+  /// **'已复制运行信息'**
+  String get runtimeValueCopied;
+
+  /// No description provided for @runtimeValueCopyFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'无法复制运行信息。'**
+  String get runtimeValueCopyFailed;
+
+  /// No description provided for @expand.
+  ///
+  /// In zh, this message translates to:
+  /// **'展开'**
+  String get expand;
+
+  /// No description provided for @collapse.
+  ///
+  /// In zh, this message translates to:
+  /// **'收起'**
+  String get collapse;
 
   /// No description provided for @aboutOpenLinkFailed.
   ///

@@ -13,7 +13,27 @@ class AppLocalizationsEn extends AppLocalizations {
   String get appTitle => 'SubDock';
 
   @override
-  String get manage => 'Manage';
+  String get manage => 'Sub-Store';
+
+  @override
+  String get manageStartAndEnter => 'Start and enter';
+
+  @override
+  String get manageLoadingSubStore => 'Loading Sub-Store…';
+
+  @override
+  String get manageAuxiliaryUnavailable =>
+      'An auxiliary service is unavailable. Subscription management remains available.';
+
+  @override
+  String get manageBackendStillRunning =>
+      'The local service is still running; retry loading Sub-Store or open it in your system browser.';
+
+  @override
+  String get manageServiceDetails => 'Service details';
+
+  @override
+  String get manageUnavailableTitle => 'Embedded Sub-Store is unavailable';
 
   @override
   String get overview => 'Overview';
@@ -51,6 +71,59 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get components => 'Components';
+
+  @override
+  String get componentInstalled => 'Installed';
+
+  @override
+  String get serviceComponentsHeading => 'Components and auxiliary services';
+
+  @override
+  String get serviceOperationCompleted => 'Service operation completed.';
+
+  @override
+  String get serviceTitle => 'Service';
+
+  @override
+  String get serviceOpenSubStore => 'Enter Sub-Store';
+
+  @override
+  String get serviceStoppedTitle => 'Local service has not started';
+
+  @override
+  String get serviceStartingTitle => 'Starting local service';
+
+  @override
+  String get serviceRunningTitle => 'Local service is running';
+
+  @override
+  String get serviceStoppingTitle => 'Stopping local service';
+
+  @override
+  String get serviceUnhealthyTitle => 'Service response is unhealthy';
+
+  @override
+  String get serviceCrashedTitle => 'Service exited unexpectedly';
+
+  @override
+  String get serviceStoppedDescription =>
+      'Start the service to manage subscriptions. Your configuration and subscription data are retained.';
+
+  @override
+  String get serviceRunningDescription =>
+      'Open Sub-Store to manage subscriptions.';
+
+  @override
+  String get serviceTransitionDescription =>
+      'Operation in progress. Changing pages will not run it again.';
+
+  @override
+  String get serviceUnhealthyDescription =>
+      'The process is still running, but its health check failed. Do not start another instance; restart the service or inspect the logs.';
+
+  @override
+  String get serviceCrashedDescription =>
+      'The process exited and subscription processing is unavailable. Inspect the logs before starting again.';
 
   @override
   String get latest => 'Latest';
@@ -106,6 +179,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get availableVersion => 'Available version';
+
+  @override
+  String get availableVersionUnconfirmed => 'Not confirmed';
 
   @override
   String get componentStatusUnavailable => 'Installed version unavailable';
@@ -211,6 +287,9 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get maintenanceRecoveryBlocked =>
       'The maintenance record is invalid or does not match installed component files. It was retained for recovery and no update or start will run automatically.';
+
+  @override
+  String get maintenanceRecoveryRevalidate => 'Revalidate recovery';
 
   @override
   String get stopBackend => 'Stop Backend';
@@ -383,6 +462,14 @@ class AppLocalizationsEn extends AppLocalizations {
   String get rollbackUnavailable => 'Rollback unavailable';
 
   @override
+  String get rollbackDataSnapshotMissing =>
+      'The previous version’s data snapshot is missing; restoring another snapshot could overwrite subscriptions.';
+
+  @override
+  String get rollbackComponentFilesMissing =>
+      'The previous component files are missing.';
+
+  @override
   String get refresh => 'Refresh';
 
   @override
@@ -439,6 +526,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get logFilters => 'Filters';
 
   @override
+  String get logResetFilters => 'Reset filters';
+
+  @override
+  String get logClearFilters => 'Clear all filters';
+
+  @override
   String get logSources => 'Sources';
 
   @override
@@ -457,10 +550,43 @@ class AppLocalizationsEn extends AppLocalizations {
   String get logOldest => 'Newest last';
 
   @override
+  String get logLoading => 'Reading logs…';
+
+  @override
+  String logVisibleCount(int count) {
+    return 'Showing $count events';
+  }
+
+  @override
+  String logRecordedCount(int count) {
+    return '$count events recorded in this run';
+  }
+
+  @override
+  String logRangeLabel(int start, int end, int total) {
+    return 'Events $start–$end of $total matches';
+  }
+
+  @override
+  String logPageLabel(int page) {
+    return 'Page $page';
+  }
+
+  @override
   String get copyLog => 'Copy log';
 
   @override
   String get copyFilteredLogs => 'Copy filtered logs';
+
+  @override
+  String get logCopySucceeded => 'Logs copied to clipboard.';
+
+  @override
+  String get logCopyFailed => 'Could not copy logs to the clipboard.';
+
+  @override
+  String get logReadingPaused =>
+      'Reading is paused. Logs are still recorded; the displayed list stays unchanged.';
 
   @override
   String get noFilteredLogs => 'No matching logs';
@@ -485,6 +611,11 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get noHistory => 'No history';
+
+  @override
+  String historyCompletedCount(int count) {
+    return 'Completed runs · $count';
+  }
 
   @override
   String get historyLoadError => 'Unable to load history';
@@ -603,6 +734,11 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get recentlyDeleted => 'Recently deleted';
+
+  @override
+  String logRunIdentity(Object runId) {
+    return 'Run $runId';
+  }
 
   @override
   String get previousPage => 'Previous';
@@ -767,6 +903,14 @@ class AppLocalizationsEn extends AppLocalizations {
       'Preview interface language changes immediately and use Save to keep this setting.';
 
   @override
+  String get themeSubtitleAutomatic =>
+      'Previews immediately and is remembered automatically; no page save needed.';
+
+  @override
+  String get languageSubtitleAutomatic =>
+      'Switches immediately and is remembered automatically; no page save needed.';
+
+  @override
   String get closeBehaviorHeading => 'Close behavior';
 
   @override
@@ -781,7 +925,22 @@ class AppLocalizationsEn extends AppLocalizations {
   String get saveAll => 'Save All';
 
   @override
-  String get autoSavePreferencesHeading => 'Automatically save these settings';
+  String get settingsLocalServiceHeading => 'Local service';
+
+  @override
+  String get settingsRuntimeConfigurationEntry => 'Edit runtime configuration';
+
+  @override
+  String get settingsQuickAppearanceHeading => 'Interface & records';
+
+  @override
+  String get settingsQuickDesktopHeading => 'Window & startup';
+
+  @override
+  String get settingsConfirmChangesTitle => 'Confirm settings change';
+
+  @override
+  String get autoSavePreferencesHeading => 'Automatically save this page';
 
   @override
   String get autoSavePreferencesEnabledSubtitle =>
@@ -836,6 +995,45 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get runtimeConfigSavedForNextStart =>
       'Saved runtime configuration will be used when Backend starts.';
+
+  @override
+  String get runtimeCurrentConfiguration => 'Currently applied';
+
+  @override
+  String get runtimeProposedConfiguration => 'This configuration';
+
+  @override
+  String get runtimeNoAppliedConfiguration =>
+      'No runtime configuration is currently applied.';
+
+  @override
+  String get runtimePreviewUnavailable =>
+      'Fix configuration errors to preview this runtime configuration.';
+
+  @override
+  String get runtimeSharedDraftScope =>
+      'Connection, HTTP-META, and Advanced ENV share one draft, save, and revert scope.';
+
+  @override
+  String get revertRuntimeDraft => 'Revert runtime draft';
+
+  @override
+  String get confirmRevertRuntimeDraft =>
+      'Revert connection, HTTP-META, and Advanced ENV changes to the last saved configuration?';
+
+  @override
+  String get saveAndStartBackend => 'Save and start Backend';
+
+  @override
+  String get saveAndRestartBackend => 'Save and restart Backend';
+
+  @override
+  String get confirmSaveAndStartBackend =>
+      'Save the connection, HTTP-META, and ENV draft, then start Backend with it?';
+
+  @override
+  String get confirmSaveAndRestartBackend =>
+      'Save the connection, HTTP-META, and ENV draft, then restart Backend with it?';
 
   @override
   String get applySavedConfiguration => 'Apply saved configuration';
@@ -965,11 +1163,42 @@ class AppLocalizationsEn extends AppLocalizations {
   String get aboutDiagnosticsTitle => 'Diagnostic summary';
 
   @override
+  String get aboutDiagnosticsPrivacy =>
+      'The summary includes allowlisted version, platform, runtime, maintenance, and component status only. It excludes raw ENV, subscription content, entry secrets, and raw exceptions.';
+
+  @override
   String get aboutDiagnosticsCopied => 'Diagnostic summary copied';
 
   @override
   String get aboutClipboardFailed =>
       'The diagnostic summary could not be copied.';
+
+  @override
+  String get aboutProjectLinkOpened => 'Project page launch requested.';
+
+  @override
+  String get aboutLicensesLoading => 'Loading license information…';
+
+  @override
+  String get aboutLicensesUnavailable => 'License information is unavailable.';
+
+  @override
+  String get aboutRetryLicenses => 'Retry loading licenses';
+
+  @override
+  String get aboutLicenseBack => 'Back to About';
+
+  @override
+  String get runtimeValueCopied => 'Runtime value copied';
+
+  @override
+  String get runtimeValueCopyFailed => 'The runtime value could not be copied.';
+
+  @override
+  String get expand => 'Expand';
+
+  @override
+  String get collapse => 'Collapse';
 
   @override
   String get aboutOpenLinkFailed => 'The project page could not be opened.';

@@ -2,7 +2,10 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show SystemChannels;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shadcn_ui/shadcn_ui.dart'
+    show ShadButton, ShadIconButton, ShadInput, ShadToast;
 import 'package:subdock/app/app.dart';
 import 'package:subdock/app/app_coordinator.dart';
 import 'package:subdock/app/close_request_guard.dart';
@@ -12,6 +15,7 @@ import 'package:subdock/runtime/runtime_directories.dart';
 import 'package:subdock/runtime/runtime_log_store.dart';
 import 'package:subdock/settings/backend_env.dart';
 import 'package:subdock/settings/backend_env_store.dart';
+import 'package:subdock/settings/config_error.dart';
 import 'package:subdock/settings/subdock_config.dart';
 import 'package:subdock/settings/subdock_config_store.dart';
 import 'package:subdock/update/component_metadata_store.dart';
@@ -51,23 +55,33 @@ void main() {
       await tester.pumpAndSettle();
       final hostField = find.descendant(
         of: find.byKey(const ValueKey('settings-backend-host-row')),
-        matching: find.byType(TextField),
+        matching: find.byType(ShadInput),
       );
       await tester.ensureVisible(hostField);
       await tester.enterText(hostField, '127.0.0.2');
       await tester.pump();
 
+      final saveConfiguration = find.byKey(
+        const ValueKey('settings-child-save'),
+      );
+      await tester.ensureVisible(saveConfiguration);
+      await tester.pumpAndSettle();
       final saveApplied = fixture.runtime.watchNextActivation();
-      await tester.tap(find.byKey(const ValueKey('settings-child-save')));
+      await tester.tap(saveConfiguration);
       await _pumpUntil(tester, saveApplied);
       await tester.pumpAndSettle();
 
-      expect(
-        find.byKey(const ValueKey('settings-runtime-pending-status')),
-        findsOneWidget,
+      final pendingStatus = find.byKey(
+        const ValueKey('settings-runtime-pending-status'),
       );
+      expect(pendingStatus, findsOneWidget);
       expect(
-        find.text('Saved runtime configuration is waiting to be applied.'),
+        find.descendant(
+          of: pendingStatus,
+          matching: find.text(
+            'Saved runtime configuration is waiting to be applied.',
+          ),
+        ),
         findsOneWidget,
       );
       expect(fixture.coordinator.hasPendingConfiguration, isTrue);
@@ -81,13 +95,20 @@ void main() {
       );
       expect(saved!.configuration.configuration.backend.apiHost, '127.0.0.2');
 
-      await tester.tap(find.byKey(const ValueKey('settings-back')));
+      final settingsBack = find.byKey(const ValueKey('settings-back'));
+      await tester.ensureVisible(settingsBack);
+      await tester.pumpAndSettle();
+      await tester.tap(settingsBack);
       await tester.pumpAndSettle();
       await _openPage(tester, 'overview');
       final serviceEndpoint = find.byKey(
         const ValueKey('runtime-endpoint-value'),
       );
       await tester.ensureVisible(serviceEndpoint);
+      expect(
+        find.byKey(const ValueKey('overview-pending-configuration')),
+        findsOneWidget,
+      );
       expect(
         tester.widget<SelectableText>(serviceEndpoint).data,
         'http://127.0.0.1:3101/old-api',
@@ -109,6 +130,13 @@ void main() {
       );
 
       await _openPage(tester, 'settings');
+      final backendConfiguration = find.byKey(
+        const ValueKey('settings-card-backend-config'),
+      );
+      await tester.ensureVisible(backendConfiguration);
+      await tester.pumpAndSettle();
+      await tester.tap(backendConfiguration);
+      await tester.pumpAndSettle();
       final applySaved = find.byKey(
         const ValueKey('settings-apply-saved-runtime'),
       );
@@ -117,6 +145,8 @@ void main() {
         240,
         scrollable: find.byType(Scrollable).first,
       );
+      await tester.ensureVisible(applySaved);
+      await tester.pumpAndSettle();
       final newEntryStarted = fixture.runtime.watchNextStart();
       await tester.tap(applySaved);
       await _pumpUntil(tester, newEntryStarted);
@@ -140,6 +170,10 @@ void main() {
       await _openPage(tester, 'overview');
       await tester.ensureVisible(serviceEndpoint);
       expect(
+        find.byKey(const ValueKey('overview-pending-configuration')),
+        findsNothing,
+      );
+      expect(
         tester.widget<SelectableText>(serviceEndpoint).data,
         'http://127.0.0.2:3101/old-api',
       );
@@ -154,6 +188,198 @@ void main() {
         fixture.openedUris.single.queryParameters['api'],
         'http://127.0.0.2:3101/old-api',
       );
+    },
+  );
+
+  testWidgets(
+    'retained Service page shows the committed component version after maintenance',
+    (tester) async {
+      final updates = _CrossPageUpdates();
+      final fixture = await _createFixture(tester, componentUpdates: updates);
+      await _mountApp(tester, fixture);
+      final checkedBoth = updates.watchNextChecks();
+      await tester.tap(find.byKey(const ValueKey('nav-item-updates')));
+      await tester.pump();
+      await _pumpUntil(tester, checkedBoth);
+      await tester.pumpAndSettle();
+
+      final updateFrontend = find.byKey(
+        const ValueKey('component-update-action-frontend'),
+      );
+      await tester.ensureVisible(updateFrontend);
+      await tester.tap(updateFrontend);
+      await tester.pumpAndSettle();
+      final releaseUpdate = updates.holdNextUpdate();
+      final updateEntered = updates.updateEntered;
+      final maintenanceCompleted = Completer<void>();
+      void observeCompletion() {
+        final operation = fixture.coordinator.maintenanceOperation;
+        if (operation?.phase == MaintenancePhase.completed &&
+            !maintenanceCompleted.isCompleted) {
+          maintenanceCompleted.complete();
+        }
+      }
+
+      fixture.coordinator.maintenanceChanges.addListener(observeCompletion);
+      try {
+        await tester.tap(find.widgetWithText(ShadButton, 'Continue'));
+        await tester.pump();
+        await _pumpUntil(tester, updateEntered);
+        await _openPage(tester, 'overview');
+        final versionRow = find.byKey(
+          const ValueKey('overview-component-frontend'),
+        );
+        expect(versionRow, findsOneWidget);
+        final committedVersion = find.descendant(
+          of: versionRow,
+          matching: find.textContaining('1.1.0'),
+        );
+        expect(committedVersion, findsNothing);
+        releaseUpdate.complete();
+        await _pumpUntil(tester, maintenanceCompleted);
+        await tester.pumpAndSettle();
+        expect(committedVersion, findsOneWidget);
+      } finally {
+        if (!releaseUpdate.isCompleted) releaseUpdate.complete();
+        try {
+          if (updateEntered.isCompleted && !maintenanceCompleted.isCompleted) {
+            await _pumpUntil(tester, maintenanceCompleted);
+          }
+        } finally {
+          fixture.coordinator.maintenanceChanges.removeListener(
+            observeCompletion,
+          );
+        }
+      }
+    },
+  );
+
+  testWidgets(
+    'Service actions and copied runtime values report actual completion',
+    (tester) async {
+      final fixture = await _createFixture(tester);
+      await _mountApp(tester, fixture);
+      final toast = find.byType(ShadToast);
+      expect(toast, findsNothing);
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('nav-item-overview')),
+          matching: find.text('Service'),
+        ),
+        findsOneWidget,
+      );
+      Future<void> closeFeedback() async {
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.descendant(of: toast, matching: find.byType(ShadIconButton)),
+        );
+        await tester.pumpAndSettle();
+        expect(toast, findsNothing);
+      }
+
+      final started = fixture.runtime.watchNextStart();
+      await tester.tap(find.widgetWithText(ShadButton, 'Start'));
+      await _pumpUntil(
+        tester,
+        started,
+        rendered: () => toast.evaluate().isNotEmpty,
+      );
+      expect(fixture.runtime.currentState.status, RuntimeStatus.running);
+      expect(fixture.runtime.startCalls, 1);
+      expect(
+        find.widgetWithText(ShadButton, 'Enter Sub-Store'),
+        findsOneWidget,
+      );
+      await _openPage(tester, 'settings');
+      expect(toast, findsNothing);
+      await _openPage(tester, 'overview');
+      expect(toast, findsNothing);
+
+      final copied = Completer<void>();
+      Completer<void>? copyReply;
+      Completer<void>? copyEntered;
+      String? clipboardText;
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.setData') {
+          clipboardText = (call.arguments as Map)['text'] as String;
+          if (!copied.isCompleted) copied.complete();
+          if (copyEntered != null && !copyEntered.isCompleted) {
+            copyEntered.complete();
+          }
+          if (copyReply != null) await copyReply.future;
+        }
+        return null;
+      });
+      addTearDown(
+        () => messenger.setMockMethodCallHandler(SystemChannels.platform, null),
+      );
+      final endpoint = find.byKey(const ValueKey('runtime-endpoint-value'));
+      final copy = find.byKey(const ValueKey('runtime-copy-Backend'));
+      await tester.ensureVisible(copy);
+      final displayedEndpoint = tester.widget<SelectableText>(endpoint).data;
+      await tester.tap(copy);
+      await _pumpUntil(
+        tester,
+        copied,
+        rendered: () => toast.evaluate().isNotEmpty,
+      );
+      expect(clipboardText, displayedEndpoint);
+      await closeFeedback();
+
+      final releaseCopy = Completer<void>();
+      final enteredCopy = Completer<void>();
+      copyReply = releaseCopy;
+      copyEntered = enteredCopy;
+      try {
+        await tester.tap(copy);
+        await _pumpUntil(tester, enteredCopy);
+        await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
+        releaseCopy.complete();
+        // Complete the platform reply before rendering the navigation frame.
+        await tester.idle();
+        await tester.pumpAndSettle();
+        expect(toast, findsNothing);
+        await _openPage(tester, 'overview');
+        expect(toast, findsNothing);
+      } finally {
+        if (!releaseCopy.isCompleted) releaseCopy.complete();
+        await tester.idle();
+        copyReply = null;
+        copyEntered = null;
+      }
+
+      final stop = find.widgetWithText(ShadButton, 'Stop');
+      await tester.ensureVisible(stop);
+      await tester.tap(stop);
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ShadButton, 'Cancel'));
+      await tester.pumpAndSettle();
+      expect(fixture.runtime.currentState.status, RuntimeStatus.running);
+      expect(toast, findsNothing);
+
+      final stopped = Completer<void>();
+      final subscription = fixture.runtime.state.listen((state) {
+        if (state.status == RuntimeStatus.stopped && !stopped.isCompleted) {
+          stopped.complete();
+        }
+      });
+      try {
+        await tester.tap(stop);
+        await tester.pumpAndSettle();
+        await tester.tap(stop.last);
+        await _pumpUntil(
+          tester,
+          stopped,
+          rendered: () => toast.evaluate().isNotEmpty,
+        );
+        expect(fixture.runtime.currentState.status, RuntimeStatus.stopped);
+        expect(fixture.runtime.startCalls, 1);
+        await closeFeedback();
+      } finally {
+        await tester.runAsync(() => subscription.cancel());
+      }
     },
   );
 
@@ -178,7 +404,7 @@ void main() {
       await tester.tap(updateAll);
       await tester.pumpAndSettle();
       final failureSaved = fixture.maintenanceStore.watchBackendFailure();
-      await tester.tap(find.widgetWithText(FilledButton, 'Continue'));
+      await tester.tap(find.widgetWithText(ShadButton, 'Continue'));
       await _pumpUntil(tester, failureSaved);
       await tester.pumpAndSettle();
 
@@ -203,6 +429,7 @@ void main() {
         find.descendant(of: resultPanel, matching: find.text('Failed')),
         findsOneWidget,
       );
+      expect(find.byType(ShadToast), findsNothing);
       expect(updates.updateCalls, [
         ComponentKind.frontend,
         ComponentKind.backend,
@@ -216,9 +443,12 @@ void main() {
       expect(failedAttempt.failureStage, MaintenanceFailureStage.updating);
 
       await _openPage(tester, 'overview');
-      final overview = find.byKey(const ValueKey('overview-backend-hero'));
+      final overview = find.byKey(const ValueKey('overview-service-card'));
       expect(
-        find.descendant(of: overview, matching: find.text('Backend Stopped')),
+        find.descendant(
+          of: overview,
+          matching: find.text('Local service has not started'),
+        ),
         findsOneWidget,
       );
       expect(
@@ -242,16 +472,25 @@ void main() {
       );
 
       await _openPage(tester, 'settings');
+      final backendConfiguration = find.byKey(
+        const ValueKey('settings-card-backend-config'),
+      );
+      await tester.ensureVisible(backendConfiguration);
+      await tester.pumpAndSettle();
+      await tester.tap(backendConfiguration);
+      await tester.pumpAndSettle();
       final startBackend = find.byKey(
         const ValueKey('settings-apply-saved-runtime'),
       );
-      await tester.scrollUntilVisible(
-        startBackend,
-        240,
-        scrollable: find.byType(Scrollable).first,
+      await tester.ensureVisible(startBackend);
+      await tester.pumpAndSettle();
+      final startBackendButton = tester.widget<ShadButton>(startBackend);
+      expect(startBackendButton.enabled, isTrue);
+      expect(startBackendButton.onPressed, isNotNull);
+      expect(
+        find.descendant(of: startBackend, matching: find.text('Start Backend')),
+        findsOneWidget,
       );
-      expect(tester.widget<OutlinedButton>(startBackend).onPressed, isNotNull);
-      expect(find.text('Start Backend'), findsOneWidget);
       expect(
         (await tester.runAsync(fixture.maintenanceStore.load))!.failedKind,
         ComponentKind.backend,
@@ -305,6 +544,95 @@ void main() {
     },
   );
 
+  for (final cause in [
+    'desktop startup component recovery blocker',
+    'temporary maintenance record read failure',
+  ]) {
+    testWidgets(
+      'recovery revalidation handles $cause without starting or maintaining runtime',
+      (tester) async {
+        final recovery = Completer<void>();
+        var recoveryCalls = 0;
+        final updates = _CrossPageUpdates();
+        final fixture = await _createFixture(
+          tester,
+          componentUpdates: updates,
+          startupBlocker: cause.startsWith('desktop')
+              ? const AppConfigError(
+                  AppConfigErrorCode.componentRecoveryFailed,
+                  detail: 'startup recovery failed',
+                )
+              : null,
+          componentRecovery: () {
+            recoveryCalls++;
+            return recovery.future;
+          },
+        );
+        if (cause.startsWith('temporary')) {
+          fixture.maintenanceStore.failNextLoad = true;
+          await tester.runAsync(fixture.coordinator.restoreMaintenanceAttempt);
+        }
+        final revalidated = Completer<void>();
+        void observeRevalidation() {
+          if (fixture.coordinator.startupBlocker == null &&
+              fixture.coordinator.maintenanceRecoveryError == null &&
+              !revalidated.isCompleted) {
+            revalidated.complete();
+          }
+        }
+
+        fixture.coordinator.configurationChanges.addListener(
+          observeRevalidation,
+        );
+        addTearDown(
+          () => fixture.coordinator.configurationChanges.removeListener(
+            observeRevalidation,
+          ),
+        );
+        await _mountApp(tester, fixture);
+        final checked = fixture.updates!.watchNextChecks();
+        await tester.tap(find.byKey(const ValueKey('nav-item-updates')));
+        await tester.pump();
+        await _pumpUntil(tester, checked);
+        await tester.pumpAndSettle();
+
+        final revalidate = find.byKey(
+          const ValueKey('updates-revalidate-recovery'),
+        );
+        expect(revalidate, findsOneWidget);
+        final updateAll = find.byKey(const ValueKey('updates-update-all'));
+        final frontendUpdate = find.byKey(
+          const ValueKey('component-update-action-frontend'),
+        );
+        final frontendRecheck = find.byKey(
+          const ValueKey('component-update-recheck-frontend'),
+        );
+        expect(tester.widget<ShadButton>(updateAll).enabled, isFalse);
+        expect(tester.widget<ShadButton>(frontendUpdate).enabled, isFalse);
+        expect(tester.widget<ShadButton>(frontendRecheck).enabled, isTrue);
+        await tester.ensureVisible(revalidate);
+        try {
+          await tester.tap(revalidate);
+          await tester.pump();
+          expect(recoveryCalls, 1);
+          expect(tester.widget<ShadButton>(revalidate).enabled, isFalse);
+          expect(fixture.updates!.updateCalls, isEmpty);
+          expect(fixture.runtime.startCalls, 0);
+        } finally {
+          if (!recovery.isCompleted) recovery.complete();
+        }
+        await _pumpUntil(tester, revalidated);
+        await tester.pumpAndSettle();
+        expect(fixture.coordinator.startupBlocker, isNull);
+        expect(fixture.coordinator.maintenanceRecoveryError, isNull);
+        expect(fixture.runtime.currentState.status, RuntimeStatus.stopped);
+        expect(fixture.runtime.startCalls, 0);
+        expect(fixture.updates!.updateCalls, isEmpty);
+        expect(recoveryCalls, 1);
+      },
+    );
+  }
+
   testWidgets(
     'history reading and exit cancellation survive navigation and live logs',
     (tester) async {
@@ -334,7 +662,7 @@ void main() {
       final runTile = find.byKey(ValueKey('history-run-$runId'));
       expect(runTile, findsOneWidget);
       final firstPageLoaded = fixture.logStore.watchNextRunRead();
-      await tester.tap(runTile);
+      await tester.tap(find.byKey(ValueKey('history-view-$runId')));
       await _pumpUntil(tester, firstPageLoaded);
       await tester.pumpAndSettle();
 
@@ -363,7 +691,7 @@ void main() {
       await _openPage(tester, 'logs');
 
       expect(
-        tester.widget<TextField>(search).controller!.text,
+        tester.widget<ShadInput>(search).controller!.text,
         'cross-page-note',
       );
       expect(find.byKey(const ValueKey('history-back')), findsOneWidget);
@@ -398,6 +726,8 @@ Future<_CrossPageFixture> _createFixture(
   SubDockConfig? initialConfiguration,
   _CrossPageUpdates? componentUpdates,
   bool startRuntime = false,
+  Object? startupBlocker,
+  Future<void> Function()? componentRecovery,
 }) async {
   final root = (await tester.runAsync(
     () => Directory.systemTemp.createTemp('unified_desktop_experience_'),
@@ -434,6 +764,8 @@ Future<_CrossPageFixture> _createFixture(
     componentUpdates: componentUpdates,
     maintenanceAttemptStore: maintenanceStore,
     logStore: logStore,
+    startupBlocker: startupBlocker,
+    componentRecovery: componentRecovery,
   );
   coordinator = coordinatorInstance;
   await tester.runAsync(() async {
@@ -483,14 +815,23 @@ Future<void> _openPage(WidgetTester tester, String page) async {
   await tester.pumpAndSettle();
 }
 
-Future<void> _pumpUntil(WidgetTester tester, Completer<void> completion) async {
-  for (var turn = 0; turn < 40 && !completion.isCompleted; turn++) {
+Future<void> _pumpUntil(
+  WidgetTester tester,
+  Completer<void> completion, {
+  bool Function()? rendered,
+}) async {
+  for (
+    var turn = 0;
+    turn < 40 && (!completion.isCompleted || !(rendered?.call() ?? true));
+    turn++
+  ) {
     await tester.runAsync(
       () => Future<void>.delayed(const Duration(milliseconds: 10)),
     );
     await tester.pump(const Duration(milliseconds: 20));
   }
   expect(completion.isCompleted, isTrue);
+  if (rendered != null) expect(rendered(), isTrue);
 }
 
 class _CrossPageFixture {
@@ -522,6 +863,7 @@ class _CrossPageRuntime extends BackendRuntime {
   Completer<void>? _nextActivation;
   Completer<void>? _nextStart;
   var disposeCalls = 0;
+  var startCalls = 0;
 
   @override
   RuntimeState get currentState => _currentState;
@@ -572,6 +914,7 @@ class _CrossPageRuntime extends BackendRuntime {
 
   @override
   Future<void> start() async {
+    startCalls++;
     _applied = _pending;
     _publish(RuntimeStatus.running);
     final start = _nextStart;
@@ -646,6 +989,16 @@ class _CrossPageUpdates implements ComponentUpdateOperations {
   Completer<void>? _bothChecks;
   final _checkedKinds = <ComponentKind>{};
   var _failBackendOnce = true;
+  Completer<void>? _updateGate;
+  Completer<void>? _updateEntered;
+
+  Completer<void> holdNextUpdate() {
+    _updateGate = Completer<void>();
+    _updateEntered = Completer<void>();
+    return _updateGate!;
+  }
+
+  Completer<void> get updateEntered => _updateEntered!;
 
   @override
   Future<ComponentUpdate> check(ComponentKind kind) async {
@@ -662,12 +1015,19 @@ class _CrossPageUpdates implements ComponentUpdateOperations {
   }
 
   @override
-  Future<ComponentVersionStatus> status(ComponentKind kind) async =>
-      statuses[kind]!;
+  Future<ComponentVersionStatus> status(ComponentKind kind) async {
+    return statuses[kind]!;
+  }
 
   @override
   Future<void> update(ComponentUpdate update) async {
     updateCalls.add(update.kind);
+    final gate = _updateGate;
+    if (update.kind == ComponentKind.frontend && gate != null) {
+      _updateEntered?.complete();
+      await gate.future;
+      _updateGate = null;
+    }
     if (update.kind == ComponentKind.backend && _failBackendOnce) {
       _failBackendOnce = false;
       throw StateError('backend update failed');
@@ -694,6 +1054,16 @@ class _CrossPageUpdates implements ComponentUpdateOperations {
 
 class _ObservedMaintenanceAttemptStore extends MaintenanceAttemptStore {
   _ObservedMaintenanceAttemptStore(super.directories);
+  bool failNextLoad = false;
+
+  @override
+  Future<MaintenanceAttempt?> load() async {
+    if (failNextLoad) {
+      failNextLoad = false;
+      throw StateError('temporary recovery read failure');
+    }
+    return super.load();
+  }
 
   Completer<void>? _backendFailureSaved;
   Completer<void>? _nextClear;

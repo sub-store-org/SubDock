@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:subdock/app/app.dart';
 import 'package:subdock/app/app_coordinator.dart';
 import 'package:subdock/runtime/backend_runtime.dart';
@@ -55,17 +56,31 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      final minimize = find.widgetWithIcon(IconButton, Icons.minimize);
-      final maximize = find.widgetWithIcon(IconButton, Icons.crop_square);
-      final close = find.widgetWithIcon(IconButton, Icons.close);
+      final semantics = tester.ensureSemantics();
+      try {
+        final minimize = find.ancestor(
+          of: find.bySemanticsLabel('Minimize'),
+          matching: find.byType(ShadIconButton),
+        );
+        final maximize = find.ancestor(
+          of: find.bySemanticsLabel('Maximize'),
+          matching: find.byType(ShadIconButton),
+        );
+        final close = find.ancestor(
+          of: find.bySemanticsLabel('Close'),
+          matching: find.byType(ShadIconButton),
+        );
 
-      expect(minimize, findsOneWidget);
-      expect(maximize, findsOneWidget);
-      expect(close, findsOneWidget);
+        expect(minimize, findsOneWidget);
+        expect(maximize, findsOneWidget);
+        expect(close, findsOneWidget);
 
-      await _tabUntilFocused(tester, minimize);
-      await _tabUntilFocused(tester, maximize);
-      await _tabUntilFocused(tester, close);
+        await _tabUntilFocused(tester, minimize);
+        await _tabUntilFocused(tester, maximize);
+        await _tabUntilFocused(tester, close);
+      } finally {
+        semantics.dispose();
+      }
 
       final logsNavigation = find.byKey(const ValueKey('nav-item-logs'));
       final settingsNavigation = find.byKey(
@@ -84,10 +99,7 @@ void main() {
       await tester.sendKeyEvent(LogicalKeyboardKey.enter);
       await tester.pumpAndSettle();
 
-      final currentMode = find.ancestor(
-        of: find.text('Current'),
-        matching: find.byType(TextButton),
-      );
+      final currentMode = find.widgetWithText(ShadButton, 'Current');
       final sourceFilter = find.byKey(const ValueKey('logs-source-filter'));
       final newestFirst = find.byKey(const ValueKey('logs-sort-selector'));
 
@@ -129,16 +141,27 @@ void main() {
       await tester.sendKeyEvent(LogicalKeyboardKey.enter);
       await tester.pumpAndSettle();
 
+      final manualActions = find.byKey(
+        const ValueKey('settings-preferences-actions'),
+      );
+      final savePreferences = find.byKey(
+        const ValueKey('settings-save-preferences'),
+      );
+      // The action corner's button-only shape is owned by the settings-page
+      // helper; this flow only tracks keyboard reachability and save state.
+      expect(manualActions, findsOneWidget);
+      expect(tester.widget<ShadButton>(savePreferences).onPressed, isNull);
+
+      final systemBrightness = _settingsBrightness(tester);
       final lightTheme = find.ancestor(
         of: find.descendant(of: themeMode, matching: find.text('Light')),
-        matching: find.byType(TextButton),
+        matching: find.byType(ShadButton),
       );
       await _tabUntilFocused(tester, lightTheme);
       await tester.sendKeyEvent(LogicalKeyboardKey.enter);
       await tester.pumpAndSettle();
-      expect(tester.widget<SegmentedButton<ThemeMode>>(themeMode).selected, {
-        ThemeMode.light,
-      });
+      expect(_settingsBrightness(tester), Brightness.light);
+      expect(tester.widget<ShadButton>(savePreferences).onPressed, isNotNull);
 
       final discardPreferences = find.byKey(
         const ValueKey('settings-discard-preferences'),
@@ -146,26 +169,25 @@ void main() {
       await _tabUntilFocused(tester, discardPreferences);
       await tester.sendKeyEvent(LogicalKeyboardKey.enter);
       await tester.pumpAndSettle();
-      expect(tester.widget<SegmentedButton<ThemeMode>>(themeMode).selected, {
-        ThemeMode.system,
-      });
+      expect(_settingsBrightness(tester), systemBrightness);
+      expect(tester.widget<ShadButton>(savePreferences).onPressed, isNull);
 
       await _tabUntilFocused(tester, lightTheme);
       await tester.sendKeyEvent(LogicalKeyboardKey.enter);
       await tester.pumpAndSettle();
+      expect(tester.widget<ShadButton>(savePreferences).onPressed, isNotNull);
 
-      final savePreferences = find.byKey(
-        const ValueKey('settings-save-preferences'),
-      );
-      expect(tester.widget<FilledButton>(savePreferences).onPressed, isNotNull);
       await _tabUntilFocused(tester, savePreferences);
       await tester.sendKeyEvent(LogicalKeyboardKey.enter);
       await tester.pumpAndSettle();
-      expect(savePreferences, findsNothing);
+      expect(savePreferences, findsOneWidget);
+      expect(tester.widget<ShadButton>(savePreferences).enabled, isFalse);
+      expect(tester.widget<ShadButton>(savePreferences).onPressed, isNull);
+      expect(_settingsBrightness(tester), Brightness.light);
 
       final darkTheme = find.ancestor(
         of: find.descendant(of: themeMode, matching: find.text('Dark')),
-        matching: find.byType(TextButton),
+        matching: find.byType(ShadButton),
       );
       await _tabUntilFocused(tester, darkTheme);
       await tester.sendKeyEvent(LogicalKeyboardKey.enter);
@@ -173,7 +195,7 @@ void main() {
       await _tabUntilFocused(tester, overviewNavigation);
       await tester.sendKeyEvent(LogicalKeyboardKey.enter);
       await tester.pumpAndSettle();
-      final unsavedDialog = find.byType(AlertDialog);
+      final unsavedDialog = find.byType(ShadDialog);
       expect(unsavedDialog, findsOneWidget);
       expect(
         find.descendant(
@@ -185,12 +207,12 @@ void main() {
 
       final cancelLeave = find.ancestor(
         of: find.descendant(of: unsavedDialog, matching: find.text('Cancel')),
-        matching: find.byType(TextButton),
+        matching: find.byType(ShadButton),
       );
       await _tabUntilFocused(tester, cancelLeave);
       await tester.sendKeyEvent(LogicalKeyboardKey.enter);
       await tester.pumpAndSettle();
-      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.byType(ShadDialog), findsNothing);
       expect(
         _containsPrimaryFocus(tester, overviewNavigation),
         isTrue,
@@ -206,9 +228,8 @@ void main() {
       await _tabUntilFocused(tester, discardPreferences);
       await tester.sendKeyEvent(LogicalKeyboardKey.enter);
       await tester.pumpAndSettle();
-      expect(tester.widget<SegmentedButton<ThemeMode>>(themeMode).selected, {
-        ThemeMode.light,
-      });
+      expect(_settingsBrightness(tester), Brightness.light);
+      expect(tester.widget<ShadButton>(savePreferences).onPressed, isNull);
 
       // Commit the manual preference draft before opening the backend editor.
 
@@ -227,11 +248,17 @@ void main() {
       await tester.pump();
       await _tabUntilFocused(tester, back);
 
-      await tester.enterText(find.byType(TextField).first, '127.0.0.1');
+      final hostField = find.descendant(
+        of: find.byKey(const ValueKey('settings-backend-host-row')),
+        matching: find.byType(ShadInput),
+      );
+      await tester.ensureVisible(hostField);
+      await tester.pumpAndSettle();
+      await tester.enterText(hostField, '127.0.0.1');
       await tester.pump();
 
       final childSave = find.byKey(const ValueKey('settings-child-save'));
-      expect(tester.widget<FilledButton>(childSave).onPressed, isNotNull);
+      expect(tester.widget<ShadButton>(childSave).onPressed, isNotNull);
 
       FocusManager.instance.primaryFocus?.unfocus();
       await tester.pump();
@@ -294,10 +321,10 @@ void main() {
     expect(update, findsOneWidget);
     expect(rollback, findsOneWidget);
 
-    expect(tester.widget<TextButton>(releaseNotes).onPressed, isNotNull);
-    expect(tester.widget<OutlinedButton>(recheck).onPressed, isNotNull);
-    expect(tester.widget<FilledButton>(update).onPressed, isNotNull);
-    expect(tester.widget<TextButton>(rollback).onPressed, isNotNull);
+    expect(tester.widget<ShadButton>(releaseNotes).onPressed, isNotNull);
+    expect(tester.widget<ShadButton>(recheck).onPressed, isNotNull);
+    expect(tester.widget<ShadButton>(update).onPressed, isNotNull);
+    expect(tester.widget<ShadButton>(rollback).onPressed, isNotNull);
 
     FocusManager.instance.primaryFocus?.unfocus();
     await tester.pump();
@@ -312,6 +339,10 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 }
+
+Brightness _settingsBrightness(WidgetTester tester) =>
+    Theme.of(tester.element(find.byKey(const ValueKey('settings-list'))))
+        .brightness;
 
 Future<void> _tabUntilFocused(
   WidgetTester tester,

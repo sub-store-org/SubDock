@@ -13,7 +13,26 @@ class AppLocalizationsZh extends AppLocalizations {
   String get appTitle => 'SubDock';
 
   @override
-  String get manage => '管理';
+  String get manage => 'Sub-Store';
+
+  @override
+  String get manageStartAndEnter => '启动并进入';
+
+  @override
+  String get manageLoadingSubStore => '正在加载 Sub-Store…';
+
+  @override
+  String get manageAuxiliaryUnavailable => '辅助服务不可用；订阅管理仍可使用。';
+
+  @override
+  String get manageBackendStillRunning =>
+      '本地服务仍在运行；可以重试加载 Sub-Store，或在系统浏览器中打开。';
+
+  @override
+  String get manageServiceDetails => '服务详情';
+
+  @override
+  String get manageUnavailableTitle => '嵌入式 Sub-Store 暂不可用';
 
   @override
   String get overview => '概览';
@@ -51,6 +70,55 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get components => '组件';
+
+  @override
+  String get componentInstalled => '已安装';
+
+  @override
+  String get serviceComponentsHeading => '组件与辅助服务';
+
+  @override
+  String get serviceOperationCompleted => '服务操作已完成。';
+
+  @override
+  String get serviceTitle => '服务';
+
+  @override
+  String get serviceOpenSubStore => '进入 Sub-Store';
+
+  @override
+  String get serviceStoppedTitle => '本地服务尚未启动';
+
+  @override
+  String get serviceStartingTitle => '正在启动本地服务';
+
+  @override
+  String get serviceRunningTitle => '本地服务正在运行';
+
+  @override
+  String get serviceStoppingTitle => '正在停止本地服务';
+
+  @override
+  String get serviceUnhealthyTitle => '服务响应异常';
+
+  @override
+  String get serviceCrashedTitle => '服务意外退出';
+
+  @override
+  String get serviceStoppedDescription => '启动后可使用订阅管理；已有配置与订阅数据仍保留。';
+
+  @override
+  String get serviceRunningDescription => '可以进入 Sub-Store 管理订阅。';
+
+  @override
+  String get serviceTransitionDescription => '正在处理，请稍候；切换页面不会重复执行操作。';
+
+  @override
+  String get serviceUnhealthyDescription =>
+      '进程仍存在，但健康检查没有通过；不要重复启动。可以重启或先查看日志。';
+
+  @override
+  String get serviceCrashedDescription => '进程已退出，订阅处理暂不可用；查看原因后可重新启动。';
 
   @override
   String get latest => '最新';
@@ -106,6 +174,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get availableVersion => '可用版本';
+
+  @override
+  String get availableVersionUnconfirmed => '尚未确认';
 
   @override
   String get componentStatusUnavailable => '无法读取已安装版本';
@@ -200,6 +271,9 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String get maintenanceRecoveryBlocked =>
       '维护记录无效或与已安装组件文件不匹配。记录已保留以便恢复，不会自动更新组件或启动服务。';
+
+  @override
+  String get maintenanceRecoveryRevalidate => '重新验证恢复';
 
   @override
   String get stopBackend => '停止 Backend';
@@ -364,6 +438,12 @@ class AppLocalizationsZh extends AppLocalizations {
   String get rollbackUnavailable => '不可回滚';
 
   @override
+  String get rollbackDataSnapshotMissing => '缺少此版本关联的数据快照；使用其他快照可能覆盖订阅数据。';
+
+  @override
+  String get rollbackComponentFilesMissing => '缺少此版本的组件文件。';
+
+  @override
   String get refresh => '刷新';
 
   @override
@@ -418,6 +498,12 @@ class AppLocalizationsZh extends AppLocalizations {
   String get logFilters => '筛选';
 
   @override
+  String get logResetFilters => '重置筛选';
+
+  @override
+  String get logClearFilters => '清空全部筛选';
+
+  @override
   String get logSources => '来源';
 
   @override
@@ -436,10 +522,42 @@ class AppLocalizationsZh extends AppLocalizations {
   String get logOldest => '最早在前';
 
   @override
+  String get logLoading => '正在读取日志…';
+
+  @override
+  String logVisibleCount(int count) {
+    return '显示 $count 条日志';
+  }
+
+  @override
+  String logRecordedCount(int count) {
+    return '本次运行共记录 $count 条日志';
+  }
+
+  @override
+  String logRangeLabel(int start, int end, int total) {
+    return '第 $start–$end 条 / 共 $total 条匹配';
+  }
+
+  @override
+  String logPageLabel(int page) {
+    return '第 $page 页';
+  }
+
+  @override
   String get copyLog => '复制日志';
 
   @override
   String get copyFilteredLogs => '复制筛选结果';
+
+  @override
+  String get logCopySucceeded => '日志已复制到剪贴板。';
+
+  @override
+  String get logCopyFailed => '无法将日志复制到剪贴板。';
+
+  @override
+  String get logReadingPaused => '已暂停跟随，日志仍在记录；正在查看的列表暂不变动。';
 
   @override
   String get noFilteredLogs => '没有匹配的日志';
@@ -464,6 +582,11 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get noHistory => '暂无历史记录';
+
+  @override
+  String historyCompletedCount(int count) {
+    return '已结束的运行 · $count 次';
+  }
 
   @override
   String get historyLoadError => '无法加载历史记录';
@@ -577,6 +700,11 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get recentlyDeleted => '已删除';
+
+  @override
+  String logRunIdentity(Object runId) {
+    return '运行 $runId';
+  }
 
   @override
   String get previousPage => '上一页';
@@ -734,6 +862,12 @@ class AppLocalizationsZh extends AppLocalizations {
   String get languageSubtitle => '即时预览界面语言变化，使用保存按钮保留当前设置。';
 
   @override
+  String get themeSubtitleAutomatic => '选择后立即预览并自动记住，无需整页保存。';
+
+  @override
+  String get languageSubtitleAutomatic => '选择后立即切换并自动记住，无需整页保存。';
+
+  @override
   String get closeBehaviorHeading => '关闭行为';
 
   @override
@@ -744,6 +878,21 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get saveAll => '全部保存';
+
+  @override
+  String get settingsLocalServiceHeading => '本地服务';
+
+  @override
+  String get settingsRuntimeConfigurationEntry => '编辑运行配置';
+
+  @override
+  String get settingsQuickAppearanceHeading => '界面与记录';
+
+  @override
+  String get settingsQuickDesktopHeading => '窗口与启动';
+
+  @override
+  String get settingsConfirmChangesTitle => '确认设置更改';
 
   @override
   String get autoSavePreferencesHeading => '自动保存本页设置';
@@ -793,6 +942,43 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get runtimeConfigSavedForNextStart => '下次启动 Backend 时将使用已保存的运行配置。';
+
+  @override
+  String get runtimeCurrentConfiguration => '当前已应用';
+
+  @override
+  String get runtimeProposedConfiguration => '本次配置';
+
+  @override
+  String get runtimeNoAppliedConfiguration => '当前没有已应用的运行配置。';
+
+  @override
+  String get runtimePreviewUnavailable => '修正配置错误后即可预览本次运行配置。';
+
+  @override
+  String get runtimeSharedDraftScope =>
+      '连接配置、HTTP-META 与高级 ENV 共用同一份草稿，并由同一组保存和撤销操作管理。';
+
+  @override
+  String get revertRuntimeDraft => '撤销运行草稿';
+
+  @override
+  String get confirmRevertRuntimeDraft =>
+      '要将连接配置、HTTP-META 与高级 ENV 的修改全部恢复为上次保存的配置吗？';
+
+  @override
+  String get saveAndStartBackend => '保存并启动 Backend';
+
+  @override
+  String get saveAndRestartBackend => '保存并重启 Backend';
+
+  @override
+  String get confirmSaveAndStartBackend =>
+      '保存连接配置、HTTP-META 与 ENV 草稿，然后使用该配置启动 Backend？';
+
+  @override
+  String get confirmSaveAndRestartBackend =>
+      '保存连接配置、HTTP-META 与 ENV 草稿，然后使用该配置重启 Backend？';
 
   @override
   String get applySavedConfiguration => '应用已保存配置';
@@ -915,10 +1101,41 @@ class AppLocalizationsZh extends AppLocalizations {
   String get aboutDiagnosticsTitle => '诊断摘要';
 
   @override
+  String get aboutDiagnosticsPrivacy =>
+      '摘要仅包含允许公开的版本、平台、运行、维护和组件状态；不包含原始 ENV、订阅内容、入口密钥或原始异常。';
+
+  @override
   String get aboutDiagnosticsCopied => '已复制诊断摘要';
 
   @override
   String get aboutClipboardFailed => '无法复制诊断摘要。';
+
+  @override
+  String get aboutProjectLinkOpened => '已请求打开项目页面。';
+
+  @override
+  String get aboutLicensesLoading => '正在加载许可证信息…';
+
+  @override
+  String get aboutLicensesUnavailable => '无法获取许可证信息。';
+
+  @override
+  String get aboutRetryLicenses => '重试加载许可证';
+
+  @override
+  String get aboutLicenseBack => '返回关于';
+
+  @override
+  String get runtimeValueCopied => '已复制运行信息';
+
+  @override
+  String get runtimeValueCopyFailed => '无法复制运行信息。';
+
+  @override
+  String get expand => '展开';
+
+  @override
+  String get collapse => '收起';
 
   @override
   String get aboutOpenLinkFailed => '无法打开项目页面。';

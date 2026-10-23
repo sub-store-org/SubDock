@@ -45,6 +45,7 @@ dependencies:
   url_launcher: ^6.3.2
   webview_all: ^1.4.2
   webview_flutter: ^4.14.1
+  webview_flutter_wkwebview: 3.26.1
   window_manager: 0.5.2
   windows_single_instance: 1.2.0
 
@@ -73,6 +74,7 @@ flutter:
 
   # ImageAsset loads the tray PNG from the bundled Flutter assets.
   assets:
+    - LICENSE
     - assets/icon/app_icon_32.png
     # 随包分发的字体许可证；正文与许可证同进应用包，用户可离线查看。
     - assets/fonts/LICENSE-Noto-Sans-CJK.txt

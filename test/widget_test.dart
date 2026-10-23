@@ -1,50 +1,67 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart'
+    show
+        LicenseEntry,
+        LicenseEntryWithLineBreaks,
+        LicenseRegistry,
+        TargetPlatform,
+        defaultTargetPlatform;
+import 'package:flutter/gestures.dart' show PointerScrollEvent;
 import 'package:flutter/material.dart'
     show
         Brightness,
-        Axis,
         BorderRadius,
-        BoxDecoration,
         ClipRRect,
-        Container,
-        ChoiceChip,
-        DropdownButton,
         FilledButton,
-        Flex,
-        IconButton,
-        InputDecorator,
         Locale,
-        Material,
-        ListTile,
         ListView,
-        OutlinedButton,
-        OutlineInputBorder,
-        Expanded,
-        RoundedRectangleBorder,
         SelectableText,
         Scrollable,
-        SegmentedButton,
-        Switch,
+        Semantics,
         Theme,
         ThemeMode,
         Text,
-        TextButton,
-        TextField,
         ValueNotifier;
 import 'package:flutter/scheduler.dart' show AppLifecycleState;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart'
-    show EdgeInsets, GestureDetector, Offstage, Padding, SizedBox, ValueKey;
+    show
+        EdgeInsets,
+        Focus,
+        GestureDetector,
+        Offstage,
+        Padding,
+        SizedBox,
+        ValueKey;
 import 'package:flutter_test/flutter_test.dart';
-import 'package:shadcn_ui/shadcn_ui.dart' show ShadLocalizations, ShadTheme;
+// The Linux widget/transport is a pinned transitive implementation of webview_all.
+// ignore: depend_on_referenced_packages
+import 'package:webview_all_linux/webview_all_linux.dart' as linux_webview;
+// ignore: depend_on_referenced_packages
+import 'package:webview_platform_interface/webview_platform_interface.dart'
+    as webview_platform;
+import 'package:shadcn_ui/shadcn_ui.dart'
+    show
+        ShadButton,
+        ShadCard,
+        ShadContextMenu,
+        ShadIconButton,
+        ShadInput,
+        ShadLocalizations,
+        ShadOption,
+        ShadSwitch,
+        ShadTheme,
+        ShadToast,
+        ShadTooltip;
 import 'package:subdock/app/app.dart';
 import 'package:subdock/app/about_info.dart';
 import 'package:subdock/app/app_coordinator.dart';
 import 'package:subdock/app/app_typography.dart'
     show uiMonoFontFamily, uiTextFontFamily;
 import 'package:subdock/app/embedded_webview.dart';
+import 'package:subdock/app/close_request_guard.dart';
 import 'package:subdock/app/mobile_placeholder_runtime.dart';
 import 'package:subdock/app/maintenance_operation.dart';
 import 'package:subdock/l10n/generated/app_localizations.dart';
@@ -67,7 +84,28 @@ import 'package:subdock/update/maintenance_attempt_store.dart';
 
 import 'support/pump_app.dart';
 
+late List<LicenseEntry> _realLicenseRegistryEntries;
+
 void main() {
+  setUpAll(() async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    registerBundledFontLicenses();
+    _realLicenseRegistryEntries = await LicenseRegistry.licenses
+        .toList()
+        .timeout(const Duration(seconds: 5));
+    expect(
+      _realLicenseRegistryEntries.any(
+        (entry) => entry.packages.contains('Noto Sans CJK SC 2.004'),
+      ),
+      isTrue,
+    );
+    expect(
+      _realLicenseRegistryEntries.any(
+        (entry) => entry.packages.contains('DejaVu Sans Mono 2.37'),
+      ),
+      isTrue,
+    );
+  });
   test('mobile placeholder runtime stays stopped and silent', () async {
     final runtime = MobilePlaceholderRuntime();
 
@@ -117,6 +155,8 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
 
     expect(find.byKey(const ValueKey('mobile-navigation')), findsOneWidget);
+    expect(find.byKey(const ValueKey('nav-item-about')), findsNothing);
+    expect(find.byKey(const ValueKey('page-about')), findsNothing);
     for (final page in const [
       'overview',
       'manage',
@@ -128,39 +168,37 @@ void main() {
     }
     expect(find.byKey(const ValueKey('desktop-sidebar')), findsNothing);
     expect(find.byKey(const ValueKey('desktop-chrome')), findsNothing);
+    final runtimePanel = find.byKey(
+      const ValueKey('overview-runtime-information'),
+    );
+    final overviewScrollable = find
+        .descendant(
+          of: find.byKey(const ValueKey('page-overview')),
+          matching: find.byType(Scrollable),
+        )
+        .first;
+    await tester.scrollUntilVisible(
+      runtimePanel,
+      200,
+      scrollable: overviewScrollable,
+    );
     expect(
       find.descendant(
-        of: find.byKey(const ValueKey('overview-backend-hero')),
-        matching: find.text('-'),
+        of: runtimePanel,
+        matching: find.byWidgetPredicate(
+          (widget) => widget is SelectableText && widget.data == '-',
+        ),
       ),
       findsWidgets,
     );
-    final overviewScrollable = find.descendant(
-      of: find.byKey(const ValueKey('page-overview')),
-      matching: find.byType(Scrollable),
-    );
-    await tester.drag(overviewScrollable, const Offset(0, -600));
-    await tester.pump();
     expect(
       find.descendant(
-        of: find.byKey(const ValueKey('overview-stat-start')),
-        matching: find.text('-'),
+        of: runtimePanel,
+        matching: find.byWidgetPredicate(
+          (widget) => widget is SelectableText && widget.data == '0',
+        ),
       ),
-      findsOneWidget,
-    );
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('overview-stat-anomalies')),
-        matching: find.text('0'),
-      ),
-      findsOneWidget,
-    );
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('overview-stat-logs')),
-        matching: find.text('0'),
-      ),
-      findsOneWidget,
+      findsNWidgets(2),
     );
 
     for (final page in const [
@@ -228,16 +266,18 @@ void main() {
     final managementPage = find.byKey(const ValueKey('page-manage'));
     expect(managementPage, findsOneWidget);
     expect(tester.widget<Offstage>(managementPage).offstage, isTrue);
-    expect(find.text('已停止'), findsOneWidget);
-    expect(find.textContaining('Node'), findsOneWidget);
+    final l10n = AppLocalizations.of(
+      tester.element(find.byKey(const ValueKey('page-overview'))),
+    )!;
+    expect(find.text(l10n.serviceStoppedTitle), findsOneWidget);
+    expect(find.textContaining('Node'), findsWidgets);
     expect(find.textContaining('Backend'), findsWidgets);
-    expect(find.textContaining('端口'), findsWidgets);
     expect(
-      tester
-          .widget<FilledButton>(find.widgetWithText(FilledButton, '启动'))
-          .onPressed,
-      isNotNull,
+      find.byKey(const ValueKey('overview-component-status')),
+      findsOneWidget,
     );
+    final startButton = find.widgetWithText(ShadButton, '启动');
+    expect(tester.widget<ShadButton>(startButton).onPressed, isNotNull);
 
     runtime.emitState(RuntimeStatus.crashed, message: 'fixture crash');
     await tester.pump();
@@ -250,32 +290,31 @@ void main() {
     );
     await tester.tap(find.byKey(const ValueKey('nav-item-overview')));
     await tester.pump();
-    final overviewList = find
-        .descendant(
-          of: find.byKey(const ValueKey('page-overview')),
-          matching: find.byType(Scrollable),
-        )
-        .first;
-    await tester.drag(overviewList, const Offset(0, -160));
+    await tester.ensureVisible(startButton);
     await tester.pumpAndSettle();
-
-    tester
-        .widget<FilledButton>(find.widgetWithText(FilledButton, '启动'))
-        .onPressed!();
-    await tester.pump(const Duration(milliseconds: 1));
+    await tester.tap(startButton);
+    await _pumpRealIo(tester);
 
     expect(runtime.starts, 1);
-    expect(find.textContaining('运行中'), findsWidgets);
+    expect(find.text(l10n.serviceRunningTitle), findsOneWidget);
     expect(find.textContaining('v24.20.0'), findsWidgets);
-    expect(find.text('fixture-backend'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('overview-component-backend')),
+        matching: find.text(l10n.unavailable),
+      ),
+      findsWidgets,
+    );
     expect(find.textContaining('3001'), findsWidgets);
     expect(tester.takeException(), isNull);
 
-    final restartButton = find.widgetWithText(OutlinedButton, '重启');
+    final restartButton = find.widgetWithText(ShadButton, '重启');
+    await tester.ensureVisible(restartButton);
+    await tester.pumpAndSettle();
     await tester.tap(restartButton);
     await tester.pumpAndSettle();
     expect(find.text('重启本地服务？'), findsOneWidget);
-    await tester.tap(find.widgetWithText(TextButton, '取消'));
+    await tester.tap(find.widgetWithText(ShadButton, '取消'));
     await tester.pumpAndSettle();
     expect(runtime.stops, 0);
     expect(runtime.starts, 1);
@@ -283,26 +322,26 @@ void main() {
     await tester.tap(restartButton);
     await tester.pumpAndSettle();
     expect(find.text('重启本地服务？'), findsOneWidget);
-    await tester.tap(find.widgetWithText(FilledButton, '重启').last);
+    await tester.tap(find.widgetWithText(ShadButton, '重启').last);
     await _pumpRealIo(tester);
     expect(runtime.stops, 1);
     expect(runtime.starts, 2);
-    expect(find.textContaining('运行中'), findsWidgets);
+    expect(find.text(l10n.serviceRunningTitle), findsOneWidget);
 
-    final stopButton = find.widgetWithText(OutlinedButton, '停止');
+    final stopButton = find.widgetWithText(ShadButton, '停止');
     await tester.tap(stopButton);
     await tester.pumpAndSettle();
     expect(find.text('停止本地服务？'), findsOneWidget);
     expect(runtime.stops, 1);
-    await tester.tap(find.widgetWithText(TextButton, '取消'));
+    await tester.tap(find.widgetWithText(ShadButton, '取消'));
     await tester.pumpAndSettle();
     expect(runtime.stops, 1);
-    expect(find.textContaining('运行中'), findsWidgets);
+    expect(find.text(l10n.serviceRunningTitle), findsOneWidget);
 
     runtime.stopError = StateError('stop fixture failure');
     await tester.tap(stopButton);
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(FilledButton, '停止').last);
+    await tester.tap(find.widgetWithText(ShadButton, '停止').last);
     await _pumpRealIo(tester);
     expect(runtime.stops, 1);
     expect(runtime.currentState.status, RuntimeStatus.running);
@@ -322,10 +361,22 @@ void main() {
     await tester.tap(stopButton);
     await tester.pumpAndSettle();
     expect(find.text('停止本地服务？'), findsOneWidget);
-    await tester.tap(find.widgetWithText(FilledButton, '停止').last);
+    await tester.tap(find.widgetWithText(ShadButton, '停止').last);
     await _pumpRealIo(tester);
     expect(runtime.stops, 2);
-    expect(find.text('已停止'), findsOneWidget);
+    expect(runtime.currentState.status, RuntimeStatus.stopped);
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('overview-service-card')),
+      -200,
+      scrollable: find
+          .descendant(
+            of: find.byKey(const ValueKey('page-overview')),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text(l10n.serviceStoppedTitle), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -487,7 +538,40 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('manage recovery uses the shell surface', (
+  testWidgets('manage can start the saved service and stay in Sub-Store', (
+    WidgetTester tester,
+  ) async {
+    final fixture = await _widgetRuntime(tester);
+    await pumpApp(
+      tester,
+      SubDockApp(
+        coordinator: fixture.coordinator,
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('en'),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-manage')));
+    await tester.pump();
+
+    final startAndEnter = find.byKey(const ValueKey('manage-start-and-enter'));
+    expect(startAndEnter, findsOneWidget);
+    expect(tester.widget<ShadButton>(startAndEnter).enabled, isTrue);
+    await tester.tap(startAndEnter);
+    await _pumpRealIo(tester);
+
+    expect(fixture.runtime.starts, 1);
+    expect(
+      tester
+          .widget<Offstage>(find.byKey(const ValueKey('page-manage')))
+          .offstage,
+      isFalse,
+    );
+    expect(fixture.runtime.stops, 0);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('manage exposes stopped guidance and service details', (
     WidgetTester tester,
   ) async {
     late Directory temp;
@@ -514,9 +598,13 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('nav-item-manage')));
     await tester.pump();
     expect(find.byKey(const ValueKey('manage-recovery')), findsOneWidget);
-    expect(find.text('Backend 未运行'), findsOneWidget);
-    expect(find.text('查看概览'), findsOneWidget);
-    await tester.tap(find.widgetWithText(FilledButton, '查看概览'));
+    expect(find.text('本地服务尚未启动'), findsOneWidget);
+    expect(find.text('启动并进入'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('manage-service-details')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const ValueKey('manage-service-details')));
     await tester.pump();
     expect(
       tester
@@ -562,22 +650,32 @@ void main() {
     );
     await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
     await tester.pumpAndSettle();
+    final backendConfig = find.byKey(
+      const ValueKey('settings-card-backend-config'),
+    );
+    await tester.ensureVisible(backendConfig);
+    await tester.pumpAndSettle();
+    await tester.tap(backendConfig);
+    await tester.pumpAndSettle();
     final httpMetaSwitch = find.byKey(
       const ValueKey('settings-http-meta-toggle'),
     );
     expect(httpMetaSwitch, findsOneWidget);
+    await tester.ensureVisible(httpMetaSwitch);
+    await tester.pumpAndSettle();
     await tester.tap(httpMetaSwitch);
     await tester.pump();
 
-    final save = find.byKey(const ValueKey('settings-save-all'));
-    expect(tester.widget<FilledButton>(save).onPressed, isNotNull);
+    final save = find.byKey(const ValueKey('settings-child-save'));
+    expect(tester.widget<ShadButton>(save).onPressed, isNotNull);
     await tester.tap(save);
     await tester.pump();
     await _pumpRealIo(tester);
 
     final saved = await tester.runAsync(store.load);
     expect(saved!.httpMeta.enabled, isFalse);
-    expect(find.text('已保存'), findsOneWidget);
+    expect(save, findsNothing);
+    expect(find.byType(ShadToast), findsNothing);
     expect(runtime.restarts, 0);
     await tester.pumpWidget(const SizedBox());
   });
@@ -639,21 +737,29 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('logs-mobile-filter')));
     await tester.pumpAndSettle();
-    // 来源/级别是单一选择(ChoiceChip),默认都是「全部」即未选中具体项。
+    // The shadcn controls expose the single selected source accessibly.
+    Semantics semanticsFor(Finder button) => tester.widget<Semantics>(
+      find
+          .ancestor(
+            of: button,
+            matching: find.byWidgetPredicate(
+              (widget) =>
+                  widget is Semantics && widget.properties.selected != null,
+            ),
+          )
+          .first,
+    );
     final httpMeta = find.byKey(const ValueKey('logs-source-HTTP-META'));
     final back = find.byKey(const ValueKey('logs-source-Backend'));
-    expect(
-      tester
-          .widget<ChoiceChip>(find.byKey(const ValueKey('logs-source-all')))
-          .selected,
-      isTrue,
-    );
-    expect(tester.widget<ChoiceChip>(httpMeta).selected, isFalse);
-    expect(tester.widget<ChoiceChip>(back).selected, isFalse);
+    final all = find.byKey(const ValueKey('logs-source-all'));
+    expect(semanticsFor(all).properties.selected, isTrue);
+    expect(semanticsFor(httpMeta).properties.selected, isFalse);
+    expect(semanticsFor(back).properties.selected, isFalse);
     await tester.tap(back);
     await tester.tap(find.byKey(const ValueKey('logs-mobile-sort')));
-    await tester.pump();
-    await tester.tap(find.text('Newest last').last);
+    await tester.pumpAndSettle();
+    expect(find.text('Newest last'), findsOneWidget);
+    await tester.tap(find.text('Newest last'));
     await tester.pump();
     await tester.tap(find.text('Back').last);
     await tester.pump();
@@ -666,7 +772,7 @@ void main() {
     WidgetTester tester,
   ) async {
     final fixture = await _widgetRuntime(tester);
-    await tester.binding.setSurfaceSize(const Size(600, 700));
+    await tester.binding.setSurfaceSize(const Size(599, 480));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await pumpApp(
       tester,
@@ -675,8 +781,21 @@ void main() {
         autoStart: false,
         enableWebView: false,
         locale: const Locale('zh'),
+        desktopWarning: ValueNotifier<AppConfigError>(
+          const AppConfigError(
+            AppConfigErrorCode.exitFailed,
+            detail: 'fixture shutdown failure',
+          ),
+        ),
+        onRetryExit: () async {},
       ),
     );
+    await tester.tap(find.byKey(const ValueKey('nav-item-logs')));
+    await tester.pump();
+    expect(find.textContaining('SubDock 未能完成退出'), findsOneWidget);
+    expect(find.text('暂无日志'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
     for (final message in const [
       'mobile fixture',
       'http meta fixture',
@@ -690,20 +809,30 @@ void main() {
         ),
       );
     }
-    await tester.tap(find.byKey(const ValueKey('nav-item-logs')));
     await tester.pump();
+    final rows = find.byKey(const ValueKey('logs-mobile-row'));
+    expect(rows, findsNWidgets(3));
+    final message = find.text('mobile fixture');
+    final body = find.byKey(const ValueKey('logs-body'));
+    final scrollables = find.ancestor(
+      of: body,
+      matching: find.byType(Scrollable),
+    );
+    await tester.drag(scrollables.first, const Offset(0, -150));
+    await tester.pump();
+    await tester.ensureVisible(message);
+    expect(message.hitTestable(), findsOneWidget);
+    final copy = find.byKey(const ValueKey('logs-copy-filtered'));
+    await tester.ensureVisible(copy);
+    expect(copy.hitTestable(), findsOneWidget);
+    expect(tester.takeException(), isNull);
 
     for (final width in const [600.0, 599.0]) {
       await tester.binding.setSurfaceSize(Size(width, 700));
       await tester.pump();
-      final compact = width < 600;
-      final toolbar = find.byKey(
-        ValueKey(compact ? 'logs-mobile-toolbar' : 'logs-desktop-toolbar'),
-      );
+      final toolbar = find.byKey(const ValueKey('logs-mobile-toolbar'));
       final surface = find.byKey(const ValueKey('logs-surface'));
-      final row = find.byKey(
-        ValueKey(compact ? 'logs-mobile-row' : 'logs-desktop-row'),
-      );
+      final row = find.byKey(const ValueKey('logs-mobile-row'));
       expect(toolbar, findsOneWidget);
       expect(row, findsNWidgets(3));
       expect(find.descendant(of: surface, matching: toolbar), findsNothing);
@@ -718,27 +847,12 @@ void main() {
       expect((searchRect.left - surfaceRect.left).abs(), lessThan(0.5));
       expect(toolbarRect.bottom, lessThanOrEqualTo(surfaceRect.top));
 
-      if (!compact) {
-        final card = tester.widget<Material>(
-          find.descendant(of: surface, matching: find.byType(Material)).first,
-        );
-        expect(
-          (card.shape! as RoundedRectangleBorder).borderRadius,
-          BorderRadius.circular(12),
-        );
-        final searchBorder =
-            tester
-                    .widget<InputDecorator>(
-                      find.descendant(
-                        of: find.byKey(const ValueKey('logs-search')),
-                        matching: find.byType(InputDecorator),
-                      ),
-                    )
-                    .decoration
-                    .enabledBorder
-                as OutlineInputBorder;
-        expect(searchBorder.borderRadius, BorderRadius.circular(8));
-      }
+      final card = tester.widget<ShadCard>(surface);
+      expect(card.radius, BorderRadius.circular(12));
+      final searchTheme = ShadTheme.of(
+        tester.element(find.byKey(const ValueKey('logs-search'))),
+      );
+      expect(searchTheme.radius, BorderRadius.circular(8));
       expect(tester.takeException(), isNull);
     }
 
@@ -763,7 +877,7 @@ void main() {
     final runtime = fixture.runtime;
     final directories = fixture.directories;
     final coordinator = fixture.coordinator;
-    await tester.binding.setSurfaceSize(const Size(600, 480));
+    await tester.binding.setSurfaceSize(const Size(1000, 700));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.runAsync(
       () =>
@@ -856,13 +970,13 @@ void main() {
       );
     }
 
-    await tester.enterText(find.byType(TextField), 'Backend');
+    await tester.enterText(find.byType(ShadInput), 'Backend');
     await tester.pump();
     expect(find.byType(SelectableText), findsNothing);
-    await tester.enterText(find.byType(TextField), 'log-0');
+    await tester.enterText(find.byType(ShadInput), 'log-0');
     await tester.pump();
     expect(find.byType(SelectableText), findsNothing);
-    await tester.enterText(find.byType(TextField), 'log-59');
+    await tester.enterText(find.byType(ShadInput), 'log-59');
     await tester.pump();
     expect(
       find.byWidgetPredicate(
@@ -871,16 +985,24 @@ void main() {
       ),
       findsOneWidget,
     );
-    await tester.tap(find.byKey(const ValueKey('logs-source-filter')));
-    await tester.pump(const Duration(milliseconds: 500));
-    await tester.tap(find.text('HTTP-META').last);
-    await tester.pump();
+    final sourceFilter = find.byKey(const ValueKey('logs-source-filter'));
+    await tester.tap(sourceFilter);
+    await tester.pumpAndSettle();
+    final httpMetaOption = find.widgetWithText(
+      ShadOption<String?>,
+      'HTTP-META',
+    );
+    expect(httpMetaOption.hitTestable(), findsOneWidget);
+    await tester.tap(httpMetaOption);
+    await tester.pumpAndSettle();
     // 单一审(HTTP-META)下,后端日志 log-59 被过滤掉。
     expect(find.byType(SelectableText), findsNothing);
-    await tester.tap(find.byKey(const ValueKey('logs-source-filter')));
-    await tester.pump(const Duration(milliseconds: 500));
-    await tester.tap(find.text('Backend').last);
-    await tester.pump();
+    await tester.tap(sourceFilter);
+    await tester.pumpAndSettle();
+    final backendOption = find.widgetWithText(ShadOption<String?>, 'Backend');
+    expect(backendOption.hitTestable(), findsOneWidget);
+    await tester.tap(backendOption);
+    await tester.pumpAndSettle();
     expect(
       find.byWidgetPredicate(
         (widget) =>
@@ -902,33 +1024,38 @@ void main() {
       );
     }
     await tester.pump();
-    await tester.enterText(find.byType(TextField), 'sort-');
-    await tester.tap(find.byKey(const ValueKey('logs-sort-selector')));
-    await tester.pump();
-    await tester.tap(find.text('最早在前').last);
-    await tester.pump();
+    await tester.enterText(find.byType(ShadInput), 'sort-');
+    final sortSelector = find.byKey(const ValueKey('logs-sort-selector'));
+    await tester.tap(sortSelector);
+    await tester.pumpAndSettle();
+    final oldestOption = find.widgetWithText(ShadOption<LogSort?>, '最早在前');
+    expect(oldestOption.hitTestable(), findsOneWidget);
+    await tester.tap(oldestOption);
+    await tester.pumpAndSettle();
     List<String?> sortedMessages() => tester
         .widgetList<SelectableText>(find.byType(SelectableText))
         .map((widget) => widget.data)
         .toList();
     var sortedRows = sortedMessages();
     expect(sortedRows, ['sort-oldest', 'sort-newest']);
-    await tester.tap(find.byKey(const ValueKey('logs-sort-selector')));
-    await tester.pump();
-    await tester.tap(find.text('最新在前').last);
-    await tester.pump();
+    await tester.tap(sortSelector);
+    await tester.pumpAndSettle();
+    final newestOption = find.widgetWithText(ShadOption<LogSort?>, '最新在前');
+    expect(newestOption.hitTestable(), findsOneWidget);
+    await tester.tap(newestOption);
+    await tester.pumpAndSettle();
     sortedRows = sortedMessages();
     expect(sortedRows, ['sort-newest', 'sort-oldest']);
-    await tester.enterText(find.byType(TextField), '');
+    await tester.enterText(find.byType(ShadInput), '');
 
-    await tester.enterText(find.byType(TextField), 'panic');
+    await tester.enterText(find.byType(ShadInput), 'panic');
     await tester.tap(find.byKey(const ValueKey('nav-item-overview')));
     await tester.pump();
     await tester.tap(find.byKey(const ValueKey('nav-item-logs')));
     await tester.pump();
-    expect(find.byType(TextField), findsOneWidget);
+    expect(find.byType(ShadInput), findsOneWidget);
     expect(
-      tester.widget<TextField>(find.byType(TextField)).controller!.text,
+      tester.widget<ShadInput>(find.byType(ShadInput)).controller!.text,
       'panic',
     );
     final retainedSearchResults = tester
@@ -948,28 +1075,44 @@ void main() {
       ),
     );
     await tester.pump();
-    await tester.enterText(find.byType(TextField), '');
-    await tester.tap(find.byKey(const ValueKey('logs-source-filter')));
-    await tester.pump(const Duration(milliseconds: 500));
-    await tester.tap(find.text('HTTP-META').last);
-    await tester.pump();
+    await tester.enterText(find.byType(ShadInput), '');
+    await tester.tap(sourceFilter);
+    await tester.pumpAndSettle();
+    expect(httpMetaOption.hitTestable(), findsOneWidget);
+    await tester.tap(httpMetaOption);
+    await tester.pumpAndSettle();
     expect(find.textContaining('HTTP-META info line'), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('logs-source-filter')));
-    await tester.pump(const Duration(milliseconds: 500));
-    await tester.tap(find.text('Backend').last);
-    await tester.pump();
+    await tester.tap(sourceFilter);
+    await tester.pumpAndSettle();
+    expect(backendOption.hitTestable(), findsOneWidget);
+    await tester.tap(backendOption);
+    await tester.pumpAndSettle();
     expect(find.textContaining('HTTP-META info line'), findsNothing);
-    await tester.tap(find.byKey(const ValueKey('logs-source-filter')));
-    await tester.pump(const Duration(milliseconds: 500));
-    await tester.tap(find.text('全部').last);
-    await tester.pump();
+    await tester.tap(sourceFilter);
+    await tester.pumpAndSettle();
+    final allSourcesOption = find.widgetWithText(ShadOption<String?>, '全部');
+    expect(allSourcesOption.hitTestable(), findsOneWidget);
+    await tester.tap(allSourcesOption);
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(of: sourceFilter, matching: find.text('全部')),
+      findsOneWidget,
+    );
 
     final platform =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     String? copied;
-    platform.setMockMethodCallHandler(SystemChannels.platform, (call) {
+    var clipboardFails = false;
+    Completer<void>? clipboardReply;
+    Completer<void>? clipboardEntered;
+    platform.setMockMethodCallHandler(SystemChannels.platform, (call) async {
       if (call.method == 'Clipboard.setData') {
+        if (clipboardFails) {
+          throw PlatformException(code: 'clipboard_unavailable');
+        }
         copied = (call.arguments as Map)['text'] as String;
+        clipboardEntered?.complete();
+        if (clipboardReply != null) await clipboardReply.future;
       }
       return null;
     });
@@ -979,13 +1122,52 @@ void main() {
     final displayed = tester
         .widget<SelectableText>(find.byType(SelectableText).first)
         .data;
-    final copy = find.byTooltip('复制日志').first;
+    final copy = find.byKey(const ValueKey('logs-row-copy')).first;
     await tester.ensureVisible(copy);
     await tester.pump();
     expect(tester.getSize(copy), const Size(40, 40));
     await tester.tap(copy);
     await tester.pump();
     expect(copied, contains(displayed));
+    final toast = find.byType(ShadToast);
+    await tester.pumpAndSettle();
+    expect(toast, findsOneWidget);
+    await tester.tap(
+      find.descendant(of: toast, matching: find.byType(ShadIconButton)),
+    );
+    await tester.pumpAndSettle();
+    expect(toast, findsNothing);
+
+    clipboardFails = true;
+    await tester.tap(copy);
+    await tester.pumpAndSettle();
+    expect(find.text('无法将日志复制到剪贴板。'), findsOneWidget);
+    expect(toast, findsNothing);
+
+    clipboardFails = false;
+    final releaseClipboard = Completer<void>();
+    final enteredClipboard = Completer<void>();
+    clipboardReply = releaseClipboard;
+    clipboardEntered = enteredClipboard;
+    try {
+      await tester.tap(copy);
+      await tester.idle();
+      expect(enteredClipboard.isCompleted, isTrue);
+      await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
+      releaseClipboard.complete();
+      await tester.idle();
+      await tester.pumpAndSettle();
+      expect(toast, findsNothing);
+      await tester.tap(find.byKey(const ValueKey('nav-item-logs')));
+      await tester.pumpAndSettle();
+      expect(toast, findsNothing);
+      expect(find.text('无法将日志复制到剪贴板。'), findsNothing);
+    } finally {
+      if (!releaseClipboard.isCompleted) releaseClipboard.complete();
+      await tester.idle();
+      clipboardReply = null;
+      clipboardEntered = null;
+    }
 
     runtime.emitLog(
       RuntimeLog(
@@ -1112,6 +1294,203 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('暂停阅读'), findsOneWidget);
     expect(scrollArrival, findsOneWidget);
+
+    await tester.binding.setSurfaceSize(const Size(599, 480));
+    await tester.pump();
+    final workspace = find.byKey(const ValueKey('logs-body'));
+    final workspaceScroll = find
+        .ancestor(of: workspace, matching: find.byType(Scrollable))
+        .first;
+    var latestBeforeOuterScroll = scrollArrival;
+    Future<void> dragOuter(Offset delta) async {
+      final viewportRect = tester.getRect(workspaceScroll);
+      final workspaceRect = tester.getRect(workspace);
+      final origin = Offset(workspaceRect.left + 2, viewportRect.center.dy);
+      expect(workspaceRect.contains(origin), isTrue);
+      await tester.dragFrom(origin, delta);
+      await tester.pump();
+    }
+
+    expect(find.text('暂停阅读'), findsOneWidget);
+    await dragOuter(const Offset(0, -120));
+    expect(latestBeforeOuterScroll.hitTestable(), findsOneWidget);
+    final header = find.byKey(const ValueKey('logs-panel-header'));
+    runtime.emitLog(
+      RuntimeLog(
+        timestamp: DateTime.now(),
+        source: RuntimeLogSource.stdout,
+        message: 'quiet-newest-arrival',
+      ),
+    );
+    await tester.pump();
+    final quietArrival = find.byWidgetPredicate(
+      (widget) =>
+          widget is SelectableText &&
+          widget.data?.contains('quiet-newest-arrival') == true,
+    );
+    expect(quietArrival.hitTestable(), findsOneWidget);
+    final viewportBeforeQuietWheel = tester.getRect(workspaceScroll);
+    final workspaceBeforeQuietWheel = tester.getRect(workspace);
+    final quietWheelOrigin = Offset(
+      workspaceBeforeQuietWheel.left + 2,
+      viewportBeforeQuietWheel.center.dy,
+    );
+    final headerBeforeQuietWheel = tester.getRect(header);
+    await tester.sendEventToBinding(
+      PointerScrollEvent(
+        position: quietWheelOrigin,
+        scrollDelta: const Offset(0, 260),
+      ),
+    );
+    expect(
+      tester.getRect(header).top,
+      lessThan(headerBeforeQuietWheel.top),
+      reason: 'the first wheel event must physically move the outer workspace',
+    );
+    await tester.pump();
+    expect(find.text('查看最新日志'), findsOneWidget);
+    final rowsAfterQuietWheel = tester
+        .widgetList<SelectableText>(find.byType(SelectableText))
+        .map((widget) => widget.data)
+        .toList();
+    runtime.emitLog(
+      RuntimeLog(
+        timestamp: DateTime.now(),
+        source: RuntimeLogSource.stdout,
+        message: 'quiet-after-wheel',
+      ),
+    );
+    await tester.pump();
+    expect(find.text('新增日志：1'), findsOneWidget);
+    expect(
+      tester
+          .widgetList<SelectableText>(find.byType(SelectableText))
+          .map((widget) => widget.data)
+          .toList(),
+      rowsAfterQuietWheel,
+    );
+    final quietAfterWheel = find.byWidgetPredicate(
+      (widget) =>
+          widget is SelectableText &&
+          widget.data?.contains('quiet-after-wheel') == true,
+    );
+    expect(quietAfterWheel, findsNothing);
+    await tester.ensureVisible(follow);
+    expect(follow.hitTestable(), findsOneWidget);
+    await tester.tap(follow);
+    await tester.pumpAndSettle();
+    expect(quietAfterWheel.hitTestable(), findsOneWidget);
+    latestBeforeOuterScroll = quietAfterWheel;
+    final headerBeforeAwayScroll = tester.getRect(header);
+    final viewportRect = tester.getRect(workspaceScroll);
+    final latestRect = tester.getRect(latestBeforeOuterScroll);
+    await dragOuter(Offset(0, -(latestRect.top - viewportRect.top + 40)));
+    expect(tester.getRect(header).top, lessThan(headerBeforeAwayScroll.top));
+    expect(find.text('查看最新日志'), findsOneWidget);
+    final shortWindowRows = tester
+        .widgetList<SelectableText>(find.byType(SelectableText))
+        .map((widget) => widget.data)
+        .toList();
+    runtime.emitLog(
+      RuntimeLog(
+        timestamp: DateTime.now(),
+        source: RuntimeLogSource.stdout,
+        message: 'outer-scroll-arrival',
+      ),
+    );
+    await tester.pump();
+    expect(find.text('新增日志：1'), findsOneWidget);
+    expect(
+      tester
+          .widgetList<SelectableText>(find.byType(SelectableText))
+          .map((widget) => widget.data)
+          .toList(),
+      shortWindowRows,
+    );
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is SelectableText &&
+            widget.data?.contains('outer-scroll-arrival') == true,
+      ),
+      findsNothing,
+    );
+    await tester.ensureVisible(follow);
+    expect(follow.hitTestable(), findsOneWidget);
+    await tester.tap(follow);
+    await tester.pumpAndSettle();
+    final latestMessage = find.byWidgetPredicate(
+      (widget) =>
+          widget is SelectableText &&
+          widget.data?.contains('outer-scroll-arrival') == true,
+    );
+    expect(latestMessage.hitTestable(), findsOneWidget);
+    final workspaceRect = tester.getRect(workspace);
+    final viewportAfterResume = tester.getRect(workspaceScroll);
+    final wheelOrigin = Offset(
+      workspaceRect.left + 2,
+      viewportAfterResume.center.dy,
+    );
+    final headerBeforeWheel = tester.getRect(header);
+    await tester.sendEventToBinding(
+      PointerScrollEvent(
+        position: wheelOrigin,
+        scrollDelta: const Offset(0, 260),
+      ),
+    );
+    await tester.pump();
+    expect(tester.getRect(header).top, lessThan(headerBeforeWheel.top));
+    expect(find.text('查看最新日志'), findsOneWidget);
+    final rowsBeforeWheelArrival = tester
+        .widgetList<SelectableText>(find.byType(SelectableText))
+        .map((widget) => widget.data)
+        .toList();
+    runtime.emitLog(
+      RuntimeLog(
+        timestamp: DateTime.now(),
+        source: RuntimeLogSource.stdout,
+        message: 'outer-wheel-arrival',
+      ),
+    );
+    await tester.pump();
+    expect(find.text('新增日志：1'), findsOneWidget);
+    expect(
+      tester
+          .widgetList<SelectableText>(find.byType(SelectableText))
+          .map((widget) => widget.data)
+          .toList(),
+      rowsBeforeWheelArrival,
+    );
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('logs-mobile-filter')),
+    );
+    final mobileFilter = find.byKey(const ValueKey('logs-mobile-filter'));
+    expect(mobileFilter.hitTestable(), findsOneWidget);
+    await tester.tap(mobileFilter);
+    await tester.pumpAndSettle();
+    final mobileSort = find.byKey(const ValueKey('logs-mobile-sort'));
+    await tester.ensureVisible(mobileSort);
+    expect(mobileSort.hitTestable(), findsOneWidget);
+    await tester.tap(mobileSort);
+    await tester.pumpAndSettle();
+    final mobileOldestOption = find.widgetWithText(ShadOption<LogSort>, '最早在前');
+    expect(mobileOldestOption.hitTestable(), findsOneWidget);
+    await tester.tap(mobileOldestOption);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('返回').last);
+    await tester.pumpAndSettle();
+    final wheelArrival = find.byWidgetPredicate(
+      (widget) =>
+          widget is SelectableText &&
+          widget.data?.contains('outer-wheel-arrival') == true,
+    );
+    await tester.ensureVisible(follow);
+    expect(follow.hitTestable(), findsOneWidget);
+    await tester.tap(follow);
+    await tester.pumpAndSettle();
+    expect(find.text('暂停阅读'), findsOneWidget);
+    expect(wheelArrival.hitTestable(), findsOneWidget);
+    expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -1127,6 +1506,7 @@ void main() {
     final writer = RuntimeLogStore(directories!);
     late String healthyRunId;
     late String runId;
+    final recoverableTimestamp = DateTime.now();
     await tester.runAsync(() async {
       await writer.initialize();
       healthyRunId = await writer.beginRun();
@@ -1141,7 +1521,7 @@ void main() {
       runId = await writer.beginRun();
       await writer.append(
         RuntimeLog(
-          timestamp: DateTime.utc(2026, 10, 16),
+          timestamp: recoverableTimestamp,
           source: RuntimeLogSource.stdout,
           message: 'recoverable prefix',
         ),
@@ -1158,7 +1538,7 @@ void main() {
         flush: true,
       ),
     );
-    final logStore = RuntimeLogStore(directories);
+    final logStore = _RecoveryGatedRuntimeLogStore(directories);
     final logRecoveryError = await tester.runAsync(() async {
       try {
         await logStore.initialize();
@@ -1195,7 +1575,7 @@ void main() {
     await _pumpRealIo(tester);
     final healthyTile = find.byKey(ValueKey('history-run-$healthyRunId'));
     expect(healthyTile, findsOneWidget);
-    await tester.tap(healthyTile);
+    await tester.tap(find.byKey(ValueKey('history-view-$healthyRunId')));
     await _pumpRealIo(tester);
     expect(
       find.byWidgetPredicate(
@@ -1208,26 +1588,56 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('history-back')));
     await tester.pump();
 
-    final deleteButton = find.descendant(
-      of: healthyTile,
-      matching: find.byType(IconButton),
-    );
-    expect(tester.widget<IconButton>(deleteButton).onPressed, isNull);
-    final clearButton = find.widgetWithText(TextButton, 'Clear history');
-    expect(tester.widget<TextButton>(clearButton).onPressed, isNull);
+    final deleteButton = find.byKey(ValueKey('history-delete-$healthyRunId'));
+    expect(tester.widget<ShadIconButton>(deleteButton).onPressed, isNull);
+    expect(tester.widget<ShadIconButton>(deleteButton).enabled, isFalse);
+    final clearButton = find.widgetWithText(ShadButton, 'Clear history');
+    expect(tester.widget<ShadButton>(clearButton).onPressed, isNull);
+    expect(tester.widget<ShadButton>(clearButton).enabled, isFalse);
     expect(find.byKey(const ValueKey('recently-deleted')), findsNothing);
     expect(find.byKey(const ValueKey('history-delete-confirm')), findsNothing);
 
     await tester.runAsync(
       () => eventFile.writeAsBytes(originalEvents!, flush: true),
     );
-    await tester.tap(
-      find.descendant(
-        of: find.byKey(const ValueKey('log-recovery-banner')),
-        matching: find.text('Retry'),
-      ),
-    );
-    await _pumpUntilLogRecoveryCompletes(tester);
+    final releaseRecovery = Completer<void>();
+    logStore.recoveryGate = releaseRecovery;
+    try {
+      await tester.tap(
+        find.descendant(
+          of: find.byKey(const ValueKey('log-recovery-banner')),
+          matching: find.text('Retry'),
+        ),
+      );
+      await _pumpRealIo(tester, turns: 1);
+      expect(logStore.recoveryEntered.isCompleted, isTrue);
+      final retrying = find.widgetWithText(ShadButton, 'Retrying…');
+      expect(tester.widget<ShadButton>(retrying).onPressed, isNull);
+      expect(tester.widget<ShadButton>(retrying).enabled, isFalse);
+      expect(
+        Focus.of(tester.element(find.text('Retrying…'))).canRequestFocus,
+        isFalse,
+      );
+      final semantics = tester.ensureSemantics();
+      try {
+        expect(
+          tester.getSemantics(find.text('Retrying…')),
+          matchesSemantics(
+            label: 'Retrying…',
+            isButton: true,
+            isFocusable: true,
+            hasEnabledState: true,
+            isEnabled: false,
+          ),
+        );
+      } finally {
+        semantics.dispose();
+      }
+    } finally {
+      if (!releaseRecovery.isCompleted) releaseRecovery.complete();
+      await _pumpUntilLogRecoveryCompletes(tester);
+      expect(logStore.recoveryFinished.isCompleted, isTrue);
+    }
     expect(coordinator.logRecoveryError, isNull);
     expect(find.byKey(const ValueKey('log-recovery-banner')), findsNothing);
     expect(runtime.starts, 0);
@@ -1239,12 +1649,19 @@ void main() {
     await _pumpRealIo(tester);
     final runTile = find.byKey(ValueKey('history-run-$runId'));
     expect(runTile, findsOneWidget);
-    final subtitle = tester.widget<ListTile>(runTile).subtitle! as Text;
-    expect(subtitle.data, contains('Incomplete log capture'));
+    expect(
+      find.descendant(
+        of: runTile,
+        matching: find.textContaining('Incomplete log capture'),
+      ),
+      findsOneWidget,
+    );
     final storedLogs = await tester.runAsync(() => logStore.readRun(runId));
     expect(storedLogs!.single.message, 'recoverable prefix');
-    expect(tester.widget<IconButton>(deleteButton).onPressed, isNotNull);
-    expect(tester.widget<TextButton>(clearButton).onPressed, isNotNull);
+    expect(tester.widget<ShadIconButton>(deleteButton).onPressed, isNotNull);
+    expect(tester.widget<ShadIconButton>(deleteButton).enabled, isTrue);
+    expect(tester.widget<ShadButton>(clearButton).onPressed, isNotNull);
+    expect(tester.widget<ShadButton>(clearButton).enabled, isTrue);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -1299,31 +1716,36 @@ void main() {
     await tester.tap(find.text('历史'));
     await tester.pump();
     await _pumpRealIo(tester);
-    expect(find.byType(ListTile), findsOneWidget);
-    await tester.tap(find.byType(ListTile));
+    expect(find.byKey(ValueKey('history-run-$runId')), findsOneWidget);
+    await tester.tap(find.byKey(ValueKey('history-view-$runId')));
     await _pumpRealIo(tester);
     expect(find.textContaining('history-404'), findsOneWidget);
     expect(find.textContaining('historical entry'), findsNothing);
-    await tester.tap(find.text('下一页'));
+    final nextPage = find.text('下一页');
+    await tester.ensureVisible(nextPage);
+    expect(nextPage.hitTestable(), findsOneWidget);
+    await tester.tap(nextPage);
     await _pumpRealIo(tester);
     expect(find.textContaining('history-204'), findsOneWidget);
     expect(find.textContaining('history-404'), findsNothing);
-    await tester.tap(find.text('下一页'));
+    await tester.ensureVisible(nextPage);
+    expect(nextPage.hitTestable(), findsOneWidget);
+    await tester.tap(nextPage);
     await _pumpRealIo(tester);
     expect(find.textContaining('history-004'), findsOneWidget);
     await tester.drag(find.byType(ListView).last, const Offset(0, -10000));
     await tester.pump();
     expect(find.textContaining('historical entry'), findsOneWidget);
     expect(find.textContaining('history-204'), findsNothing);
-    await tester.enterText(find.byType(TextField).first, 'no-such-log');
+    await tester.enterText(find.byType(ShadInput).first, 'no-such-log');
     await _pumpRealIo(tester);
     expect(find.text('没有匹配的日志'), findsOneWidget);
-    await tester.enterText(find.byType(TextField).first, '');
+    await tester.enterText(find.byType(ShadInput).first, '');
     await _pumpRealIo(tester);
     await tester.tap(find.byKey(const ValueKey('history-back')));
     await tester.pump();
-    expect(find.byType(ListTile), findsOneWidget);
-    await tester.tap(find.byTooltip('删除运行记录'));
+    expect(find.byKey(ValueKey('history-run-$runId')), findsOneWidget);
+    await tester.tap(find.byKey(ValueKey('history-delete-$runId')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('history-delete-confirm')));
     await _pumpRealIo(tester);
@@ -1331,7 +1753,7 @@ void main() {
     await tester.tap(find.text('撤销').last);
     await _pumpRealIo(tester);
     await _pumpUntilRestoredHistoryRun(tester, runId);
-    expect(find.byType(ListTile), findsOneWidget);
+    expect(find.byKey(ValueKey('history-run-$runId')), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -1387,7 +1809,7 @@ void main() {
       await Directory(trashPath).rename(savedTrash.path);
       await File(trashPath).writeAsString('blocks trash access', flush: true);
     });
-    await tester.tap(find.byTooltip('Delete run'));
+    await tester.tap(find.byKey(ValueKey('history-delete-$runId')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('history-delete-confirm')));
     await _pumpRealIo(tester);
@@ -1598,13 +2020,13 @@ void main() {
       'retry-marker',
     );
     await tester.runAsync(() => runDirectory.rename(unavailableDirectory.path));
-    await tester.tap(runTile);
+    await tester.tap(find.byKey(ValueKey('history-view-$runId')));
     await _pumpRealIo(tester);
 
     expect(find.text('无法加载历史记录'), findsOneWidget);
     expect(
       tester
-          .widget<TextField>(find.byKey(const ValueKey('logs-search')))
+          .widget<ShadInput>(find.byKey(const ValueKey('logs-search')))
           .controller!
           .text,
       'retry-marker',
@@ -1725,7 +2147,7 @@ void main() {
     await tester.pump();
     await tester.tap(find.text('历史'));
     await _pumpRealIo(tester);
-    await tester.tap(find.byKey(ValueKey('history-run-$runId')));
+    await tester.tap(find.byKey(ValueKey('history-view-$runId')));
     await _pumpRealIo(tester);
 
     await tester.enterText(
@@ -1733,14 +2155,30 @@ void main() {
       'COPY-ENTRY',
     );
     await _pumpRealIo(tester);
-    await tester.tap(find.byKey(const ValueKey('logs-source-filter')));
+    final sourceFilter = find.byKey(const ValueKey('logs-source-filter'));
+    await tester.tap(sourceFilter);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Backend').last);
+    final backendOption = find.widgetWithText(ShadOption<String?>, 'Backend');
+    expect(backendOption.hitTestable(), findsOneWidget);
+    await tester.tap(backendOption);
     await _pumpRealIo(tester);
-    await tester.tap(find.byKey(const ValueKey('logs-level-filter')));
+    expect(
+      find.descendant(of: sourceFilter, matching: find.text('Backend')),
+      findsOneWidget,
+    );
+    final levelFilter = find.byKey(const ValueKey('logs-level-filter'));
+    await tester.tap(levelFilter);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('信息').last);
+    final infoOption = find.widgetWithText(ShadOption<String?>, '信息');
+    expect(infoOption.hitTestable(), findsOneWidget);
+    await tester.tap(infoOption);
     await _pumpRealIo(tester);
+    expect(
+      find.descendant(of: levelFilter, matching: find.text('信息')),
+      findsOneWidget,
+    );
+    expect(find.textContaining('copy-entry-source-'), findsNothing);
+    expect(find.textContaining('copy-entry-level-'), findsNothing);
     await tester.tap(find.byKey(const ValueKey('logs-sort-selector')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('最早在前').last);
@@ -1754,8 +2192,12 @@ void main() {
       ),
       findsOneWidget,
     );
-    await tester.tap(find.text('下一页'));
-    await _pumpRealIo(tester);
+    final nextPage = find.widgetWithText(ShadButton, '下一页');
+    expect(tester.widget<ShadButton>(nextPage).onPressed, isNotNull);
+    await tester.ensureVisible(nextPage);
+    expect(nextPage.hitTestable(), findsOneWidget);
+    await tester.tap(nextPage);
+    await _pumpUntilLogEntry(tester, 'copy-entry-200 info');
     expect(
       find.byWidgetPredicate(
         (widget) =>
@@ -1764,8 +2206,11 @@ void main() {
       ),
       findsOneWidget,
     );
-    await tester.tap(find.text('下一页'));
-    await _pumpRealIo(tester);
+    expect(tester.widget<ShadButton>(nextPage).onPressed, isNotNull);
+    await tester.ensureVisible(nextPage);
+    expect(nextPage.hitTestable(), findsOneWidget);
+    await tester.tap(nextPage);
+    await _pumpUntilLogEntry(tester, 'copy-entry-400 info');
     expect(
       find.byWidgetPredicate(
         (widget) =>
@@ -1791,10 +2236,58 @@ void main() {
 
     final copiedLines = copied!.split('\n');
     expect(copiedLines, hasLength(410));
+    expect(find.text('第 401–410 条 / 共 410 条匹配'), findsOneWidget);
     expect(copiedLines.first, contains('copy-entry-000 info'));
     expect(copiedLines.last, contains('copy-entry-409 info'));
     expect(copiedLines.any((line) => line.contains('auxiliary')), isFalse);
     expect(copiedLines.any((line) => line.contains('failure error')), isFalse);
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(ShadToast),
+        matching: find.byType(ShadIconButton),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final resetFilters = find.byKey(const ValueKey('logs-reset-filters'));
+    expect(resetFilters, findsOneWidget);
+    await tester.ensureVisible(resetFilters);
+    expect(resetFilters.hitTestable(), findsOneWidget);
+    await tester.tap(resetFilters);
+    await _pumpUntilLogEntry(tester, 'copy-entry-source-0 info');
+    final search = find.byKey(const ValueKey('logs-search'));
+    expect(tester.widget<ShadInput>(search).controller!.text, isEmpty);
+    expect(
+      find.descendant(of: sourceFilter, matching: find.text('全部')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: levelFilter, matching: find.text('级别')),
+      findsOneWidget,
+    );
+    final restoredError = find.textContaining('copy-entry-level-0 error');
+    await tester.scrollUntilVisible(
+      restoredError,
+      80,
+      scrollable: find
+          .descendant(
+            of: find.byKey(const ValueKey('logs-surface')),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    expect(restoredError, findsOneWidget);
+    expect(find.text('第 1 页'), findsOneWidget);
+    expect(find.text('第 1–200 条 / 共 1027 条匹配'), findsOneWidget);
+    expect(resetFilters, findsNothing);
+
+    await tester.enterText(search, 'no-matching-history-event');
+    await _pumpRealIo(tester);
+    expect(find.text('没有匹配的日志'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('logs-clear-filters')));
+    await _pumpUntilLogEntry(tester, 'copy-entry-000 info');
+    expect(tester.widget<ShadInput>(search).controller!.text, isEmpty);
+    expect(resetFilters, findsNothing);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -1857,7 +2350,7 @@ void main() {
     await tester.pump();
     await tester.tap(find.text('历史'));
     await _pumpRealIo(tester);
-    await tester.tap(find.byKey(ValueKey('history-run-$runId')));
+    await tester.tap(find.byKey(ValueKey('history-view-$runId')));
     await _pumpRealIo(tester);
     await tester.enterText(find.byKey(const ValueKey('logs-search')), 'marker');
     await _pumpRealIo(tester);
@@ -1865,7 +2358,7 @@ void main() {
     expect(find.textContaining('current marker'), findsOneWidget);
     expect(
       tester
-          .widget<TextButton>(find.byKey(const ValueKey('logs-copy-filtered')))
+          .widget<ShadButton>(find.byKey(const ValueKey('logs-copy-filtered')))
           .onPressed,
       isNotNull,
     );
@@ -1910,7 +2403,7 @@ void main() {
     expect(find.textContaining('current marker'), findsOneWidget);
     expect(
       tester
-          .widget<TextButton>(find.byKey(const ValueKey('logs-copy-filtered')))
+          .widget<ShadButton>(find.byKey(const ValueKey('logs-copy-filtered')))
           .onPressed,
       isNotNull,
     );
@@ -1985,23 +2478,28 @@ void main() {
     expect(runTile, findsOneWidget);
     final semantics = tester.ensureSemantics();
     expect(
-      tester.getSemantics(runTile),
+      tester.getSemantics(
+        find.descendant(
+          of: find.byKey(ValueKey('history-view-$runId')),
+          matching: find.text('打开'),
+        ),
+      ),
       matchesSemantics(
+        label: '打开',
         hasTapAction: true,
         hasFocusAction: true,
         isButton: true,
         hasEnabledState: true,
         isEnabled: true,
         isFocusable: true,
-        hasSelectedState: true,
       ),
     );
-    final delete = find.byTooltip('删除运行记录');
+    final delete = find.bySemanticsLabel('删除运行记录');
     expect(delete, findsOneWidget);
     expect(
       tester.getSemantics(delete),
       matchesSemantics(
-        tooltip: '删除运行记录',
+        label: '删除运行记录',
         hasTapAction: true,
         hasFocusAction: true,
         isButton: true,
@@ -2020,7 +2518,10 @@ void main() {
     expect(runTile, findsOneWidget);
     expect(find.byKey(const ValueKey('recently-deleted')), findsNothing);
 
-    await tester.tap(delete);
+    await tester.tap(find.byKey(ValueKey('history-view-$runId')));
+    await _pumpRealIo(tester);
+    expect(find.text('semantic history entry'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('history-delete-detail')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('history-delete-confirm')));
     await _pumpRealIo(tester);
@@ -2073,35 +2574,10 @@ void main() {
     );
     expect(find.text('当前 frontend-current'), findsOneWidget);
     final frontend = find.byKey(const ValueKey('overview-component-frontend'));
-    final backend = find.byKey(const ValueKey('overview-component-backend'));
-    final componentDivider = find.byKey(
-      const ValueKey('overview-component-divider'),
-    );
+    expect(find.text('最新'), findsNothing);
     expect(
-      tester.getTopLeft(frontend).dy,
-      lessThan(tester.getTopLeft(backend).dy),
-    );
-    expect(componentDivider, findsOneWidget);
-    expect(
-      tester.getTopLeft(frontend).dy,
-      lessThan(tester.getTopLeft(componentDivider).dy),
-    );
-    expect(
-      tester.getTopLeft(componentDivider).dy,
-      lessThan(tester.getTopLeft(backend).dy),
-    );
-    expect(
-      tester
-          .widget<Padding>(
-            find
-                .descendant(
-                  of: find.byKey(const ValueKey('overview-component-card')),
-                  matching: find.byType(Padding),
-                )
-                .first,
-          )
-          .padding,
-      EdgeInsets.zero,
+      find.descendant(of: frontend, matching: find.text('已安装')),
+      findsOneWidget,
     );
     expect(updates.statusCalls[ComponentKind.backend], greaterThanOrEqualTo(1));
     expect(
@@ -2128,9 +2604,24 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('nav-item-overview')));
     await _pumpRealIo(tester);
     expect(
-      find.descendant(of: frontend, matching: find.text('最新')),
-      findsNothing,
+      find.descendant(
+        of: frontend,
+        matching: find.text(
+          AppLocalizations.of(tester.element(frontend))!.unavailable,
+        ),
+      ),
+      findsWidgets,
     );
+    updates.statusErrors.remove(ComponentKind.frontend);
+    await tester.tap(find.byKey(const ValueKey('nav-item-logs')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('nav-item-overview')));
+    await _pumpRealIo(tester);
+    expect(
+      find.descendant(of: frontend, matching: find.text('当前 frontend-current')),
+      findsOneWidget,
+    );
+    expect(updates.checkCalls, isEmpty);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -2162,95 +2653,46 @@ void main() {
     );
     await _pumpRealIo(tester);
 
-    expect(
-      tester
-          .widget<Flex>(find.byKey(const ValueKey('overview-hero-grid')))
-          .direction,
-      Axis.vertical,
+    final runtimePanel = find.byKey(
+      const ValueKey('overview-runtime-information'),
     );
-    expect(
-      tester
-          .widget<Flex>(find.byKey(const ValueKey('overview-backend-hero-top')))
-          .direction,
-      Axis.vertical,
-    );
-    // http-meta 身份行带健康状态徽章（running -> 健康），与 Backend 对称。
-    final httpMetaTop = tester.widget<Flex>(
-      find.byKey(const ValueKey('overview-http-meta-hero-top')),
-    );
-    expect(httpMetaTop.direction, Axis.vertical);
-    expect(httpMetaTop.children.length, 3);
-    // 徽章是健康/状态词，不是「随 SubDock 提供」bundled 徽章。
-    expect(find.text('随 SubDock 提供'), findsNothing);
-    // HTTP-META 身份行带一个状态徽章（健康或状态词，视运行时状态）。
-    expect(
-      find.byKey(const ValueKey('overview-http-meta-badge')),
-      findsOneWidget,
-    );
-
-    await tester.scrollUntilVisible(
-      find.byKey(const ValueKey('overview-stats')),
-      400,
-      scrollable: find.byType(Scrollable).first,
-    );
-    expect(
-      tester
-          .widget<Flex>(find.byKey(const ValueKey('overview-stats')))
-          .direction,
-      Axis.vertical,
-    );
-
-    await tester.binding.setSurfaceSize(const Size(600, 800));
+    final endpoint = find.byKey(const ValueKey('runtime-endpoint-value'));
+    final l10n = AppLocalizations.of(tester.element(runtimePanel))!;
+    for (final width in [599.0, 600.0]) {
+      await tester.binding.setSurfaceSize(Size(width, 800));
+      await tester.pump();
+      await tester.ensureVisible(runtimePanel);
+      final backendLabel = find.descendant(
+        of: runtimePanel,
+        matching: find.text(l10n.backendRuntime),
+      );
+      final metaLabel = find.descendant(
+        of: runtimePanel,
+        matching: find.text(l10n.httpMetaResource),
+      );
+      expect(
+        tester.getTopLeft(metaLabel).dx,
+        greaterThan(tester.getTopLeft(backendLabel).dx),
+      );
+      expect(
+        (tester.getTopLeft(metaLabel).dy - tester.getTopLeft(backendLabel).dy)
+            .abs(),
+        lessThan(0.5),
+      );
+      expect(
+        tester.widget<SelectableText>(endpoint).style!.fontFamily,
+        uiMonoFontFamily,
+      );
+      expect(tester.takeException(), isNull);
+    }
+    final toggle = find.byKey(const ValueKey('overview-runtime-toggle'));
+    await tester.ensureVisible(toggle);
+    await tester.tap(toggle);
     await tester.pump();
-    expect(
-      tester
-          .widget<Flex>(find.byKey(const ValueKey('overview-stats')))
-          .direction,
-      Axis.horizontal,
-    );
-
-    await tester.fling(
-      find.byType(Scrollable).first,
-      const Offset(0, 1000),
-      1000,
-    );
-    await tester.pumpAndSettle();
-    expect(
-      tester
-          .widget<Flex>(find.byKey(const ValueKey('overview-hero-grid')))
-          .direction,
-      Axis.horizontal,
-    );
-    expect(
-      tester
-          .widget<Flex>(find.byKey(const ValueKey('overview-backend-hero-top')))
-          .direction,
-      Axis.horizontal,
-    );
-    // http-meta 身份行带健康徽章，桌面方向为水平。
-    expect(
-      tester
-          .widget<Flex>(
-            find.byKey(const ValueKey('overview-http-meta-hero-top')),
-          )
-          .direction,
-      Axis.horizontal,
-    );
-    final heroGrid = tester.widget<Flex>(
-      find.byKey(const ValueKey('overview-hero-grid')),
-    );
-    expect(
-      (heroGrid.children[0] as Expanded).flex,
-      greaterThan((heroGrid.children[2] as Expanded).flex),
-    );
-    expect(find.text('独立运行状态；资源随 SubDock 安装包提供，不属于独立更新组件。'), findsNothing);
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('overview-component-status')),
-        matching: find.byKey(const ValueKey('overview-component-divider')),
-      ),
-      findsOneWidget,
-    );
+    expect(endpoint, findsNothing);
+    await tester.tap(toggle);
+    await tester.pump();
+    expect(endpoint, findsOneWidget);
 
     runtime.emitState(RuntimeStatus.starting);
     runtime.emitLog(
@@ -2268,67 +2710,91 @@ void main() {
     );
     await _pumpRealIo(tester);
 
-    expect(find.byKey(const ValueKey('overview-backend-hero')), findsOneWidget);
-    expect(find.text('fixture-backend'), findsOneWidget);
-    // 组件卡片同时显示名称、监听端口和健康状态。
+    final serviceCard = find.byKey(const ValueKey('overview-service-card'));
+    final components = find.byKey(const ValueKey('overview-component-status'));
     expect(
       find.descendant(
-        of: find.byKey(const ValueKey('overview-http-meta-hero')),
-        matching: find.text('HTTP-META'),
+        of: serviceCard,
+        matching: find.text(l10n.serviceRunningTitle),
       ),
       findsOneWidget,
     );
-    // 端口是 hero 大字（呼应 Backend 版本大字），status 在 meta 行。
     expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('overview-http-meta-hero')),
-        matching: find.text('9876'),
-      ),
+      find.descendant(of: components, matching: find.text('1.3.0')),
       findsOneWidget,
     );
-    // HTTP-META 版本不再在 Overview 显示（只显示健康状态）。
-    expect(find.text('1.3.0'), findsNothing);
+    expect(
+      find.descendant(of: runtimePanel, matching: find.text('9876')),
+      findsOneWidget,
+    );
     expect(
       find.descendant(
-        of: find.byKey(const ValueKey('overview-http-meta-hero')),
-        matching: find.textContaining('9876'),
+        of: runtimePanel,
+        matching: find.byWidgetPredicate(
+          (widget) => widget is SelectableText && widget.data == '1',
+        ),
       ),
       findsWidgets,
-    );
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('overview-http-meta-hero')),
-        matching: find.textContaining('运行中'),
-      ),
-      findsOneWidget,
-    );
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('overview-stat-logs')),
-        matching: find.text('1'),
-      ),
-      findsOneWidget,
     );
 
     runtime.emitState(RuntimeStatus.unhealthy);
     await tester.pump();
-    await tester.scrollUntilVisible(
-      find.byKey(const ValueKey('overview-stat-anomalies')),
-      400,
-      scrollable: find
-          .descendant(
-            of: find.byKey(const ValueKey('page-overview')),
-            matching: find.byType(Scrollable),
-          )
-          .first,
-    );
     expect(
       find.descendant(
-        of: find.byKey(const ValueKey('overview-stat-anomalies')),
-        matching: find.text('1'),
+        of: serviceCard,
+        matching: find.text(l10n.serviceUnhealthyTitle),
       ),
       findsOneWidget,
     );
+    expect(
+      find.descendant(
+        of: serviceCard,
+        matching: find.text(l10n.serviceUnhealthyDescription),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: serviceCard,
+        matching: find.widgetWithText(ShadButton, l10n.start),
+      ),
+      findsNothing,
+    );
+    expect(
+      find.descendant(
+        of: runtimePanel,
+        matching: find.byWidgetPredicate(
+          (widget) => widget is SelectableText && widget.data == '1',
+        ),
+      ),
+      findsNWidgets(2),
+    );
+
+    runtime.emitState(
+      RuntimeStatus.running,
+      httpMetaStatus: HttpMetaStatus.degraded,
+      httpMetaMessage: 'auxiliary unavailable',
+    );
+    await _pumpRealIo(tester);
+    expect(
+      find.descendant(
+        of: serviceCard,
+        matching: find.text(l10n.serviceRunningTitle),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: components,
+        matching: find.textContaining('auxiliary unavailable'),
+      ),
+      findsWidgets,
+    );
+    final manage = find.byKey(const ValueKey('overview-open-manage'));
+    await tester.ensureVisible(manage);
+    await tester.tap(manage);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('page-manage')), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
   });
@@ -2365,9 +2831,7 @@ void main() {
     );
     expect(
       tester
-          .widget<OutlinedButton>(
-            find.byKey(const ValueKey('updates-check-all')),
-          )
+          .widget<ShadButton>(find.byKey(const ValueKey('updates-check-all')))
           .onPressed,
       isNotNull,
     );
@@ -2389,6 +2853,48 @@ void main() {
     );
     await _pumpRealIo(tester);
     expect(updates.checkCalls[ComponentKind.frontend], 3);
+
+    updates.checkResults[ComponentKind.backend] = ComponentUpdate(
+      kind: ComponentKind.backend,
+      currentVersion: '1.0.0',
+      availableVersion: '1.1.0',
+      release: GithubRelease(
+        version: '1.1.0',
+        releaseUri: Uri.parse('https://example.invalid/backend'),
+        assets: const [],
+      ),
+    );
+    final backendRecheck = find.byKey(
+      const ValueKey('component-update-recheck-backend'),
+    );
+    await tester.ensureVisible(backendRecheck);
+    await tester.tap(backendRecheck);
+    await _pumpRealIo(tester);
+    final update = find.byKey(
+      const ValueKey('component-update-action-backend'),
+    );
+    final rollback = find.byKey(
+      const ValueKey('component-rollback-action-backend'),
+    );
+    expect(tester.widget<ShadButton>(update).enabled, isTrue);
+    expect(tester.widget<ShadButton>(rollback).enabled, isTrue);
+    final checking = Completer<void>();
+    updates.checkGates[ComponentKind.backend] = checking.future;
+    try {
+      await tester.ensureVisible(backendRecheck);
+      await tester.tap(backendRecheck);
+      await tester.pump();
+      expect(coordinator.componentsChecking, contains(ComponentKind.backend));
+      expect(update, findsNothing);
+      expect(tester.widget<ShadButton>(rollback).enabled, isFalse);
+    } finally {
+      checking.complete();
+    }
+    await _pumpRealIo(tester);
+    expect(tester.widget<ShadButton>(update).enabled, isTrue);
+    expect(tester.widget<ShadButton>(rollback).enabled, isTrue);
+    expect(updates.updateCalls, isEmpty);
+    expect(updates.rollbackCalls, isEmpty);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -2528,60 +3034,69 @@ void main() {
         await tester.binding.setSurfaceSize(Size(width, 480));
         await tester.pump();
         final compact = width < 600;
-        Rect unionRects(List<Rect> rects) => Rect.fromLTRB(
-          rects
-              .map((rect) => rect.left)
-              .reduce((left, right) => left < right ? left : right),
-          rects
-              .map((rect) => rect.top)
-              .reduce((top, bottom) => top < bottom ? top : bottom),
-          rects
-              .map((rect) => rect.right)
-              .reduce((left, right) => left > right ? left : right),
-          rects
-              .map((rect) => rect.bottom)
-              .reduce((top, bottom) => top > bottom ? top : bottom),
-        );
         final l10n = AppLocalizations.of(
           tester.element(find.byKey(const ValueKey('page-updates'))),
         )!;
         for (final kind in const ['frontend', 'backend']) {
-          final layout = find.byKey(ValueKey('component-layout-$kind'));
+          final card = find.byKey(ValueKey('component-update-card-$kind'));
           final title = kind == 'frontend'
               ? l10n.frontendComponent
               : l10n.backendComponent;
           final description = kind == 'frontend'
               ? l10n.frontendComponentDescription
               : l10n.backendComponentDescription;
-          final status = find.byKey(
+          final currentValue = find.byKey(
             ValueKey('component-update-local-status-$kind'),
           );
-          final checkResult = l10n.componentUpToDate(
-            '1.0.0',
-            kind == 'backend' ? 'backend-previous' : '-',
+          final currentLabel = find.descendant(
+            of: card,
+            matching: find.text(l10n.currentVersion),
           );
-          final detailTexts = [
-            find.descendant(of: layout, matching: find.text(title)),
-            find.descendant(of: layout, matching: find.text(description)),
-            find.descendant(of: layout, matching: status),
-            find.descendant(of: layout, matching: find.text(checkResult)),
-          ];
-          final detailRects = <Rect>[];
-          for (final detail in detailTexts) {
+          final availableLabel = find.descendant(
+            of: card,
+            matching: find.text(l10n.availableVersion),
+          );
+          final previousLabel = find.descendant(
+            of: card,
+            matching: find.text(l10n.previousVersion),
+          );
+          for (final detail in [
+            find.descendant(of: card, matching: find.text(title)),
+            find.descendant(of: card, matching: find.text(description)),
+            currentValue,
+            currentLabel,
+            availableLabel,
+            previousLabel,
+          ]) {
             expect(detail, findsOneWidget);
-            detailRects.add(tester.getRect(detail));
           }
-          final detailsRect = unionRects(detailRects);
-          final actionsRect = tester.getRect(
-            find.byKey(ValueKey('component-actions-$kind')),
+          final currentLabelRect = tester.getRect(currentLabel);
+          final availableLabelRect = tester.getRect(availableLabel);
+          final previousLabelRect = tester.getRect(previousLabel);
+          expect(availableLabelRect.left, greaterThan(currentLabelRect.left));
+          expect(previousLabelRect.top, greaterThan(availableLabelRect.top));
+          final contentBottom =
+              [
+                    tester.getRect(
+                      find.descendant(of: card, matching: find.text(title)),
+                    ),
+                    tester.getRect(
+                      find.descendant(
+                        of: card,
+                        matching: find.text(description),
+                      ),
+                    ),
+                    tester.getRect(currentValue),
+                    currentLabelRect,
+                    availableLabelRect,
+                    previousLabelRect,
+                  ]
+                  .map((rect) => rect.bottom)
+                  .reduce((top, bottom) => top > bottom ? top : bottom);
+          expect(
+            tester.getRect(find.byKey(ValueKey('component-actions-$kind'))).top,
+            greaterThan(contentBottom),
           );
-          if (compact) {
-            expect(actionsRect.top, greaterThan(detailsRect.bottom));
-          } else {
-            expect(actionsRect.left, greaterThanOrEqualTo(detailsRect.right));
-            expect(actionsRect.top, lessThan(detailsRect.bottom));
-            expect(actionsRect.bottom, greaterThan(detailsRect.top));
-          }
         }
 
         expect(
@@ -2654,8 +3169,14 @@ void main() {
           (tester.getRect(description).left - tileRects.first.left).abs(),
           lessThan(0.5),
         );
-        expect(tileRects[1].width, tileRects.first.width);
-        expect(tileRects[2].width, tileRects.first.width);
+        expect(
+          (tileRects[1].width - tileRects.first.width).abs(),
+          lessThan(0.5),
+        );
+        expect(
+          (tileRects[2].width - tileRects.first.width).abs(),
+          lessThan(0.5),
+        );
         if (compact) {
           expect(tileRects[1].top, greaterThan(tileRects.first.bottom));
           expect(tileRects[2].top, greaterThan(tileRects[1].bottom));
@@ -2676,25 +3197,19 @@ void main() {
           expect(tileRects[2].height, tileRects.first.height);
         }
 
-        final sectionCard = tester.widget<Material>(
+        final sectionCard = tester.widget<ShadCard>(
           find
-              .descendant(of: packagedSection, matching: find.byType(Material))
+              .descendant(of: packagedSection, matching: find.byType(ShadCard))
               .first,
         );
-        expect(
-          (sectionCard.shape! as RoundedRectangleBorder).borderRadius,
-          BorderRadius.circular(12),
-        );
-        final tileCard = tester.widget<Material>(
+        expect(sectionCard.radius, BorderRadius.circular(12));
+        final tileCard = tester.widget<ShadCard>(
           find.descendant(
             of: find.byKey(tileKeys.first),
-            matching: find.byType(Material),
+            matching: find.byType(ShadCard),
           ),
         );
-        expect(
-          (tileCard.shape! as RoundedRectangleBorder).borderRadius,
-          BorderRadius.circular(10),
-        );
+        expect(tileCard.radius, BorderRadius.circular(10));
       }
       await tester.pumpWidget(const SizedBox());
     },
@@ -2747,18 +3262,13 @@ void main() {
     expect(updates.checkCalls[ComponentKind.frontend], 1);
     expect(find.byKey(const ValueKey('settings-child-save')), findsNothing);
     // 更新提示与随包资源卡片保持相同圆角。
-    final backendNotice = tester.widget<Material>(
-      find
-          .descendant(
-            of: find.byKey(const ValueKey('updates-backend-notice')),
-            matching: find.byType(Material),
-          )
-          .first,
+    final backendNotice = tester.widget<ShadCard>(
+      find.descendant(
+        of: find.byKey(const ValueKey('updates-backend-notice')),
+        matching: find.byType(ShadCard),
+      ),
     );
-    expect(
-      (backendNotice.shape! as RoundedRectangleBorder).borderRadius,
-      BorderRadius.circular(10),
-    );
+    expect(backendNotice.radius, BorderRadius.circular(10));
     expect(
       find.byKey(const ValueKey('component-update-local-status-backend')),
       findsOneWidget,
@@ -2785,7 +3295,7 @@ void main() {
       await tester.pump();
       expect(
         tester
-            .widget<FilledButton>(
+            .widget<ShadButton>(
               find.byKey(const ValueKey('component-update-action-backend')),
             )
             .onPressed,
@@ -2798,7 +3308,7 @@ void main() {
       const ValueKey('component-update-action-backend'),
     );
     await tester.ensureVisible(updateButton);
-    expect(tester.widget<FilledButton>(updateButton).onPressed, isNotNull);
+    expect(tester.widget<ShadButton>(updateButton).onPressed, isNotNull);
     await tester.tap(updateButton);
     await tester.pump();
     expect(
@@ -2812,8 +3322,62 @@ void main() {
     await tester.ensureVisible(updateButton);
     await tester.tap(updateButton);
     await tester.pump();
-    await tester.tap(find.widgetWithText(FilledButton, 'Continue'));
-    await _pumpRealIo(tester);
+    final operationCompleted = Completer<void>();
+    void observeCompletion() {
+      if (coordinator.maintenanceOperation?.phase ==
+              MaintenancePhase.completed &&
+          !operationCompleted.isCompleted) {
+        operationCompleted.complete();
+      }
+    }
+
+    coordinator.maintenanceChanges.addListener(observeCompletion);
+    try {
+      await tester.tap(find.widgetWithText(ShadButton, 'Continue'));
+      for (
+        var turn = 0;
+        turn < 200 && !operationCompleted.isCompleted;
+        turn++
+      ) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+      expect(operationCompleted.isCompleted, isTrue);
+    } finally {
+      coordinator.maintenanceChanges.removeListener(observeCompletion);
+    }
+    await tester.pumpAndSettle();
+    final maintenanceMessage = find.text('Component maintenance completed.');
+    expect(maintenanceMessage, findsNWidgets(2));
+    expect(
+      coordinator.componentsChecking,
+      isNot(contains(ComponentKind.backend)),
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('component-update-card-backend')),
+        matching: find.text('Not confirmed'),
+      ),
+      findsOneWidget,
+    );
+    final toast = find.byType(ShadToast);
+    final toastClose = find.descendant(
+      of: toast,
+      matching: find.byType(ShadIconButton),
+    );
+    expect(toastClose, findsOneWidget);
+    await tester.tap(toastClose);
+    await tester.pumpAndSettle();
+    expect(toast, findsNothing);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('updates-maintenance-result')),
+        matching: find.text('Component maintenance completed.'),
+      ),
+      findsOneWidget,
+    );
     expect(runtime.stops, 1);
     expect(runtime.starts, 2);
     expect(runtime.restarts, 0);
@@ -2870,7 +3434,7 @@ void main() {
     expect(find.textContaining('network failed'), findsOneWidget);
     expect(
       tester
-          .widget<OutlinedButton>(
+          .widget<ShadButton>(
             find.byKey(const ValueKey('component-update-recheck-frontend')),
           )
           .onPressed,
@@ -2977,14 +3541,23 @@ void main() {
       find.textContaining('Selected versions: Frontend 1.1.0'),
       findsOneWidget,
     );
-    await tester.tap(find.widgetWithText(FilledButton, 'Continue'));
+    await tester.tap(find.widgetWithText(ShadButton, 'Continue'));
     await _pumpRealIo(tester);
     expect(updates.updateCalls, hasLength(1));
     expect(updates.rollbackCalls, isEmpty);
     expect(runtime.starts, 0);
     expect(runtime.stops, 0);
     expect(runtime.restarts, 0);
-    expect(find.textContaining('Current 1.1.0'), findsOneWidget);
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(
+              const ValueKey('component-update-local-status-frontend'),
+            ),
+          )
+          .data,
+      '1.1.0',
+    );
     expect(
       find.byKey(const ValueKey('updates-maintenance-result')),
       findsOneWidget,
@@ -3016,13 +3589,51 @@ void main() {
     );
     expect(opened, hasLength(openedCount));
     expect(
-      find.byKey(const ValueKey('component-update-local-status-frontend')),
-      findsOneWidget,
+      tester
+          .widget<Text>(
+            find.byKey(
+              const ValueKey('component-update-local-status-frontend'),
+            ),
+          )
+          .data,
+      '1.1.0',
     );
-    expect(find.textContaining('Current 1.1.0'), findsOneWidget);
     expect(updates.updateCalls.length, updateCount);
     expect(updates.rollbackCalls.length, rollbackCount);
     expect(runtime.restarts, restartCount);
+
+    final toast = find.byType(ShadToast);
+    if (toast.evaluate().isNotEmpty) {
+      final toastClose = find.descendant(
+        of: toast,
+        matching: find.byType(ShadIconButton),
+      );
+      expect(toastClose, findsOneWidget);
+      await tester.tap(toastClose);
+      await tester.pumpAndSettle();
+    }
+    expect(coordinator.maintenanceOperation?.phase, MaintenancePhase.completed);
+    expect(runtime.starts, 0);
+    expect(runtime.stops, 0);
+    await tester.tap(find.byKey(const ValueKey('nav-item-manage')));
+    await tester.pump();
+    final startAndEnter = find.byKey(const ValueKey('manage-start-and-enter'));
+    expect(startAndEnter, findsOneWidget);
+    await tester.ensureVisible(startAndEnter);
+    expect(tester.widget<ShadButton>(startAndEnter).enabled, isTrue);
+    await tester.tap(startAndEnter);
+    await _pumpRealIo(tester);
+    expect(
+      tester
+          .widget<Offstage>(find.byKey(const ValueKey('page-manage')))
+          .offstage,
+      isFalse,
+    );
+    expect(runtime.starts, 1);
+    expect(runtime.stops, 0);
+    expect(runtime.restarts, 0);
+    expect(updates.updateCalls, hasLength(1));
+    expect(updates.rollbackCalls, isEmpty);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -3095,7 +3706,14 @@ void main() {
             find.byKey(const ValueKey('component-update-local-status-backend')),
           )
           .data,
-      'Current 1.0.0, previous 2.0.0',
+      '1.0.0',
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('component-update-card-backend')),
+        matching: find.text('2.0.0'),
+      ),
+      findsOneWidget,
     );
     expect(runtime.starts, 0);
     expect(runtime.stops, 0);
@@ -3160,7 +3778,7 @@ void main() {
     await tester.ensureVisible(updateButton);
     await tester.tap(updateButton);
     await tester.pump();
-    await tester.tap(find.widgetWithText(FilledButton, 'Continue'));
+    await tester.tap(find.widgetWithText(ShadButton, 'Continue'));
     await _pumpRealIo(tester, turns: 200);
     expect(runtime.starts, 1);
     expect(runtime.stops, 1);
@@ -3182,9 +3800,13 @@ void main() {
     expect(runtime.stops, 1);
     expect(updates.updateCalls, hasLength(1));
     expect(
-      find.textContaining('Component maintenance completed'),
+      find.descendant(
+        of: find.byKey(const ValueKey('updates-maintenance-result')),
+        matching: find.textContaining('Component maintenance completed'),
+      ),
       findsOneWidget,
     );
+    expect(find.byType(ShadToast), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -3235,7 +3857,7 @@ void main() {
       find.byKey(const ValueKey('component-update-action-frontend')),
     );
     await tester.pump();
-    await tester.tap(find.widgetWithText(FilledButton, 'Continue'));
+    await tester.tap(find.widgetWithText(ShadButton, 'Continue'));
     await _pumpRealIo(tester);
     expect(updates.updateCalls, hasLength(1));
     expect(updates.rollbackCalls, isEmpty);
@@ -3247,8 +3869,16 @@ void main() {
             ),
           )
           .data,
-      'Current 1.0.0, previous 0.9.0',
+      '1.0.0',
     );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('component-update-card-frontend')),
+        matching: find.text('0.9.0'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.byType(ShadToast), findsNothing);
     expect(find.textContaining('update failed'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('component-start-now-frontend')),
@@ -3257,7 +3887,7 @@ void main() {
     expect(runtime.restarts, 0);
     expect(
       tester
-          .widget<FilledButton>(
+          .widget<ShadButton>(
             find.byKey(const ValueKey('component-update-action-frontend')),
           )
           .onPressed,
@@ -3313,7 +3943,14 @@ void main() {
             find.byKey(const ValueKey('component-update-local-status-backend')),
           )
           .data,
-      'Current 2.0.0, previous 1.0.0',
+      '2.0.0',
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('component-update-card-backend')),
+        matching: find.text('1.0.0'),
+      ),
+      findsOneWidget,
     );
     expect(find.textContaining('rollback failed'), findsOneWidget);
     expect(
@@ -3376,7 +4013,7 @@ void main() {
     expect(find.text('Build number: -'), findsOneWidget);
     expect(find.text('License: GPL-3.0'), findsOneWidget);
     expect(
-      find.text('Project homepage: https://github.com/Delusions6515/SubDock'),
+      find.byKey(const ValueKey('about-project-homepage')),
       findsOneWidget,
     );
     expect(find.text('Operating system: windows'), findsOneWidget);
@@ -3385,7 +4022,7 @@ void main() {
       'about-version',
       'about-build-number',
       'about-license',
-      'about-homepage',
+      'about-project-homepage',
       'about-os',
       'about-architecture',
     ]) {
@@ -3402,6 +4039,24 @@ void main() {
     expect(find.text('Current version'), findsNothing);
     expect(find.text('Previous version'), findsNothing);
     expect(find.byKey(const ValueKey('settings-child-save')), findsNothing);
+    final serviceDetails = find.byKey(const ValueKey('about-service-details'));
+    await tester.dragUntilVisible(
+      serviceDetails.hitTestable(),
+      find.byKey(const ValueKey('settings-list')),
+      const Offset(0, -300),
+      maxIteration: 12,
+    );
+    await tester.tap(serviceDetails);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('overview-service-card')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('settings-about-page')), findsOneWidget);
+    await tester.drag(
+      find.byKey(const ValueKey('settings-list')),
+      const Offset(0, 800),
+    );
+    await tester.pumpAndSettle();
     await tester.ensureVisible(find.byKey(const ValueKey('settings-back')));
     await tester.tap(find.byKey(const ValueKey('settings-back')));
     await tester.pumpAndSettle();
@@ -3421,8 +4076,14 @@ void main() {
       runtime: _FakeBackendRuntime(),
       environmentStore: BackendEnvStore(directories!),
     );
+    var loadAttempts = 0;
+    var metadataUnavailable = true;
     final loader = AboutInfoLoader(
-      loadPackageMetadata: () async => throw StateError('metadata failed'),
+      loadPackageMetadata: () async {
+        loadAttempts++;
+        if (metadataUnavailable) throw StateError('metadata failed');
+        return (version: '1.2.3', buildNumber: '4');
+      },
     );
     await pumpApp(
       tester,
@@ -3453,12 +4114,62 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('settings-card-about')));
     await _pumpRealIo(tester);
-    expect(find.text('Application information unavailable'), findsWidgets);
+    final settingsAbout = find.byKey(const ValueKey('settings-about-page'));
+    final metadataError = find.descendant(
+      of: settingsAbout,
+      matching: find.byKey(const ValueKey('about-metadata-error')),
+    );
+    expect(settingsAbout, findsOneWidget);
+    expect(
+      find.descendant(
+        of: metadataError,
+        matching: find.text('Application information unavailable'),
+      ),
+      findsOneWidget,
+    );
     expect(find.textContaining('metadata failed'), findsNothing);
-    expect(find.byKey(const ValueKey('about-retry-metadata')), findsOneWidget);
-    expect(find.byKey(const ValueKey('about-version')), findsNothing);
-    expect(find.byKey(const ValueKey('settings-about-page')), findsOneWidget);
+    final retryMetadata = find.descendant(
+      of: settingsAbout,
+      matching: find.byKey(const ValueKey('about-retry-metadata')),
+    );
+    expect(retryMetadata, findsOneWidget);
+    final metadataSemantics = tester.ensureSemantics();
+    try {
+      expect(
+        tester.getSemantics(metadataError).flagsCollection.isLiveRegion,
+        isTrue,
+      );
+    } finally {
+      metadataSemantics.dispose();
+    }
+    expect(
+      find.descendant(
+        of: settingsAbout,
+        matching: find.byKey(const ValueKey('about-version')),
+      ),
+      findsNothing,
+    );
     expect(find.byKey(const ValueKey('settings-child-save')), findsNothing);
+
+    final attemptsBeforeRetry = loadAttempts;
+    metadataUnavailable = false;
+    await tester.tap(retryMetadata);
+    await _pumpRealIo(tester);
+    expect(loadAttempts, attemptsBeforeRetry + 1);
+    expect(
+      find.descendant(
+        of: settingsAbout,
+        matching: find.text('SubDock version: 1.2.3'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: settingsAbout,
+        matching: find.text('Build number: 4'),
+      ),
+      findsOneWidget,
+    );
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -3491,7 +4202,7 @@ void main() {
     expect(
       overview,
       matchesSemantics(
-        label: 'Overview',
+        label: 'Service',
         isButton: true,
         isSelected: true,
         hasSelectedState: true,
@@ -3501,7 +4212,7 @@ void main() {
     expect(
       tester.getSemantics(find.byKey(const ValueKey('nav-item-manage'))),
       matchesSemantics(
-        label: 'Manage',
+        label: 'Sub-Store',
         isButton: true,
         isSelected: false,
         hasSelectedState: true,
@@ -3513,7 +4224,7 @@ void main() {
     expect(
       tester.getSemantics(find.byKey(const ValueKey('nav-item-overview'))),
       matchesSemantics(
-        label: 'Overview',
+        label: 'Service',
         isButton: true,
         isSelected: false,
         hasSelectedState: true,
@@ -3523,7 +4234,7 @@ void main() {
     expect(
       tester.getSemantics(find.byKey(const ValueKey('nav-item-manage'))),
       matchesSemantics(
-        label: 'Manage',
+        label: 'Sub-Store',
         isButton: true,
         isSelected: true,
         hasSelectedState: true,
@@ -3595,8 +4306,12 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('nav-item-logs')));
     await tester.pump();
 
+    Finder tabLabel(String label) => find.descendant(
+      of: find.widgetWithText(ShadButton, label),
+      matching: find.text(label),
+    );
     expect(
-      tester.getSemantics(find.text('Current')),
+      tester.getSemantics(tabLabel('Current')),
       matchesSemantics(
         label: 'Current',
         isSelected: true,
@@ -3611,7 +4326,7 @@ void main() {
       ),
     );
     expect(
-      tester.getSemantics(find.text('History')),
+      tester.getSemantics(tabLabel('History')),
       matchesSemantics(
         label: 'History',
         isSelected: false,
@@ -3675,7 +4390,12 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('nav-item-logs')));
     await tester.pump();
     expect(
-      tester.getSemantics(find.text('当前')),
+      tester.getSemantics(
+        find.descendant(
+          of: find.widgetWithText(ShadButton, '当前'),
+          matching: find.text('当前'),
+        ),
+      ),
       matchesSemantics(
         label: '当前',
         isSelected: true,
@@ -3743,7 +4463,7 @@ void main() {
     expect(find.text('构建号: 1'), findsOneWidget);
     expect(find.text('许可证: GPL-3.0'), findsOneWidget);
     expect(
-      find.text('项目主页: https://github.com/Delusions6515/SubDock'),
+      find.byKey(const ValueKey('about-project-homepage')),
       findsOneWidget,
     );
     expect(find.text('操作系统: linux'), findsOneWidget);
@@ -3761,10 +4481,148 @@ void main() {
     expect(find.text('上一版本'), findsNothing);
     expect(find.text('Current version'), findsNothing);
     expect(find.text('Previous version'), findsNothing);
+    final licenses = find.byKey(const ValueKey('about-view-licenses'));
+    final settingsScroll = find
+        .descendant(
+          of: find.byKey(const ValueKey('settings-list')),
+          matching: find.byType(Scrollable),
+        )
+        .first;
+    await tester.dragUntilVisible(
+      licenses.hitTestable(),
+      settingsScroll,
+      const Offset(0, -500),
+      maxIteration: 10,
+    );
+    expect(licenses.hitTestable(), findsOneWidget);
+    await tester.tap(licenses);
+    await tester.pumpAndSettle();
+    expect(find.text('返回关于'), findsOneWidget);
+    final licenseBack = find.byKey(const ValueKey('about-license-back'));
+    await tester.dragUntilVisible(
+      licenseBack.hitTestable(),
+      settingsScroll,
+      const Offset(0, 500),
+      maxIteration: 100,
+    );
+    expect(licenseBack.hitTestable(), findsOneWidget);
+    await tester.tap(licenseBack);
+    await tester.pumpAndSettle();
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('manage toolbar stays hidden before WebView is ready', (
+  testWidgets('manage directs component recovery to updates', (
+    WidgetTester tester,
+  ) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    final runtime = _FakeBackendRuntime();
+    final coordinator = AppCoordinator(
+      runtime: runtime,
+      environmentStore: BackendEnvStore(directories!),
+      startupBlocker: const AppConfigError(
+        AppConfigErrorCode.componentRecoveryFailed,
+        detail: 'startup recovery remains required',
+      ),
+    );
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox());
+      final disposal = coordinator.dispose();
+      await tester.pump();
+      await disposal;
+    });
+    await pumpApp(
+      tester,
+      SubDockApp(
+        coordinator: coordinator,
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('en'),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-manage')));
+    await tester.pump();
+
+    expect(
+      tester
+          .widget<ShadButton>(
+            find.byKey(const ValueKey('manage-start-and-enter')),
+          )
+          .enabled,
+      isFalse,
+    );
+    final recoveryAction = find.descendant(
+      of: find.byKey(const ValueKey('manage-recovery')),
+      matching: find.widgetWithText(ShadButton, 'Updates'),
+    );
+    expect(recoveryAction, findsOneWidget);
+    await tester.tap(recoveryAction);
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<Offstage>(find.byKey(const ValueKey('page-updates')))
+          .offstage,
+      isFalse,
+    );
+    expect(
+      find.byKey(const ValueKey('updates-revalidate-recovery')),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<ShadButton>(find.byKey(const ValueKey('updates-update-all')))
+          .enabled,
+      isFalse,
+    );
+    expect(coordinator.startupBlocker, isA<AppConfigError>());
+    expect(runtime.starts, 0);
+    expect(runtime.stops, 0);
+    expect(coordinator.runtime.currentState.status, RuntimeStatus.stopped);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('manage does not offer start for an unhealthy live service', (
+    WidgetTester tester,
+  ) async {
+    final fixture = await _widgetRuntime(tester);
+    await pumpApp(
+      tester,
+      SubDockApp(
+        coordinator: fixture.coordinator,
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('en'),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-manage')));
+    fixture.runtime.emitState(
+      RuntimeStatus.unhealthy,
+      message: 'Health check failed; backend process is still running.',
+    );
+    await tester.pump();
+
+    expect(find.text('Service response is unhealthy'), findsOneWidget);
+    expect(
+      find.text('Health check failed; backend process is still running.'),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('manage-start-and-enter')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('manage-service-details')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const ValueKey('manage-service-details')));
+    await tester.pump();
+    expect(fixture.runtime.starts, 0);
+    expect(fixture.runtime.stops, 0);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('manage keeps its header visible before WebView is ready', (
     WidgetTester tester,
   ) async {
     late Directory temp;
@@ -3790,20 +4648,28 @@ void main() {
     );
     await tester.tap(find.byKey(const ValueKey('nav-item-manage')));
     await tester.pump();
-    expect(find.byTooltip('刷新'), findsNothing);
-    expect(find.byTooltip('在系统浏览器中打开'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('manage-browser-toolbar')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('manage-reload')), findsOneWidget);
+    expect(find.byKey(const ValueKey('manage-open-external')), findsOneWidget);
 
     runtime.emitState(RuntimeStatus.starting);
     await tester.pump();
     expect(find.byKey(const ValueKey('manage-transition')), findsOneWidget);
-    expect(find.byTooltip('刷新'), findsNothing);
-    expect(find.byTooltip('在系统浏览器中打开'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('manage-browser-toolbar')),
+      findsOneWidget,
+    );
 
     runtime.emitState(RuntimeStatus.stopping);
     await tester.pump();
     expect(find.byKey(const ValueKey('manage-transition')), findsOneWidget);
-    expect(find.byTooltip('刷新'), findsNothing);
-    expect(find.byTooltip('在系统浏览器中打开'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('manage-browser-toolbar')),
+      findsOneWidget,
+    );
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -3833,8 +4699,10 @@ void main() {
               required onNavigationRequest,
               required onBlobMessage,
               required bridgeScript,
+              required trustedOrigin,
               onPageChanged,
               onMainFrameFailure,
+              initialDarkMode,
             }) => _testWebViewController(
               initialize: () async {
                 throw StateError('initialization failed');
@@ -3855,6 +4723,7 @@ void main() {
     expect(find.byKey(const ValueKey('manage-webview-error')), findsOneWidget);
     expect(find.byKey(const ValueKey('manage-webview-loading')), findsNothing);
     expect(find.text('Sub-Store 页面无法加载。请重试或改用系统浏览器打开。'), findsOneWidget);
+    expect(find.text('本地服务仍在运行；可以重试加载 Sub-Store，或在系统浏览器中打开。'), findsOneWidget);
     expect(find.textContaining('initialization failed'), findsNothing);
     expect(runtime.stops, 0);
     expect(find.byKey(const ValueKey('fake-manage-webview')), findsNothing);
@@ -3887,8 +4756,10 @@ void main() {
               required onNavigationRequest,
               required onBlobMessage,
               required bridgeScript,
+              required trustedOrigin,
               onPageChanged,
               onMainFrameFailure,
+              initialDarkMode,
             }) => _testWebViewController(
               initialize: () async {},
               loadRequest: (_) async {
@@ -3904,6 +4775,7 @@ void main() {
 
     expect(find.byKey(const ValueKey('manage-webview-error')), findsOneWidget);
     expect(find.text('Sub-Store 页面无法加载。请重试或改用系统浏览器打开。'), findsOneWidget);
+    expect(find.text('本地服务仍在运行；可以重试加载 Sub-Store，或在系统浏览器中打开。'), findsOneWidget);
     expect(find.textContaining('load failed'), findsNothing);
     expect(runtime.stops, 0);
     expect(find.byKey(const ValueKey('manage-webview-loading')), findsNothing);
@@ -3937,8 +4809,10 @@ void main() {
               required onNavigationRequest,
               required onBlobMessage,
               required bridgeScript,
+              required trustedOrigin,
               onPageChanged,
               onMainFrameFailure,
+              initialDarkMode,
             }) => _testWebViewController(
               initialize: () => initialized.future,
               loadRequest: (_) async {},
@@ -3970,6 +4844,198 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
+  testWidgets('exit confirmation hides and restores the live Linux WebView', (
+    WidgetTester tester,
+  ) async {
+    const channelPrefix = 'com.abandoft.webview_all_linux';
+    const rootChannel = MethodChannel(channelPrefix);
+    const instanceId = 8701;
+    const instanceChannel = MethodChannel('$channelPrefix/$instanceId');
+    const eventChannel = MethodChannel('$channelPrefix/$instanceId/events');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final frames = <Map<Object?, Object?>>[];
+    var createCalls = 0;
+    messenger.setMockMethodCallHandler(rootChannel, (call) async {
+      if (call.method == 'createWebView') {
+        createCalls++;
+        return instanceId;
+      }
+      return null;
+    });
+    messenger.setMockMethodCallHandler(instanceChannel, (call) async {
+      if (call.method == 'setFrame') {
+        frames.add(Map<Object?, Object?>.from(call.arguments as Map));
+      }
+      return null;
+    });
+    messenger.setMockMethodCallHandler(eventChannel, (_) async => null);
+    final previousPlatform = webview_platform.WebViewPlatform.instance;
+    webview_platform.WebViewPlatform.instance =
+        linux_webview.LinuxWebViewPlatform();
+    addTearDown(() {
+      messenger.setMockMethodCallHandler(rootChannel, null);
+      messenger.setMockMethodCallHandler(instanceChannel, null);
+      messenger.setMockMethodCallHandler(eventChannel, null);
+      webview_platform.WebViewPlatform.instance =
+          previousPlatform ?? linux_webview.LinuxWebViewPlatform();
+    });
+
+    final fixture = await _widgetRuntime(tester);
+    var denyPriorApproval = true;
+    var throwPriorApproval = false;
+    final closeGuard = CloseRequestGuard(
+      approvalHandler: () async {
+        if (throwPriorApproval) throw StateError('prior close denied');
+        return !denyPriorApproval;
+      },
+    );
+    await pumpApp(
+      tester,
+      SubDockApp(
+        coordinator: fixture.coordinator,
+        autoStart: false,
+        closeRequestGuard: closeGuard,
+        locale: const Locale('en'),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-manage')));
+    await tester.pump();
+    fixture.runtime.emitState(RuntimeStatus.running);
+    await _pumpRealIo(tester);
+    await tester.pump();
+
+    expect(createCalls, 1);
+    expect(frames, isNotEmpty);
+    expect(frames.last['visible'], isTrue);
+    final closeRequest = closeGuard.request();
+    await tester.pump();
+    await _pumpRealIo(tester);
+    expect(
+      find.byKey(const ValueKey('desktop-exit-confirmation')),
+      findsOneWidget,
+    );
+    expect(frames.last['visible'], isFalse);
+
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(await closeRequest, isFalse);
+    expect(frames.last['visible'], isTrue);
+
+    denyPriorApproval = true;
+    final deniedRequest = closeGuard.request();
+    await tester.pump();
+    await _pumpRealIo(tester);
+    expect(
+      find.byKey(const ValueKey('desktop-exit-confirmation')),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Exit app'));
+    await tester.pumpAndSettle();
+    expect(await deniedRequest, isFalse);
+    expect(frames.last['visible'], isTrue);
+
+    throwPriorApproval = true;
+    final failedRequest = closeGuard.request();
+    final failureExpectation = expectLater(failedRequest, throwsStateError);
+    await tester.pump();
+    await _pumpRealIo(tester);
+    expect(
+      find.byKey(const ValueKey('desktop-exit-confirmation')),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Exit app'));
+    await tester.pumpAndSettle();
+    await failureExpectation;
+    expect(frames.last['visible'], isTrue);
+
+    denyPriorApproval = false;
+    throwPriorApproval = false;
+    final approvedRequest = closeGuard.request();
+    await tester.pump();
+    await _pumpRealIo(tester);
+    expect(
+      find.byKey(const ValueKey('desktop-exit-confirmation')),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Exit app'));
+    await tester.pump(const Duration(milliseconds: 10));
+    expect(frames.last['visible'], isFalse);
+    await tester.pumpAndSettle();
+    expect(await approvedRequest, isTrue);
+    expect(frames.last['visible'], isTrue);
+
+    fixture.runtime.stopError = StateError('stop failed after approval');
+    await expectLater(fixture.coordinator.stop(), throwsStateError);
+    expect(frames.last['visible'], isTrue);
+    expect(createCalls, 1);
+    fixture.runtime.stopError = null;
+    await tester.pumpWidget(const SizedBox());
+  }, skip: !Platform.isLinux);
+
+  testWidgets('Manage follows effective theme without recreating its session', (
+    WidgetTester tester,
+  ) async {
+    final fixture = await _widgetRuntime(tester);
+    tester.binding.platformDispatcher.platformBrightnessTestValue =
+        Brightness.dark;
+    addTearDown(
+      tester.binding.platformDispatcher.clearPlatformBrightnessTestValue,
+    );
+    final themeUpdates = <bool>[];
+    var controllerCreations = 0;
+    late EmbeddedPageChangeHandler? pageChanged;
+    await pumpApp(
+      tester,
+      SubDockApp(
+        coordinator: fixture.coordinator,
+        autoStart: false,
+        locale: const Locale('en'),
+        webViewControllerFactory:
+            ({
+              required onNavigationRequest,
+              required onBlobMessage,
+              required bridgeScript,
+              required trustedOrigin,
+              onPageChanged,
+              onMainFrameFailure,
+              initialDarkMode,
+            }) {
+              controllerCreations++;
+              pageChanged = onPageChanged;
+              return EmbeddedWebViewController.testing(
+                initialize: () async {},
+                buildWidget: () => const SizedBox(),
+                loadRequest: (uri) async => pageChanged?.call(uri),
+                reload: () async {},
+                currentUrl: () async => fixture.coordinator.webUiUri,
+                canGoBack: () async => false,
+                goBack: () async {},
+                canGoForward: () async => false,
+                goForward: () async {},
+                setColorScheme: (isDark, _) async {
+                  themeUpdates.add(isDark);
+                  return true;
+                },
+              );
+            },
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-manage')));
+    await tester.pump();
+    fixture.runtime.emitState(RuntimeStatus.running);
+    await _pumpRealIo(tester);
+    expect(themeUpdates, [true]);
+
+    tester.binding.platformDispatcher.platformBrightnessTestValue =
+        Brightness.light;
+    await tester.pump();
+    await _pumpRealIo(tester);
+    expect(themeUpdates, [true, false]);
+    expect(controllerCreations, 1);
+    await tester.pumpWidget(const SizedBox());
+  }, skip: !EmbeddedWebViewController.supportsEffectiveColorSchemeSync);
+
   testWidgets('ready manage toolbar exposes browser navigation controls', (
     WidgetTester tester,
   ) async {
@@ -3991,8 +5057,25 @@ void main() {
     var canGoForward = false;
     var wentBack = false;
     var wentForward = false;
+    var controllerCreations = 0;
+    final semanticsHandle = tester.ensureSemantics();
+    String? copiedAddress;
+    final platformMessenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    platformMessenger.setMockMethodCallHandler(SystemChannels.platform, (call) {
+      if (call.method == 'Clipboard.setData') {
+        copiedAddress = (call.arguments as Map)['text'] as String;
+      }
+      return null;
+    });
+    addTearDown(
+      () => platformMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
 
-    await tester.binding.setSurfaceSize(const Size(600, 480));
+    await tester.binding.setSurfaceSize(const Size(1440, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await pumpApp(
       tester,
@@ -4009,9 +5092,12 @@ void main() {
               required onNavigationRequest,
               required onBlobMessage,
               required bridgeScript,
+              required trustedOrigin,
               onPageChanged,
               onMainFrameFailure,
+              initialDarkMode,
             }) {
+              controllerCreations++;
               pageChanged = onPageChanged;
               navigationRequest = onNavigationRequest;
               return EmbeddedWebViewController.testing(
@@ -4035,41 +5121,142 @@ void main() {
     );
     await tester.tap(find.byKey(const ValueKey('nav-item-manage')));
     await tester.pump();
-    runtime.emitState(RuntimeStatus.running);
+    runtime.emitState(
+      RuntimeStatus.running,
+      httpMetaStatus: HttpMetaStatus.degraded,
+      httpMetaMessage: 'fixture auxiliary failure',
+    );
     await _pumpRealIo(tester);
 
     expect(
       find.byKey(const ValueKey('manage-browser-toolbar')),
       findsOneWidget,
     );
+    expect(find.byKey(const ValueKey('page-title')), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('manage-browser-toolbar')),
+        matching: find.text('Sub-Store'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('manage-auxiliary-warning')),
+      findsOneWidget,
+    );
+    expect(find.text('辅助服务不可用；订阅管理仍可使用。'), findsOneWidget);
+    expect(find.byKey(const ValueKey('fake-manage-webview')), findsOneWidget);
     expect(find.byType(ClipRRect), findsNothing);
-    expect(find.byKey(const ValueKey('manage-url')), findsOneWidget);
-    expect(find.text(coordinator.webUiUri.toString()), findsOneWidget);
-    final urlDecoration =
-        tester
-                .widget<Container>(find.byKey(const ValueKey('manage-url')))
-                .decoration!
-            as BoxDecoration;
-    expect(urlDecoration.borderRadius, BorderRadius.circular(8));
+    final addressFinder = find.byKey(const ValueKey('manage-current-address'));
+    expect(addressFinder.hitTestable(), findsOneWidget);
+    final addressInput = tester.widget<ShadInput>(addressFinder);
+    expect(addressInput.readOnly, isTrue);
+    expect(addressInput.enableInteractiveSelection, isTrue);
+    expect(addressInput.controller!.text, coordinator.webUiUri.toString());
+    final addressFocusNode = addressInput.focusNode!;
+    for (var tabIndex = 0; tabIndex < 60; tabIndex++) {
+      if (addressFocusNode.hasFocus) break;
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+    }
+    expect(
+      addressFocusNode.hasFocus,
+      isTrue,
+      reason: 'The read-only address must be reachable through keyboard Tab.',
+    );
+    final primaryModifier = defaultTargetPlatform == TargetPlatform.macOS
+        ? LogicalKeyboardKey.metaLeft
+        : LogicalKeyboardKey.controlLeft;
+    Future<void> pressPrimaryShortcut(LogicalKeyboardKey key) async {
+      await tester.sendKeyDownEvent(primaryModifier);
+      await tester.sendKeyEvent(key);
+      await tester.sendKeyUpEvent(primaryModifier);
+      await tester.pump();
+    }
+
+    await pressPrimaryShortcut(LogicalKeyboardKey.keyA);
+    expect(addressInput.controller!.selection.start, 0);
+    expect(
+      addressInput.controller!.selection.end,
+      coordinator.webUiUri.toString().length,
+    );
+    await pressPrimaryShortcut(LogicalKeyboardKey.keyC);
+    await _pumpRealIo(tester);
+    expect(copiedAddress, coordinator.webUiUri.toString());
+    copiedAddress = null;
+
+    final shadInputStrings = ShadLocalizations.of(tester.element(addressFinder))
+        .input;
+    await tester.longPress(addressFinder);
+    await tester.pumpAndSettle();
+    expect(find.byType(ShadContextMenu), findsWidgets);
+    final selectAllAction = find.text(shadInputStrings.selectAll).hitTestable();
+    expect(selectAllAction, findsOneWidget);
+    await tester.tap(selectAllAction);
+    await tester.pumpAndSettle();
+    final copyAction = find.text(shadInputStrings.copy).hitTestable();
+    expect(copyAction, findsOneWidget);
+    await tester.tap(copyAction);
+    await _pumpRealIo(tester);
+    expect(copiedAddress, coordinator.webUiUri.toString());
+    final actionLabels = {
+      'manage-back': AppLocalizations.of(
+        tester.element(find.byKey(const ValueKey('manage-browser-toolbar'))),
+      )!.back,
+      'manage-forward': AppLocalizations.of(
+        tester.element(find.byKey(const ValueKey('manage-browser-toolbar'))),
+      )!.forward,
+      'manage-reload': AppLocalizations.of(
+        tester.element(find.byKey(const ValueKey('manage-browser-toolbar'))),
+      )!.refresh,
+      'manage-open-external': AppLocalizations.of(
+        tester.element(find.byKey(const ValueKey('manage-browser-toolbar'))),
+      )!.openInSystemBrowser,
+      'manage-service-details': AppLocalizations.of(
+        tester.element(find.byKey(const ValueKey('manage-browser-toolbar'))),
+      )!.manageServiceDetails,
+    };
+    for (final entry in actionLabels.entries) {
+      final action = find.byKey(ValueKey(entry.key));
+      expect(action, findsOneWidget);
+      final actionSemantics = find.descendant(
+        of: action,
+        matching: find.byWidgetPredicate(
+          (widget) =>
+              widget is Semantics && widget.properties.label == entry.value,
+        ),
+      );
+      expect(actionSemantics, findsOneWidget);
+      expect(tester.getSemantics(actionSemantics).label, entry.value);
+      expect(
+        find.ancestor(of: action, matching: find.byType(ShadTooltip)),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: action, matching: find.byType(Text)),
+        findsNothing,
+      );
+    }
     for (final key in [
       'manage-back',
       'manage-forward',
       'manage-reload',
       'manage-open-external',
+      'manage-service-details',
     ]) {
       expect(find.byKey(ValueKey(key)), findsOneWidget);
     }
     expect(
       tester
-          .widget<IconButton>(find.byKey(const ValueKey('manage-back')))
-          .onPressed,
-      isNull,
+          .widget<ShadIconButton>(find.byKey(const ValueKey('manage-back')))
+          .enabled,
+      isFalse,
     );
     expect(
       tester
-          .widget<IconButton>(find.byKey(const ValueKey('manage-forward')))
-          .onPressed,
-      isNull,
+          .widget<ShadIconButton>(find.byKey(const ValueKey('manage-forward')))
+          .enabled,
+      isFalse,
     );
 
     await tester.tap(find.byKey(const ValueKey('manage-open-external')));
@@ -4080,25 +5267,30 @@ void main() {
     canGoForward = true;
     pageChanged!.call(Uri.parse('${coordinator.webUiUri}/settings'));
     await _pumpRealIo(tester);
-    expect(find.text('${coordinator.webUiUri}/settings'), findsOneWidget);
     expect(
-      tester
-          .widget<IconButton>(find.byKey(const ValueKey('manage-back')))
-          .onPressed,
-      isNotNull,
+      tester.widget<ShadInput>(addressFinder).controller!.text,
+      '${coordinator.webUiUri}/settings',
     );
     expect(
       tester
-          .widget<IconButton>(find.byKey(const ValueKey('manage-forward')))
-          .onPressed,
-      isNotNull,
+          .widget<ShadIconButton>(find.byKey(const ValueKey('manage-back')))
+          .enabled,
+      isTrue,
+    );
+    expect(
+      tester
+          .widget<ShadIconButton>(find.byKey(const ValueKey('manage-forward')))
+          .enabled,
+      isTrue,
     );
     await tester.tap(find.byKey(const ValueKey('manage-back')));
     await tester.tap(find.byKey(const ValueKey('manage-forward')));
     await _pumpRealIo(tester);
     expect(wentBack, isTrue);
     expect(wentForward, isTrue);
-    await tester.tap(find.byKey(const ValueKey('manage-open-external')));
+    await tester.tap(
+      find.byKey(const ValueKey('manage-open-external')).hitTestable(),
+    );
     await _pumpRealIo(tester);
     expect(openedUri, Uri.parse('${coordinator.webUiUri}/settings'));
 
@@ -4119,18 +5311,48 @@ void main() {
     );
     expect(openedUri, external);
 
-    await tester.binding.setSurfaceSize(const Size(599, 480));
-    await tester.pump();
-    expect(find.byKey(const ValueKey('manage-url')), findsNothing);
-    for (final key in [
-      'manage-back',
-      'manage-forward',
-      'manage-reload',
-      'manage-open-external',
-    ]) {
-      expect(find.byKey(ValueKey(key)), findsOneWidget);
+    Future<void> expectToolbarAtViewport(Size size) async {
+      openedUri = null;
+      await tester.binding.setSurfaceSize(size);
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      expect(
+        controllerCreations,
+        1,
+        reason: 'The responsive change must retain the active WebView session.',
+      );
+      expect(find.byKey(const ValueKey('manage-url')), findsNothing);
+      expect(
+        find.byKey(const ValueKey('manage-current-address')).hitTestable(),
+        findsOneWidget,
+      );
+      expect(
+        tester.widget<ShadInput>(addressFinder).controller!.text,
+        '${coordinator.webUiUri}/settings',
+      );
+      for (final key in [
+        'manage-back',
+        'manage-forward',
+        'manage-reload',
+        'manage-open-external',
+        'manage-service-details',
+      ]) {
+        final action = find.byKey(ValueKey(key));
+        expect(action, findsOneWidget);
+        expect(action.hitTestable(), findsOneWidget);
+        expect(tester.widget<ShadIconButton>(action).enabled, isTrue);
+      }
+      await tester.tap(find.byKey(const ValueKey('manage-open-external')));
+      await _pumpRealIo(tester);
+      expect(openedUri, Uri.parse('${coordinator.webUiUri}/settings'));
     }
+
+    await expectToolbarAtViewport(const Size(1440, 900));
+    await expectToolbarAtViewport(const Size(1024, 768));
+    await expectToolbarAtViewport(const Size(600, 480));
+    await expectToolbarAtViewport(const Size(599, 480));
     await tester.pumpWidget(const SizedBox());
+    semanticsHandle.dispose();
   });
 
   testWidgets('manage follows SPA route changes reported over the bridge', (
@@ -4149,6 +5371,7 @@ void main() {
     );
     late void Function(String message) blobMessage;
     Uri? loadedUri;
+    final openedUris = <Uri>[];
 
     await tester.binding.setSurfaceSize(const Size(800, 600));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -4158,13 +5381,19 @@ void main() {
         coordinator: coordinator,
         autoStart: false,
         locale: const Locale('zh'),
+        onOpenExternalUri: (uri) async {
+          openedUris.add(uri);
+          return true;
+        },
         webViewControllerFactory:
             ({
               required onNavigationRequest,
               required onBlobMessage,
               required bridgeScript,
+              required trustedOrigin,
               onPageChanged,
               onMainFrameFailure,
+              initialDarkMode,
             }) {
               blobMessage = onBlobMessage;
               return EmbeddedWebViewController.testing(
@@ -4187,16 +5416,29 @@ void main() {
     runtime.emitState(RuntimeStatus.running);
     await _pumpRealIo(tester);
 
-    expect(find.byKey(const ValueKey('manage-url')), findsOneWidget);
-    expect(find.text(coordinator.webUiUri.toString()), findsOneWidget);
+    expect(find.byKey(const ValueKey('manage-url')), findsNothing);
+    final addressFinder = find.byKey(const ValueKey('manage-current-address'));
+    expect(
+      tester.widget<ShadInput>(addressFinder).controller!.text,
+      coordinator.webUiUri.toString(),
+    );
     expect(loadedUri, coordinator.webUiUri);
 
     // SPA pushState to the /subs route reports via the bridge channel.
     final subsUri = coordinator.webUiUri.replace(path: '/subs');
     blobMessage('{"type":"url","url":"${subsUri.toString()}"}');
     await _pumpRealIo(tester);
-    expect(find.text(subsUri.toString()), findsOneWidget);
-    expect(find.text(coordinator.webUiUri.toString()), findsNothing);
+    expect(
+      tester.widget<ShadInput>(addressFinder).controller!.text,
+      subsUri.toString(),
+    );
+    final openSpaRoute = find
+        .byKey(const ValueKey('manage-open-external'))
+        .hitTestable();
+    expect(openSpaRoute, findsOneWidget);
+    await tester.tap(openSpaRoute);
+    await _pumpRealIo(tester);
+    expect(openedUris, [subsUri]);
 
     await tester.pumpWidget(const SizedBox());
   });
@@ -4228,17 +5470,21 @@ void main() {
       fixture.coordinator.appliedWebUiApiUri!.path,
       '/PRIVATE_PATH_SECRET',
     );
-    var rejectBrowserLaunch = false;
+    String? externalLaunchFailure;
     var rejectClipboardCopy = false;
     var browserCalls = 0;
+    var homepageCalls = 0;
 
     await tester.binding.setSurfaceSize(const Size(900, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     String? copied;
+    var clipboardCalls = 0;
+    Completer<Object?>? pendingClipboard;
     messenger.setMockMethodCallHandler(SystemChannels.platform, (call) {
       if (call.method == 'Clipboard.setData') {
+        clipboardCalls++;
         if (rejectClipboardCopy) {
           throw PlatformException(
             code: 'clipboard-failure',
@@ -4246,6 +5492,7 @@ void main() {
           );
         }
         copied = (call.arguments as Map)['text'] as String;
+        if (pendingClipboard != null) return pendingClipboard.future;
       }
       return null;
     });
@@ -4260,9 +5507,13 @@ void main() {
         autoStart: false,
         enableWebView: false,
         locale: const Locale('en'),
-        onOpenExternalUri: (_) async {
+        onOpenExternalUri: (uri) async {
           browserCalls++;
-          return !rejectBrowserLaunch;
+          if (uri.toString() == subDockProjectHomepage) homepageCalls++;
+          if (externalLaunchFailure == 'throw') {
+            throw StateError('PRIVATE_BROWSER_ERROR');
+          }
+          return externalLaunchFailure != 'false';
         },
         aboutInfoLoader: AboutInfoLoader(
           loadPackageMetadata: () async =>
@@ -4280,30 +5531,85 @@ void main() {
       httpMetaMessage: 'PRIVATE_HTTP_META_ERROR',
     );
     await tester.pump();
-    await tester.tap(find.byKey(const ValueKey('nav-item-about')));
+    expect(find.byKey(const ValueKey('nav-item-about')), findsNothing);
+    expect(find.byKey(const ValueKey('page-about')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
+    await tester.pumpAndSettle();
+    await tester.drag(
+      find.byKey(const ValueKey('settings-list')),
+      const Offset(0, -500),
+    );
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('settings-card-about')),
+      -200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.drag(
+      find.byKey(const ValueKey('settings-list')),
+      const Offset(0, -160),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('settings-card-about')));
     await _pumpRealIo(tester);
+    expect(find.byKey(const ValueKey('settings-about-page')), findsOneWidget);
+
+    final homepage = find.byKey(const ValueKey('about-project-homepage'));
+    externalLaunchFailure = 'throw';
+    await tester.tap(homepage);
+    await _pumpRealIo(tester);
+    expect(find.text('The project page could not be opened.'), findsOneWidget);
+    expect(find.textContaining('PRIVATE_BROWSER_ERROR'), findsNothing);
+    final homepageActionSemantics = tester.ensureSemantics();
+    try {
+      expect(
+        tester
+            .getSemantics(
+              find.byKey(const ValueKey('about-source-action-error')),
+            )
+            .flagsCollection
+            .isLiveRegion,
+        isTrue,
+      );
+    } finally {
+      homepageActionSemantics.dispose();
+    }
+    externalLaunchFailure = 'false';
+    await tester.tap(homepage);
+    await _pumpRealIo(tester);
+    expect(find.text('The project page could not be opened.'), findsOneWidget);
+    externalLaunchFailure = null;
+    await tester.tap(homepage);
+    await _pumpRealIo(tester);
+    expect(find.text('The project page could not be opened.'), findsNothing);
+    expect(homepageCalls, 3);
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pumpAndSettle(
+      const Duration(milliseconds: 100),
+      EnginePhase.sendSemanticsUpdate,
+      const Duration(seconds: 2),
+    );
+    browserCalls = 0;
 
     expect(
       find.byKey(const ValueKey('about-diagnostics-value')),
       findsOneWidget,
     );
-    for (final key in [
-      'about-source-substore',
-      'about-source-node',
-      'about-source-http-meta',
-      'about-source-mihomo',
-      'about-view-licenses',
-      'about-copy-diagnostics',
-    ]) {
+    for (final key in ['about-view-licenses', 'about-copy-diagnostics']) {
       expect(find.byKey(ValueKey(key)), findsOneWidget);
     }
-    rejectBrowserLaunch = true;
-    final source = find.byKey(const ValueKey('about-source-substore'));
-    await tester.ensureVisible(source);
-    await tester.tap(source);
+    final serviceDetails = find.byKey(const ValueKey('about-service-details'));
+    await tester.drag(
+      find.byKey(const ValueKey('settings-list')),
+      const Offset(0, -400),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(serviceDetails);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('overview-service-card')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
     await _pumpRealIo(tester);
-    expect(find.text('The project page could not be opened.'), findsOneWidget);
-    expect(browserCalls, 1);
+    expect(find.byKey(const ValueKey('settings-about-page')), findsOneWidget);
 
     rejectClipboardCopy = true;
     final copy = find.byKey(const ValueKey('about-copy-diagnostics'));
@@ -4314,8 +5620,21 @@ void main() {
       find.text('The diagnostic summary could not be copied.'),
       findsOneWidget,
     );
-    expect(find.text('The project page could not be opened.'), findsOneWidget);
     expect(find.textContaining('PRIVATE_CLIPBOARD_ERROR'), findsNothing);
+    final clipboardActionSemantics = tester.ensureSemantics();
+    try {
+      expect(
+        tester
+            .getSemantics(
+              find.byKey(const ValueKey('about-clipboard-action-error')),
+            )
+            .flagsCollection
+            .isLiveRegion,
+        isTrue,
+      );
+    } finally {
+      clipboardActionSemantics.dispose();
+    }
 
     rejectClipboardCopy = false;
     await tester.tap(copy);
@@ -4324,8 +5643,8 @@ void main() {
       find.text('The diagnostic summary could not be copied.'),
       findsNothing,
     );
-    expect(find.text('The project page could not be opened.'), findsOneWidget);
     expect(copied, contains('SubDock version: 2.3.4'));
+    expect(find.text('Diagnostic summary copied'), findsOneWidget);
     expect(copied, contains('Backend status: crashed'));
     expect(copied, contains('HTTP-META status: degraded'));
     expect(copied, contains('Build number: unavailable'));
@@ -4343,33 +5662,209 @@ void main() {
       expect(copied, isNot(contains(secret)));
     }
 
-    rejectBrowserLaunch = false;
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pumpAndSettle(
+      const Duration(milliseconds: 100),
+      EnginePhase.sendSemanticsUpdate,
+      const Duration(seconds: 2),
+    );
+    expect(find.text('Diagnostic summary copied'), findsNothing);
+    final clipboardCallsBeforeLateCopy = clipboardCalls;
+    final lateClipboardReply = Completer<Object?>();
+    pendingClipboard = lateClipboardReply;
+    try {
+      await tester.tap(copy);
+      await tester.pump();
+      expect(clipboardCalls, clipboardCallsBeforeLateCopy + 1);
+      await tester.tap(find.byKey(const ValueKey('nav-item-overview')));
+      await tester.pumpAndSettle();
+    } finally {
+      if (!lateClipboardReply.isCompleted) lateClipboardReply.complete(null);
+      pendingClipboard = null;
+      await _pumpRealIo(tester);
+    }
+    expect(find.text('Diagnostic summary copied'), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
+    await _pumpRealIo(tester);
+    expect(find.byKey(const ValueKey('settings-about-page')), findsOneWidget);
+
+    // Keep the bundled license load out of a prior widget's fake-async cache.
+    rootBundle.evict('LICENSE');
+    final realSubDockLicenseText = await tester.runAsync(
+      () =>
+          rootBundle.loadString('LICENSE').timeout(const Duration(seconds: 5)),
+    );
+    expect(realSubDockLicenseText, isNotEmpty);
+    final realLicenseEntries = _realLicenseRegistryEntries;
+
+    var realEntriesCollectorStarted = 0;
+    var realEntriesCollectorCompleted = 0;
+    Stream<LicenseEntry> emitCapturedRealEntries() async* {
+      realEntriesCollectorStarted++;
+      try {
+        yield* Stream<LicenseEntry>.fromIterable(realLicenseEntries);
+      } finally {
+        realEntriesCollectorCompleted++;
+      }
+    }
+
+    LicenseRegistry.reset();
+    LicenseRegistry.addLicense(emitCapturedRealEntries);
+    final registryGate = Completer<void>();
+    final registryCollectorEntered = Completer<void>();
+    var registryCollectorReads = 0;
+    LicenseRegistry.addLicense(() async* {
+      registryCollectorReads++;
+      if (!registryCollectorEntered.isCompleted) {
+        registryCollectorEntered.complete();
+      }
+      await registryGate.future;
+      yield const LicenseEntryWithLineBreaks([
+        'synthetic-about-reentry',
+      ], 'Synthetic license entry for the reentry test.');
+    });
+    final licenses = find.byKey(const ValueKey('about-view-licenses'));
+    try {
+      await tester.ensureVisible(licenses);
+      await tester.runAsync(() => tester.tap(licenses));
+      for (
+        var turn = 0;
+        turn < 100 && !registryCollectorEntered.isCompleted;
+        turn++
+      ) {
+        await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+        await tester.pump(Duration.zero);
+      }
+      expect(
+        registryCollectorEntered.isCompleted,
+        isTrue,
+        reason:
+            'Captured starts=$realEntriesCollectorStarted, '
+            'captured completes=$realEntriesCollectorCompleted, '
+            'delayed reads=$registryCollectorReads.',
+      );
+      expect(find.text('Loading license information…'), findsOneWidget);
+      for (final key in [
+        'about-source-substore',
+        'about-source-node',
+        'about-source-http-meta',
+        'about-source-mihomo',
+      ]) {
+        expect(find.byKey(ValueKey(key)), findsOneWidget);
+      }
+      final licenseBackButton = find.byKey(
+        const ValueKey('about-license-back'),
+      );
+      await tester.tap(licenseBackButton);
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(licenses);
+      await tester.tap(licenses);
+      await _pumpRealIo(tester);
+      expect(registryCollectorReads, 1);
+    } finally {
+      if (!registryGate.isCompleted) registryGate.complete();
+      await _pumpRealIo(tester);
+      LicenseRegistry.reset();
+      LicenseRegistry.addLicense(emitCapturedRealEntries);
+    }
+    expect(find.text('Back to About'), findsOneWidget);
+    externalLaunchFailure = 'throw';
+    final source = find.byKey(const ValueKey('about-source-substore'));
     await tester.ensureVisible(source);
     await tester.tap(source);
     await _pumpRealIo(tester);
+    expect(find.text('The project page could not be opened.'), findsOneWidget);
+    expect(find.textContaining('PRIVATE_BROWSER_ERROR'), findsNothing);
+    final sourceActionSemantics = tester.ensureSemantics();
+    try {
+      expect(
+        tester
+            .getSemantics(
+              find.byKey(const ValueKey('about-source-action-error')),
+            )
+            .flagsCollection
+            .isLiveRegion,
+        isTrue,
+      );
+    } finally {
+      sourceActionSemantics.dispose();
+    }
+    externalLaunchFailure = 'false';
+    await tester.ensureVisible(source);
+    await tester.tap(source);
+    await _pumpRealIo(tester);
+    expect(find.text('The project page could not be opened.'), findsOneWidget);
     expect(browserCalls, 2);
+    externalLaunchFailure = null;
+    await tester.ensureVisible(source);
+    await tester.tap(source);
+    await _pumpRealIo(tester);
+    expect(browserCalls, 3);
+    expect(find.text('Project page launch requested.'), findsOneWidget);
     expect(find.text('The project page could not be opened.'), findsNothing);
-    expect(
-      find.text('The diagnostic summary could not be copied.'),
-      findsNothing,
-    );
-
-    final licenses = find.byKey(const ValueKey('about-view-licenses'));
-    await tester.ensureVisible(licenses);
-    await tester.tap(licenses);
+    final subDockLicense = find.byKey(const ValueKey('about-sublicense-open'));
+    await tester.tap(subDockLicense);
     await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(
-      find.textContaining('Noto Sans CJK SC 2.004').first,
-      500,
-      scrollable: find.byType(Scrollable).last,
+    expect(
+      find.textContaining(
+        'The GNU General Public License is a free, copyleft license',
+      ),
+      findsOneWidget,
     );
-    expect(find.textContaining('Noto Sans CJK SC 2.004'), findsWidgets);
-    await tester.scrollUntilVisible(
-      find.textContaining('DejaVu Sans Mono 2.37').first,
-      500,
-      scrollable: find.byType(Scrollable).last,
+    await tester.tap(find.byKey(const ValueKey('about-license-list-back')));
+    await tester.pumpAndSettle();
+    final settingsList = find.byKey(const ValueKey('settings-list'));
+    final notoLicense = find.text('Noto Sans CJK SC 2.004');
+    await tester.dragUntilVisible(
+      notoLicense.hitTestable(),
+      settingsList,
+      const Offset(0, -400),
+      maxIteration: 30,
     );
-    expect(find.textContaining('DejaVu Sans Mono 2.37'), findsWidgets);
+    await tester.tap(notoLicense);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Noto Sans CJK SC 2.004'), findsOneWidget);
+    expect(
+      find.textContaining(
+        'The OFL allows the licensed fonts to be used, studied, modified',
+      ),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const ValueKey('about-license-list-back')));
+    await tester.pumpAndSettle();
+    final monoLicense = find.text('DejaVu Sans Mono 2.37');
+    await tester.dragUntilVisible(
+      monoLicense.hitTestable(),
+      settingsList,
+      const Offset(0, -400),
+      maxIteration: 30,
+    );
+    await tester.tap(monoLicense);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('DejaVu Sans Mono 2.37'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('about-component-license-detail')),
+        matching: find.textContaining(
+          'Except as contained in this notice, the name of Tavmjong Bah shall not be used',
+        ),
+      ),
+      findsOneWidget,
+    );
+    final licenseBack = find.byKey(const ValueKey('about-license-back'));
+    await tester.drag(settingsList, const Offset(0, 1000));
+    await tester.pumpAndSettle(
+      const Duration(milliseconds: 100),
+      EnginePhase.sendSemanticsUpdate,
+      const Duration(seconds: 2),
+    );
+    expect(licenseBack.hitTestable(), findsOneWidget);
+    await tester.tap(licenseBack);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('about-diagnostics-value')),
+      findsOneWidget,
+    );
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -4423,8 +5918,10 @@ void main() {
               required onNavigationRequest,
               required onBlobMessage,
               required bridgeScript,
+              required trustedOrigin,
               onPageChanged,
               onMainFrameFailure,
+              initialDarkMode,
             }) {
               sessions.add(
                 _CapturedManageCallbacks(
@@ -4446,6 +5943,14 @@ void main() {
     runtime.emitState(RuntimeStatus.running);
     await _pumpRealIo(tester);
     expect(sessions, hasLength(1));
+    final initialOpenAction = find
+        .byKey(const ValueKey('manage-open-external'))
+        .hitTestable();
+    expect(initialOpenAction, findsOneWidget);
+    await tester.tap(initialOpenAction);
+    await _pumpRealIo(tester);
+    expect(openedUris, [coordinator.webUiUri]);
+    openedUris.clear();
 
     const blobMessage =
         '{"type":"blob","name":"stale-export.json","data":"AQID"}';
@@ -4471,8 +5976,13 @@ void main() {
     await tester.pump();
     expect(savePathCalls, 1);
     expect(openedUris, isEmpty);
-    expect(find.text(coordinator.webUiUri.toString()), findsOneWidget);
-    expect(find.text(staleUri.toString()), findsNothing);
+    final openAfterStalePage = find
+        .byKey(const ValueKey('manage-open-external'))
+        .hitTestable();
+    expect(openAfterStalePage, findsOneWidget);
+    await tester.tap(openAfterStalePage);
+    await _pumpRealIo(tester);
+    expect(openedUris, [coordinator.appliedWebUiUri]);
     expect(find.text('Sub-Store 页面加载失败。后端仍在运行；请重试或改用系统浏览器。'), findsNothing);
 
     savePath.complete(target.path);
@@ -4507,7 +6017,13 @@ void main() {
     expect(sessions, hasLength(3));
     expect(find.byKey(const ValueKey('manage-webview-error')), findsNothing);
     expect(find.byKey(const ValueKey('fake-manage-webview')), findsOneWidget);
-    expect(find.text(coordinator.appliedWebUiUri!.toString()), findsOneWidget);
+    final openAfterRetry = find
+        .byKey(const ValueKey('manage-open-external'))
+        .hitTestable();
+    expect(openAfterRetry, findsOneWidget);
+    await tester.tap(openAfterRetry);
+    await _pumpRealIo(tester);
+    expect(openedUris.last, coordinator.appliedWebUiUri);
 
     final replacementSession = sessions.last;
     currentSession.onMainFrameFailure?.call(
@@ -4535,8 +6051,14 @@ void main() {
     );
     replacementSession.onPageChanged?.call(recoveredUri);
     await _pumpRealIo(tester);
-    expect(find.text(recoveredUri.toString()), findsOneWidget);
     expect(find.byKey(const ValueKey('manage-webview-error')), findsNothing);
+    final openRecoveredRoute = find
+        .byKey(const ValueKey('manage-open-external'))
+        .hitTestable();
+    expect(openRecoveredRoute, findsOneWidget);
+    await tester.tap(openRecoveredRoute);
+    await _pumpRealIo(tester);
+    expect(openedUris.last, recoveredUri);
     expect(runtime.stops, 0);
     await tester.pumpWidget(const SizedBox());
   });
@@ -4558,33 +6080,45 @@ void main() {
     var maximizeToggles = 0;
     var closes = 0;
     var drags = 0;
+    final maximized = ValueNotifier(false);
+    addTearDown(maximized.dispose);
+    final semantics = tester.ensureSemantics();
 
-    await pumpApp(
-      tester,
-      SubDockApp(
-        coordinator: coordinator,
-        autoStart: false,
-        enableWebView: false,
-        locale: const Locale('zh'),
-        onMinimize: () async => minimizes++,
-        onToggleMaximize: () async => maximizeToggles++,
-        onClose: () async => closes++,
-        onStartDragging: () async => drags++,
-      ),
-    );
+    try {
+      await pumpApp(
+        tester,
+        SubDockApp(
+          coordinator: coordinator,
+          autoStart: false,
+          enableWebView: false,
+          locale: const Locale('zh'),
+          onMinimize: () async => minimizes++,
+          onToggleMaximize: () async => maximizeToggles++,
+          onClose: () async => closes++,
+          onStartDragging: () async => drags++,
+          isMaximized: maximized,
+        ),
+      );
 
-    await tester.tap(find.byTooltip('最小化'));
-    await tester.tap(find.byTooltip('最大化'));
-    await tester.tap(find.byTooltip('关闭'));
-    await tester.pump(const Duration(milliseconds: 50));
-    await tester.drag(find.text('SubDock'), const Offset(40, 0));
-    await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.bySemanticsLabel('最小化'));
+      await tester.tap(find.bySemanticsLabel('最大化'));
+      maximized.value = true;
+      await tester.pump();
+      expect(find.bySemanticsLabel('还原'), findsOneWidget);
+      await tester.tap(find.bySemanticsLabel('还原'));
+      await tester.tap(find.bySemanticsLabel('关闭'));
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.drag(find.text('SubDock'), const Offset(40, 0));
+      await tester.pump(const Duration(milliseconds: 50));
 
-    expect(minimizes, 1);
-    expect(maximizeToggles, 1);
-    expect(closes, 1);
-    expect(drags, 1);
-    await tester.pumpWidget(const SizedBox());
+      expect(minimizes, 1);
+      expect(maximizeToggles, 2);
+      expect(closes, 1);
+      expect(drags, 1);
+      await tester.pumpWidget(const SizedBox());
+    } finally {
+      semantics.dispose();
+    }
   });
 
   testWidgets('double-clicking the Linux title area toggles maximize', (
@@ -4718,6 +6252,9 @@ void main() {
           locale: const Locale('zh'),
         ),
       );
+      final originalSize =
+          tester.view.physicalSize / tester.view.devicePixelRatio;
+      addTearDown(() => tester.binding.setSurfaceSize(null));
 
       // Following the system brightness, the shell applies the dark theme.
       expect(
@@ -4727,6 +6264,15 @@ void main() {
       expect(find.textContaining('SubDock 未能完成退出'), findsOneWidget);
       final retryExit = find.text('重试退出');
       expect(retryExit, findsOneWidget);
+      for (final size in [const Size(600, 480), const Size(599, 480)]) {
+        await tester.binding.setSurfaceSize(size);
+        await tester.pumpAndSettle();
+        expect(find.textContaining('SubDock 未能完成退出'), findsOneWidget);
+        expect(retryExit, findsOneWidget);
+        expect(tester.takeException(), isNull);
+      }
+      await tester.binding.setSurfaceSize(originalSize);
+      await tester.pumpAndSettle();
       await tester.tap(retryExit);
       await tester.pump();
       expect(retryAttempts, 1);
@@ -4834,40 +6380,48 @@ void main() {
       final l10n = AppLocalizations.of(
         tester.element(find.byKey(const ValueKey('settings-appearance'))),
       )!;
-      expect(find.text(l10n.themeSubtitle), findsOneWidget);
-      expect(find.text(l10n.languageSubtitle), findsOneWidget);
-      final appearanceHeading = find.text(l10n.appearanceLanguageHeading);
-      final appearanceCard = find.byKey(const ValueKey('settings-appearance'));
-      final headingRect = tester.getRect(appearanceHeading);
-      final appearanceCardRect = tester.getRect(appearanceCard);
-      expect((headingRect.left - appearanceCardRect.left).abs(), lessThan(0.5));
+      expect(find.text(l10n.themeSubtitleAutomatic), findsOneWidget);
+      expect(find.text(l10n.languageSubtitleAutomatic), findsOneWidget);
+      final appearanceHeading = find.text(l10n.settingsQuickAppearanceHeading);
+      final appearanceGroup = find.byKey(const ValueKey('settings-appearance'));
+      final desktopGroup = find.byKey(
+        const ValueKey('settings-desktop-behavior'),
+      );
+      final autoSaveCard = find.byKey(
+        const ValueKey('settings-auto-save-card'),
+      );
+      expect(autoSaveCard, findsOneWidget);
       expect(
-        find.descendant(of: appearanceCard, matching: appearanceHeading),
+        find.descendant(of: appearanceGroup, matching: autoSaveCard),
         findsNothing,
       );
-      expect(appearanceCardRect.top - headingRect.bottom, 12);
-      final themeDetails = find.byKey(const ValueKey('settings-theme-row'));
-      final themeControl = find.byKey(const ValueKey('settings-theme-mode'));
-      final desktopDetailsRect = tester.getRect(themeDetails);
-      final desktopControlRect = tester.getRect(themeControl);
-      expect(
-        desktopControlRect.left,
-        greaterThanOrEqualTo(desktopDetailsRect.right),
+      final preferencePanel = find.byKey(
+        const ValueKey('settings-preferences-panel'),
       );
-      expect(desktopControlRect.top, lessThan(desktopDetailsRect.bottom));
-      expect(desktopControlRect.bottom, greaterThan(desktopDetailsRect.top));
+      expect(preferencePanel, findsOneWidget);
       expect(
-        find.ancestor(
-          of: find.byKey(const ValueKey('settings-theme-row')),
-          matching: find.byWidgetPredicate(
-            (widget) =>
-                widget is Padding &&
-                widget.padding ==
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          ),
-        ),
+        find.descendant(of: preferencePanel, matching: appearanceHeading),
         findsOneWidget,
       );
+      final appearanceCardRect = tester.getRect(appearanceGroup);
+      final desktopCardRect = tester.getRect(desktopGroup);
+      expect(
+        desktopCardRect.top,
+        greaterThanOrEqualTo(appearanceCardRect.bottom),
+      );
+      final themeDetails = find.byKey(const ValueKey('settings-theme-row'));
+      final themeControl = find.byKey(const ValueKey('settings-theme-mode'));
+      final compactDetailsRect = tester.getRect(themeDetails);
+      final compactControlRect = tester.getRect(themeControl);
+      expect(
+        compactControlRect.left,
+        greaterThanOrEqualTo(appearanceCardRect.left),
+      );
+      expect(
+        compactControlRect.top,
+        greaterThanOrEqualTo(compactDetailsRect.bottom),
+      );
+      expect(compactControlRect.bottom, greaterThan(compactDetailsRect.top));
       expect(tester.takeException(), isNull);
 
       final backendConfig = find.byKey(
@@ -4879,14 +6433,14 @@ void main() {
       await tester.pumpAndSettle();
       final hostField = find.descendant(
         of: find.byKey(const ValueKey('settings-backend-host-row')),
-        matching: find.byType(TextField),
+        matching: find.byType(ShadInput),
       );
       await tester.enterText(hostField, '127.0.0.2');
       await tester.pump();
       final save = find.byKey(const ValueKey('settings-child-save'));
       await tester.ensureVisible(save);
       await tester.pumpAndSettle();
-      expect(tester.widget<FilledButton>(save).onPressed, isNotNull);
+      expect(tester.widget<ShadButton>(save).onPressed, isNotNull);
       await tester.tap(save);
       await _pumpRealIo(tester);
       expect((await tester.runAsync(store.load))!.backend.apiHost, '127.0.0.2');
@@ -4898,6 +6452,10 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('settings-appearance')), findsOneWidget);
 
+      await tester.ensureVisible(backendConfig);
+      await tester.pumpAndSettle();
+      await tester.tap(backendConfig);
+      await tester.pumpAndSettle();
       final advancedEnv = find.byKey(
         const ValueKey('settings-card-advanced-env'),
       );
@@ -4905,9 +6463,12 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(advancedEnv);
       await tester.pumpAndSettle();
-      await tester.tap(
-        find.byKey(const ValueKey('settings-raw-env-expansion')),
+      final rawEnvExpansion = find.byKey(
+        const ValueKey('settings-raw-env-expansion'),
       );
+      await tester.ensureVisible(rawEnvExpansion);
+      await tester.pumpAndSettle();
+      await tester.tap(rawEnvExpansion);
       await tester.pumpAndSettle();
       expect(
         find.byKey(const ValueKey('settings-raw-env-editor')),
@@ -4917,23 +6478,28 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(back);
       await tester.pumpAndSettle();
+      await tester.ensureVisible(back);
+      await tester.pumpAndSettle();
+      await tester.tap(back);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('settings-appearance')), findsOneWidget);
 
       await tester.binding.setSurfaceSize(const Size(599, 480));
       await tester.pumpAndSettle();
-      final cardRect = tester.getRect(appearanceCard);
-      final compactDetailsRect = tester.getRect(themeDetails);
-      final compactControlRect = tester.getRect(themeControl);
+      final cardRect = tester.getRect(appearanceGroup);
+      final narrowDetailsRect = tester.getRect(themeDetails);
+      final narrowControlRect = tester.getRect(themeControl);
       final languageRect = tester.getRect(
         find.byKey(const ValueKey('settings-language')),
       );
-      expect(compactControlRect.left, greaterThanOrEqualTo(cardRect.left));
+      expect(narrowControlRect.left, greaterThanOrEqualTo(cardRect.left));
       expect(languageRect.left, greaterThanOrEqualTo(cardRect.left));
-      expect(compactControlRect.right, lessThanOrEqualTo(cardRect.right));
+      expect(narrowControlRect.right, lessThanOrEqualTo(cardRect.right));
       expect(languageRect.right, lessThanOrEqualTo(cardRect.right));
-      expect(languageRect.top, greaterThan(compactControlRect.bottom));
+      expect(languageRect.top, greaterThan(narrowControlRect.bottom));
       expect(
-        compactControlRect.top,
-        greaterThanOrEqualTo(compactDetailsRect.bottom),
+        narrowControlRect.top,
+        greaterThanOrEqualTo(narrowDetailsRect.bottom),
       );
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
@@ -4975,12 +6541,12 @@ void main() {
     );
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('settings-close-behavior')));
-    await tester.pump();
+    await tester.pumpAndSettle();
     await tester.tap(find.text('关闭到托盘'));
     await tester.pump();
     expect(
       tester
-          .widget<FilledButton>(
+          .widget<ShadButton>(
             find.byKey(const ValueKey('settings-save-preferences')),
           )
           .onPressed,
@@ -4995,7 +6561,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(
       find.descendant(
-        of: find.byType(SegmentedButton<ThemeMode>),
+        of: find.byKey(const ValueKey('settings-theme-mode')),
         matching: find.text('深色'),
       ),
     );
@@ -5008,7 +6574,7 @@ void main() {
 
     expect(
       tester
-          .widget<FilledButton>(
+          .widget<ShadButton>(
             find.byKey(const ValueKey('settings-save-preferences')),
           )
           .onPressed,
@@ -5062,7 +6628,7 @@ void main() {
         );
         await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
         await tester.pumpAndSettle();
-        final themeSelector = find.byType(SegmentedButton<ThemeMode>);
+        final themeSelector = find.byKey(const ValueKey('settings-theme-mode'));
 
         Future<void> chooseTheme(String label) async {
           final option = find.descendant(
@@ -5127,12 +6693,17 @@ void main() {
         expect(store.attempted.last.themeMode, ThemeMode.light);
         expect(
           tester
-              .widget<FilledButton>(
+              .widget<ShadButton>(
                 find.byKey(const ValueKey('settings-save-preferences')),
               )
               .onPressed,
           isNotNull,
         );
+        // Settings confirms a save through its own state, not a success toast,
+        // so nothing can cover the floating action buttons.
+        expect(find.text('Saved'), findsNothing);
+        expect(find.byType(ShadToast), findsNothing);
+
         await tester.tap(
           find.byKey(const ValueKey('settings-discard-preferences')),
         );
@@ -5146,14 +6717,16 @@ void main() {
         expect(persisted!.themeMode, ThemeMode.light);
         expect(persisted.autoSavePreferences, isFalse);
         expect(
-          tester.widget<SegmentedButton<ThemeMode>>(themeSelector).selected,
-          {ThemeMode.light},
+          Theme.of(tester.element(find.byKey(const ValueKey('settings-list'))))
+              .brightness,
+          Brightness.light,
         );
-        expect(
-          find.byKey(const ValueKey('settings-save-preferences')),
-          findsNothing,
+        final savePreferences = find.byKey(
+          const ValueKey('settings-save-preferences'),
         );
-        expect(tester.widget<Switch>(autoSave).value, isFalse);
+        expect(savePreferences, findsOneWidget);
+        expect(tester.widget<ShadButton>(savePreferences).enabled, isFalse);
+        expect(tester.widget<ShadSwitch>(autoSave).value, isFalse);
       },
     );
   }
@@ -5183,9 +6756,9 @@ void main() {
     );
 
     expect(find.text('Settings'), findsWidgets);
-    expect(find.text('Overview'), findsWidgets);
+    expect(find.text('Service'), findsWidgets);
     expect(find.text('Logs'), findsWidgets);
-    expect(find.text('Manage'), findsWidgets);
+    expect(find.text('Sub-Store'), findsWidgets);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -5225,13 +6798,17 @@ void main() {
     // Open settings and switch the language dropdown to English.
     await tester.tap(find.text('设置'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byType(DropdownButton<String>));
+    final languageSelector = find.byKey(const ValueKey('settings-language'));
+    await tester.ensureVisible(languageSelector);
+    await tester.pumpAndSettle();
+    await tester.tap(languageSelector);
     await tester.pumpAndSettle();
     await tester.tap(find.text('English').last);
     await tester.pumpAndSettle();
 
     expect(find.text('Settings'), findsWidgets);
-    expect(find.text('Appearance & Language'), findsWidgets);
+    expect(find.text('Interface & records'), findsOneWidget);
+    expect(find.text('Window & startup'), findsOneWidget);
     await _pumpRealIo(tester);
     expect(
       (await tester.runAsync(() => preferencesStore.load()))!.locale,
@@ -5372,11 +6949,11 @@ void main() {
       Brightness expected,
       ThemeMode persisted,
     ) async {
+      final themeSelector = find.byKey(const ValueKey('settings-theme-mode'));
+      await tester.ensureVisible(themeSelector);
+      await tester.pumpAndSettle();
       await tester.tap(
-        find.descendant(
-          of: find.byType(SegmentedButton<ThemeMode>),
-          matching: find.text(label),
-        ),
+        find.descendant(of: themeSelector, matching: find.text(label)),
       );
       await tester.pumpAndSettle();
       await _pumpRealIo(tester);
@@ -5403,14 +6980,7 @@ void main() {
       final expectedEndpoint =
           'http://${List.filled(60, 'a').join()}.${List.filled(60, 'b').join()}.example.invalid:3001/';
       fixture.runtime.endpoint = Uri.parse(expectedEndpoint);
-      const pages = [
-        'overview',
-        'manage',
-        'logs',
-        'updates',
-        'settings',
-        'about',
-      ];
+      const pages = ['overview', 'manage', 'logs', 'updates', 'settings'];
 
       for (final size in const [Size(1024, 800), Size(1440, 960)]) {
         for (final brightness in [Brightness.light, Brightness.dark]) {
@@ -5428,6 +6998,8 @@ void main() {
           );
           await _pumpRealIo(tester);
 
+          expect(find.byKey(const ValueKey('nav-item-about')), findsNothing);
+          expect(find.byKey(const ValueKey('page-about')), findsNothing);
           for (final page in pages) {
             expect(
               find.byKey(ValueKey('nav-item-$page')),
@@ -5574,6 +7146,28 @@ class _ReadGate {
   final finished = Completer<void>();
 }
 
+class _RecoveryGatedRuntimeLogStore extends RuntimeLogStore {
+  _RecoveryGatedRuntimeLogStore(super.directories);
+
+  Completer<void>? recoveryGate;
+  final recoveryEntered = Completer<void>();
+  final recoveryFinished = Completer<void>();
+
+  @override
+  Future<void> initialize() async {
+    final gate = recoveryGate;
+    recoveryGate = null;
+    if (gate == null) return super.initialize();
+    recoveryEntered.complete();
+    try {
+      await gate.future;
+      await super.initialize();
+    } finally {
+      recoveryFinished.complete();
+    }
+  }
+}
+
 class _ReadGatedRuntimeLogStore extends RuntimeLogStore {
   _ReadGatedRuntimeLogStore(super.directories);
 
@@ -5625,6 +7219,21 @@ Future<void> _pumpRealIo(WidgetTester tester, {int turns = 40}) async {
       () => Future<void>.delayed(const Duration(milliseconds: 10)),
     );
     await tester.pump(const Duration(milliseconds: 20));
+  }
+}
+
+Future<void> _pumpUntilLogEntry(WidgetTester tester, String message) async {
+  final entry = find.byWidgetPredicate(
+    (widget) =>
+        widget is SelectableText && widget.data?.contains(message) == true,
+  );
+  final elapsed = Stopwatch()..start();
+  const deadline = Duration(seconds: 3);
+  while (entry.evaluate().isEmpty) {
+    if (elapsed.elapsed >= deadline) {
+      fail('Log page did not publish the requested entry: $message');
+    }
+    await _pumpRealIo(tester, turns: 1);
   }
 }
 
@@ -5890,6 +7499,7 @@ class _FakeComponentUpdateOperations implements ComponentUpdateOperations {
   final statuses = <ComponentKind, ComponentVersionStatus>{};
   final checkCalls = <ComponentKind, int>{};
   final checkResults = <ComponentKind, ComponentUpdate>{};
+  final checkGates = <ComponentKind, Future<void>>{};
   final checkErrors = <ComponentKind, Object>{};
   final updateErrors = <ComponentKind, Object>{};
   final rollbackErrors = <ComponentKind, Object>{};
@@ -5912,6 +7522,8 @@ class _FakeComponentUpdateOperations implements ComponentUpdateOperations {
   @override
   Future<ComponentUpdate> check(ComponentKind kind) async {
     checkCalls[kind] = (checkCalls[kind] ?? 0) + 1;
+    final gate = checkGates[kind];
+    if (gate != null) await gate;
     final error = checkErrors[kind];
     if (error != null) throw error;
     return checkResults[kind] ??

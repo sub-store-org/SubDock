@@ -11,46 +11,53 @@ class _SettingsSectionTile extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.onTap,
+    this.detail,
   });
 
   final IconData icon;
   final String title;
   final String subtitle;
+
+  /// Optional live value rendered under [subtitle] (for example the applied
+  /// runtime address), so a tile can summarize state without an extra button.
+  final Widget? detail;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).extension<AppColors>()!;
     final typography = Theme.of(context).extension<AppTypography>()!;
-    return Material(
-      color: colors.surfaceLow,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(typography.radiusMd),
-        side: BorderSide(color: colors.divider),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: EdgeInsets.all(typography.spacingMd),
-          child: Row(
-            children: [
-              Icon(icon, color: colors.accent),
-              SizedBox(width: typography.spacingMd),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(title, style: typography.titleMedium),
+    return ShadCard(
+      padding: EdgeInsets.zero,
+      child: ShadButton.raw(
+        variant: ShadButtonVariant.ghost,
+        width: double.infinity,
+        height: 0,
+        expands: true,
+        mainAxisAlignment: MainAxisAlignment.start,
+        padding: EdgeInsets.all(typography.spacingMd),
+        onPressed: onTap,
+        child: Row(
+          children: [
+            Icon(icon, color: colors.accent),
+            SizedBox(width: typography.spacingMd),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: typography.titleMedium),
+                  SizedBox(height: typography.spacingXs),
+                  Text(subtitle, style: typography.bodySmall),
+                  if (detail != null) ...[
                     SizedBox(height: typography.spacingXs),
-                    Text(subtitle, style: typography.bodySmall),
+                    detail!,
                   ],
-                ),
+                ],
               ),
-              SizedBox(width: typography.spacingSm),
-              const Icon(Icons.chevron_right),
-            ],
-          ),
+            ),
+            SizedBox(width: typography.spacingSm),
+            const Icon(Icons.chevron_right),
+          ],
         ),
       ),
     );
@@ -82,6 +89,8 @@ class _SettingsSectionTitle extends StatelessWidget {
 class _SettingsPage extends StatefulWidget {
   const _SettingsPage({
     super.key,
+    required this.active,
+    required this.runtimeState,
     required this.environment,
     required this.configuration,
     required this.configurationError,
@@ -99,9 +108,12 @@ class _SettingsPage extends StatefulWidget {
     required this.onResetConfiguration,
     required this.onChildStateChanged,
     required this.onOpenExternalUri,
+    required this.onOpenServiceDetails,
     this.aboutInfoLoader,
   });
 
+  final bool active;
+  final RuntimeState runtimeState;
   final BackendEnvDocument environment;
   final SubDockConfig configuration;
   final AppConfigError? configurationError;
@@ -123,6 +135,7 @@ class _SettingsPage extends StatefulWidget {
   final Future<void> Function() onResetConfiguration;
   final ValueChanged<bool> onChildStateChanged;
   final Future<bool> Function(Uri uri) onOpenExternalUri;
+  final VoidCallback onOpenServiceDetails;
   final AboutInfoLoader? aboutInfoLoader;
 
   @override
@@ -151,6 +164,7 @@ class _SettingsPageState extends State<_SettingsPage> {
   late final TextEditingController _cors;
   var _updating = false;
   var _section = _SettingsSection.home;
+  var _rawEnvironmentExpanded = false;
   var _dirty = false;
   var _configurationDirty = false;
   var _generalRevision = 0;
@@ -168,6 +182,16 @@ class _SettingsPageState extends State<_SettingsPage> {
   late SubDockBackendConfig _backendDraft;
   late _NullableBoolDraft _mergeDraft;
   var _httpMetaEnabled = true;
+
+  /// Measures the floating bottom-right action group so the scroll view can
+  /// reserve end-of-list clearance for it.
+  final _actionGroupKey = GlobalKey();
+
+  /// Laid-out height of the floating action group.
+  var _actionGroupHeight = 0.0;
+
+  /// Set while a post-frame measurement of the action group is outstanding.
+  var _actionGroupMeasurementScheduled = false;
 
   @override
   void initState() {
@@ -391,9 +415,6 @@ class _SettingsPageState extends State<_SettingsPage> {
       setState(() => _generalRecentLogLimit = limit);
     }
     setState(() => _generalSaveFailed = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(AppLocalizations.of(context)!.saved)),
-    );
     return true;
   }
 
@@ -452,12 +473,7 @@ class _SettingsPageState extends State<_SettingsPage> {
             (current) => current.copyWith(autoSavePreferences: false),
           ),
         );
-        if (mounted && saved) {
-          setState(() => _generalSaveFailed = false);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(AppLocalizations.of(context)!.saved)),
-          );
-        }
+        if (mounted && saved) setState(() => _generalSaveFailed = false);
       } on Object {
         if (mounted) setState(() => _generalSaveFailed = true);
       } finally {
@@ -586,6 +602,66 @@ class _SettingsPageState extends State<_SettingsPage> {
     }
   }
 
+  Future<void> _saveAndApplyRuntime() async {
+    if (_pendingSaveCount > 0 ||
+        _applyConfigurationInProgress ||
+        _runtimeCandidate == null) {
+      return;
+    }
+    final l10n = AppLocalizations.of(context)!;
+    final initialStatus = widget.coordinator.runtime.currentState.status;
+    if (initialStatus == RuntimeStatus.starting ||
+        initialStatus == RuntimeStatus.stopping) {
+      return;
+    }
+    final stopped = initialStatus == RuntimeStatus.stopped;
+    if (!await _confirm(
+      stopped
+          ? l10n.confirmSaveAndStartBackend
+          : l10n.confirmSaveAndRestartBackend,
+    )) {
+      return;
+    }
+    final confirmedStatus = widget.coordinator.runtime.currentState.status;
+    if (!mounted ||
+        confirmedStatus == RuntimeStatus.starting ||
+        confirmedStatus == RuntimeStatus.stopping ||
+        (confirmedStatus == RuntimeStatus.stopped) != stopped ||
+        !await _saveRuntimeDraft()) {
+      return;
+    }
+    await _applySavedConfiguration();
+  }
+
+  Future<void> _revertRuntimeDraft() async {
+    if (!_runtimeDraftDirty ||
+        _pendingSaveCount > 0 ||
+        _applyConfigurationInProgress) {
+      return;
+    }
+    final revision = _runtimeRevision;
+    if (!await _confirm(
+      AppLocalizations.of(context)!.confirmRevertRuntimeDraft,
+    )) {
+      return;
+    }
+    if (!mounted || revision != _runtimeRevision) return;
+    setState(() {
+      _environmentRevision++;
+      _configurationRevision++;
+      _backendRevision++;
+      _document = _savedEnvironment;
+      _configuration = _savedConfiguration;
+      _configurationDirty = false;
+      _backendDraft = _savedBackend;
+      _dirty = false;
+      _runtimeSaveFailed = false;
+      _syncEnvironmentController();
+      _syncBackendControllers();
+      _syncConfiguration();
+    });
+  }
+
   Future<bool> _saveRuntimeDraft() => _withPendingSave(_saveRuntimeDraftImpl);
 
   Future<bool> _saveRuntimeDraftImpl() async {
@@ -638,8 +714,6 @@ class _SettingsPageState extends State<_SettingsPage> {
         _syncBackendControllers();
       }
     });
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(l10n.saved)));
     return true;
   }
 
@@ -654,23 +728,36 @@ class _SettingsPageState extends State<_SettingsPage> {
 
   Future<bool> _confirm(String message) async {
     final l10n = AppLocalizations.of(context)!;
-    return await showDialog<bool>(
+    return await showShadDialog<bool>(
           context: context,
-          builder: (context) => AlertDialog(
-            content: Text(message),
+          builder: (dialogContext) => ShadDialog(
+            title: Text(l10n.settingsConfirmChangesTitle),
+            description: Text(message),
             actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
+              ShadButton.outline(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
                 child: Text(l10n.cancel),
               ),
-              FilledButton(
-                onPressed: () => Navigator.pop(context, true),
+              ShadButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
                 child: Text(l10n.continueAction),
               ),
             ],
           ),
         ) ??
         false;
+  }
+
+  void _measureActionGroup() {
+    if (_actionGroupMeasurementScheduled) return;
+    _actionGroupMeasurementScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _actionGroupMeasurementScheduled = false;
+      if (!mounted) return;
+      final height = _actionGroupKey.currentContext?.size?.height ?? 0.0;
+      if (height == _actionGroupHeight) return;
+      setState(() => _actionGroupHeight = height);
+    });
   }
 
   bool get _hasUnsavedChanges => _generalDirty || _runtimeDraftDirty;
@@ -715,22 +802,27 @@ class _SettingsPageState extends State<_SettingsPage> {
     while (_hasUnsavedChanges) {
       final revision = _draftRevision;
       final l10n = AppLocalizations.of(context)!;
-      final decision = await showDialog<_LeaveDecision>(
+      final decision = await showShadDialog<_LeaveDecision>(
         context: context,
-        builder: (context) => AlertDialog(
-          content: Text(l10n.unsavedChanges),
+        builder: (dialogContext) => ShadDialog(
+          key: const ValueKey('settings-leave-dialog'),
+          title: Text(l10n.settingsConfirmChangesTitle),
+          description: Text(l10n.unsavedChanges),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, _LeaveDecision.cancel),
+            ShadButton.outline(
+              onPressed: () =>
+                  Navigator.of(dialogContext).pop(_LeaveDecision.cancel),
               child: Text(l10n.cancel),
             ),
-            TextButton(
-              onPressed: () => Navigator.pop(context, _LeaveDecision.discard),
+            ShadButton.outline(
+              onPressed: () =>
+                  Navigator.of(dialogContext).pop(_LeaveDecision.discard),
               child: Text(l10n.discard),
             ),
-            FilledButton(
+            ShadButton(
+              enabled: _canSaveAllDrafts,
               onPressed: _canSaveAllDrafts
-                  ? () => Navigator.pop(context, _LeaveDecision.save)
+                  ? () => Navigator.of(dialogContext).pop(_LeaveDecision.save)
                   : null,
               child: Text(l10n.save),
             ),
@@ -765,6 +857,7 @@ class _SettingsPageState extends State<_SettingsPage> {
       if (_generalDirty && !await _saveGeneral()) return false;
       if (_runtimeDraftDirty && !await _saveRuntimeDraft()) return false;
       await _waitForPendingSaves();
+      if (mounted) await WidgetsBinding.instance.endOfFrame;
       if (!mounted || !_hasUnsavedChanges) return true;
       if (_draftRevision == revision) return false;
     }
@@ -786,7 +879,11 @@ class _SettingsPageState extends State<_SettingsPage> {
     }
   }
 
-  void _backToHome() => _openSection(_SettingsSection.home);
+  void _backToHome() => _openSection(
+    _section == _SettingsSection.advancedEnv
+        ? _SettingsSection.backendConfig
+        : _SettingsSection.home,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -795,13 +892,52 @@ class _SettingsPageState extends State<_SettingsPage> {
     final l10n = AppLocalizations.of(context)!;
     final colors = Theme.of(context).extension<AppColors>()!;
     final typography = Theme.of(context).extension<AppTypography>()!;
+    String runtimeApiAddress(Map<String, String> environment) => Uri(
+      scheme: 'http',
+      host:
+          environment[BackendEnvPolicy.host] ??
+          InternetAddress.loopbackIPv4.address,
+      port: int.tryParse(environment[BackendEnvPolicy.port] ?? '') ?? 3001,
+      path: environment[BackendEnvPolicy.frontendBackendPath] ?? '/',
+    ).toString();
+    final runtimeState = widget.coordinator.runtime.currentState;
+    final isRuntimeTask =
+        _section == _SettingsSection.backendConfig ||
+        _section == _SettingsSection.advancedEnv;
     final runtimePending = widget.coordinator.hasPendingConfiguration;
-    final runtimeHasApplied =
-        widget.coordinator.runtime.appliedConfiguration != null;
-    final runtimeStopped =
-        widget.coordinator.runtime.currentState.status == RuntimeStatus.stopped;
+    final runtimeApplied = widget.coordinator.runtime.appliedConfiguration;
+    final runtimeHasApplied = runtimeApplied != null;
+    final runtimeStopped = runtimeState.status == RuntimeStatus.stopped;
+    final runtimeActionBusy =
+        _pendingSaveCount > 0 ||
+        _applyConfigurationInProgress ||
+        runtimeState.status == RuntimeStatus.starting ||
+        runtimeState.status == RuntimeStatus.stopping;
     final runtimeCanStart =
         runtimeStopped && widget.coordinator.savedRevision > 0;
+    final runtimeCanRetry =
+        _applyConfigurationFailed &&
+        runtimeState.status == RuntimeStatus.crashed &&
+        widget.coordinator.savedRevision > 0;
+    final runtimeCandidate = _runtimeCandidate;
+    final runtimePreview = runtimeCandidate == null
+        ? null
+        : EffectiveRuntimeConfig.resolve(
+            systemEnvironment: Platform.environment,
+            backendEnvironment: runtimeCandidate.environment,
+            config: runtimeCandidate.configuration,
+          );
+    final runtimeNeedsApply =
+        runtimePreview != null &&
+        (runtimeApplied == null ||
+            runtimeApplied.httpMetaEnabled != runtimePreview.httpMetaEnabled ||
+            !mapEquals(runtimeApplied.environment, runtimePreview.environment));
+    final currentApiAddress = runtimeApplied == null
+        ? null
+        : runtimeApiAddress(runtimeApplied.environment);
+    final proposedApiAddress = runtimePreview == null
+        ? null
+        : runtimeApiAddress(runtimePreview.environment);
     final runtimeStatus = _runtimeDraftDirty
         ? l10n.runtimeConfigDraftStatus
         : runtimePending
@@ -809,6 +945,17 @@ class _SettingsPageState extends State<_SettingsPage> {
         : runtimeHasApplied
         ? l10n.runtimeConfigApplied
         : l10n.runtimeConfigSavedForNextStart;
+    final runtimeStatusLabel = runtimeActionBusy
+        ? l10n.processing
+        : _runtimeDraftDirty && runtimeCandidate == null
+        ? l10n.runtimePreviewUnavailable
+        : runtimeStatus;
+    // A saved configuration awaiting activation (or a first start) is public
+    // state the form reports now that the action corner holds buttons only.
+    final pendingStatusVisible =
+        !_runtimeDraftDirty &&
+        !runtimeActionBusy &&
+        (runtimePending || runtimeCanStart);
     Widget settingRow({
       Key? key,
       required String title,
@@ -816,7 +963,7 @@ class _SettingsPageState extends State<_SettingsPage> {
       required Widget control,
     }) => LayoutBuilder(
       builder: (context, constraints) {
-        final compact = MediaQuery.sizeOf(context).width < navigationBreakpoint;
+        final compact = constraints.maxWidth < 620;
         final details = Column(
           key: key,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -847,7 +994,141 @@ class _SettingsPageState extends State<_SettingsPage> {
         );
       },
     );
-    Widget divider() => const Divider(height: 1);
+    Widget divider() => ShadSeparator.horizontal(margin: EdgeInsets.zero);
+    Widget actionButton({
+      Key? key,
+      required String label,
+      required VoidCallback? onPressed,
+      bool primary = false,
+      bool ghost = false,
+      bool wrapLabel = false,
+      IconData? icon,
+    }) {
+      final disabled = onPressed == null;
+      // ShadButton dims a disabled button to 50% opacity over the theme variant
+      // colors, which leaves a pale accent label on a pale accent fill. Paint
+      // disabled buttons with the neutral surface/foreground tokens instead so
+      // both the label and the outline stay readable while the control is
+      // clearly inactive.
+      return ShadButton.raw(
+        key: key,
+        variant: primary
+            ? ShadButtonVariant.primary
+            : ghost
+            ? ShadButtonVariant.ghost
+            : ShadButtonVariant.outline,
+        enabled: onPressed != null,
+        onPressed: onPressed,
+        height: wrapLabel ? 0 : null,
+        expands: wrapLabel,
+        leading: icon == null ? null : Icon(icon, size: 16),
+        backgroundColor: disabled ? colors.surfaceHigh : null,
+        foregroundColor: disabled ? colors.onSurface : null,
+        hoverForegroundColor: disabled ? colors.onSurface : null,
+        pressedForegroundColor: disabled ? colors.onSurface : null,
+        decoration: disabled
+            ? ShadDecoration(
+                border: ShadBorder.all(color: colors.disabled, width: 1),
+              )
+            : null,
+        child: Text(label),
+      );
+    }
+
+    Widget preferenceThemeSelector() {
+      final choices = [
+        (ThemeMode.system, l10n.themeFollowSystem),
+        (ThemeMode.light, l10n.themeLight),
+        (ThemeMode.dark, l10n.themeDark),
+      ];
+      IconData iconFor(ThemeMode mode) => switch (mode) {
+        ThemeMode.system => Icons.desktop_windows_outlined,
+        ThemeMode.light => Icons.light_mode_outlined,
+        ThemeMode.dark => Icons.dark_mode_outlined,
+      };
+      return Wrap(
+        key: const ValueKey('settings-theme-mode'),
+        spacing: 6,
+        runSpacing: 6,
+        children: [
+          for (final choice in choices)
+            ShadButton.raw(
+              key: ValueKey('settings-theme-option-${choice.$1.name}'),
+              variant: _generalThemeMode == choice.$1
+                  ? ShadButtonVariant.secondary
+                  : ShadButtonVariant.outline,
+              leading: Icon(iconFor(choice.$1), size: 16),
+              onPressed: () {
+                setState(() => _generalThemeMode = choice.$1);
+                _recordGeneralEdit();
+                unawaited(widget.onPreviewTheme(choice.$1));
+              },
+              child: Text(choice.$2),
+            ),
+        ],
+      );
+    }
+
+    Widget preferenceLanguageSelector() => ShadSelect<String>(
+      key: const ValueKey('settings-language'),
+      initialValue: _generalLocale ?? 'system',
+      minWidth: 230,
+      maxWidth: 230,
+      selectedOptionBuilder: (_, value) => Text(switch (value) {
+        'system' => l10n.languageFollowSystem,
+        'zh' || 'en' => _languageLabel(value),
+        _ => value,
+      }),
+      options: [
+        ShadOption(value: 'system', child: Text(l10n.languageFollowSystem)),
+        for (final language in LocalePreferenceStore.supported)
+          ShadOption(value: language, child: Text(_languageLabel(language))),
+      ],
+      onChanged: (value) {
+        if (value == null) return;
+        final locale = value == 'system' ? null : value;
+        setState(() => _generalLocale = locale);
+        _recordGeneralEdit();
+        unawaited(
+          widget.onPreviewLocale(locale == null ? null : Locale(locale)),
+        );
+      },
+    );
+    final currentRuntime = runtimeState;
+    final currentRuntimeLabel = switch (currentRuntime.status) {
+      RuntimeStatus.stopped => l10n.stopped,
+      RuntimeStatus.starting => l10n.starting,
+      RuntimeStatus.running => l10n.running,
+      RuntimeStatus.stopping => l10n.stopping,
+      RuntimeStatus.unhealthy => l10n.unhealthy,
+      RuntimeStatus.crashed => l10n.crashed,
+    };
+    final currentHttpMetaLabel = switch (currentRuntime.httpMetaStatus) {
+      HttpMetaStatus.disabled => l10n.httpMetaDisabled,
+      HttpMetaStatus.unavailable => l10n.httpMetaUnavailable,
+      HttpMetaStatus.starting => l10n.starting,
+      HttpMetaStatus.running => l10n.running,
+      HttpMetaStatus.degraded => l10n.httpMetaDegraded,
+      HttpMetaStatus.stopped => l10n.httpMetaStopped,
+    };
+    final currentServiceAddress =
+        widget.coordinator.appliedWebUiApiUri ??
+        widget.coordinator.runtime.endpoint;
+    Widget localServiceCard() => KeyedSubtree(
+      key: const ValueKey('settings-local-service-card'),
+      child: _SettingsSectionTile(
+        key: const ValueKey('settings-card-backend-config'),
+        icon: Icons.dns_outlined,
+        title: l10n.settingsLocalServiceHeading,
+        subtitle:
+            '${l10n.backendRuntime}: $currentRuntimeLabel · HTTP-META $currentHttpMetaLabel',
+        detail: Text(
+          currentServiceAddress.toString(),
+          style: typography.codeSmall,
+        ),
+        onTap: () => _openSection(_SettingsSection.backendConfig),
+      ),
+    );
     Widget configRow({
       Key? key,
       required String label,
@@ -879,49 +1160,141 @@ class _SettingsPageState extends State<_SettingsPage> {
         );
       },
     );
-    Widget sectionCard({
-      required Key key,
+    Widget preferenceField({
+      Key? key,
       required String title,
-      required List<Widget> rows,
-    }) => Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _SettingsSectionTitle(title: title),
-        _SurfacePanel(
-          key: key,
-          padding: EdgeInsets.zero,
-          radius: typography.radiusLg,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              for (var i = 0; i < rows.length; i++) ...[
-                if (i > 0) divider(),
-                rows[i],
-              ],
-            ],
-          ),
-        ),
-      ],
-    );
-    Widget persistentStatus({
-      required Key key,
-      required String message,
-      required String action,
-      required VoidCallback? onPressed,
+      required String subtitle,
+      required Widget control,
+      double controlWidth = 300,
     }) => Padding(
-      key: key,
-      padding: EdgeInsets.only(bottom: typography.spacingMd),
-      child: _SurfacePanel(
-        borderColor: colors.accent,
-        child: Row(
-          children: [
-            Expanded(child: Text(message)),
-            OutlinedButton(onPressed: onPressed, child: Text(action)),
-          ],
-        ),
+      padding: const EdgeInsets.symmetric(vertical: 14),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final copy = Column(
+            key: key,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: typography.bodyMedium.copyWith(
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(subtitle, style: typography.bodySmall),
+            ],
+          );
+          final editor = Semantics(
+            label: title,
+            container: true,
+            child: SizedBox(
+              width: constraints.maxWidth < controlWidth
+                  ? constraints.maxWidth
+                  : controlWidth,
+              child: Align(
+                alignment: constraints.maxWidth >= 700
+                    ? Alignment.centerRight
+                    : Alignment.centerLeft,
+                child: control,
+              ),
+            ),
+          );
+          return constraints.maxWidth >= 700
+              ? Row(
+                  children: [
+                    Expanded(child: copy),
+                    const SizedBox(width: 24),
+                    editor,
+                  ],
+                )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [copy, const SizedBox(height: 9), editor],
+                );
+        },
       ),
     );
+    Widget preferenceGroup({
+      required Key key,
+      required String title,
+      required List<Widget> fields,
+    }) => Column(
+      key: key,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          title,
+          style: typography.titleSmall.copyWith(fontWeight: FontWeight.w600),
+        ),
+        for (var i = 0; i < fields.length; i++) ...[
+          if (i > 0) divider(),
+          fields[i],
+        ],
+      ],
+    );
+    // Floating bottom-right action group shared by the connection/ENV runtime
+    // editor and the manual preference save. It holds buttons only and is drawn
+    // over the full-height scroll viewport: status and error copy belongs to the
+    // form, so this corner never becomes a separate footer band.
+    Widget actionGroup({required Key key, required List<Widget> actions}) =>
+        KeyedSubtree(
+          key: _actionGroupKey,
+          child: KeyedSubtree(
+            key: key,
+            child: Wrap(
+              alignment: WrapAlignment.end,
+              spacing: typography.spacingXs,
+              runSpacing: typography.spacingXs,
+              children: actions,
+            ),
+          ),
+        );
+
+    List<Widget> runtimeActions() {
+      final readyToSave = runtimeCandidate != null && !runtimeActionBusy;
+      final canRetryApply =
+          (runtimePending || runtimeCanStart || runtimeCanRetry) &&
+          !runtimeActionBusy;
+      return [
+        actionButton(
+          key: const ValueKey('settings-child-revert'),
+          label: l10n.revertRuntimeDraft,
+          ghost: true,
+          onPressed: _runtimeDraftDirty && !runtimeActionBusy
+              ? () => unawaited(_revertRuntimeDraft())
+              : null,
+        ),
+        if (_runtimeDraftDirty)
+          actionButton(
+            key: const ValueKey('settings-child-save'),
+            label: l10n.saveRuntimeConfiguration,
+            onPressed: readyToSave
+                ? () => unawaited(_saveRuntimeDraft())
+                : null,
+          ),
+        if (_runtimeDraftDirty && runtimeNeedsApply)
+          actionButton(
+            key: const ValueKey('settings-child-save-and-apply'),
+            label: runtimeStopped
+                ? l10n.saveAndStartBackend
+                : l10n.saveAndRestartBackend,
+            primary: true,
+            onPressed: readyToSave
+                ? () => unawaited(_saveAndApplyRuntime())
+                : null,
+          ),
+        if (!_runtimeDraftDirty && canRetryApply && !_applyConfigurationFailed)
+          actionButton(
+            key: const ValueKey('settings-apply-saved-runtime'),
+            label: runtimeStopped
+                ? l10n.startBackend
+                : l10n.applySavedConfiguration,
+            primary: true,
+            onPressed: () => unawaited(_applySavedConfiguration()),
+          ),
+      ];
+    }
+
     Widget persistentError({
       required Key key,
       required String message,
@@ -930,45 +1303,69 @@ class _SettingsPageState extends State<_SettingsPage> {
     }) => Padding(
       key: key,
       padding: EdgeInsets.only(bottom: typography.spacingMd),
-      child: _SurfacePanel(
-        borderColor: colors.error,
+      child: ShadCard(
+        border: ShadBorder.all(color: colors.error, width: 1),
         child: Row(
           children: [
             Expanded(
-              child: Text(message, style: TextStyle(color: colors.error)),
+              // Failure copy is announced when it appears; the card and its
+              // surroundings add no live region of their own.
+              child: Semantics(
+                liveRegion: true,
+                child: Text(message, style: TextStyle(color: colors.error)),
+              ),
             ),
-            OutlinedButton(onPressed: onPressed, child: Text(action)),
+            actionButton(label: action, onPressed: onPressed),
           ],
         ),
       ),
     );
+    final hasActionGroup =
+        isRuntimeTask ||
+        (_section == _SettingsSection.home && !_autoSavePreferences);
     final content = ListView(
       key: const ValueKey('settings-list'),
       controller: _scrollController,
-      padding: EdgeInsets.all(typography.spacingLg),
+      // The viewport keeps the full content height; only the scroll end grows so
+      // the last control stays operable above the floating action group.
+      padding: EdgeInsets.fromLTRB(
+        typography.spacingLg,
+        typography.spacingLg,
+        typography.spacingLg,
+        typography.spacingLg +
+            (hasActionGroup ? _actionGroupHeight + typography.spacingMd : 0),
+      ),
       children: [
         Align(
-          alignment: Alignment.topCenter,
+          // The approved quick-settings frame is the wider, left-aligned one;
+          // runtime, ENV, and About keep their narrower centered frame.
+          alignment: _section == _SettingsSection.home
+              ? Alignment.topLeft
+              : Alignment.topCenter,
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 960),
+            constraints: BoxConstraints(
+              maxWidth: _section == _SettingsSection.home ? 1060 : 960,
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 if (_section != _SettingsSection.home)
                   Align(
                     alignment: Alignment.centerLeft,
-                    child: TextButton(
+                    child: actionButton(
                       key: const ValueKey('settings-back'),
+                      label: l10n.back,
                       onPressed: _backToHome,
-                      child: Text(l10n.back),
+                      ghost: true,
+                      icon: Icons.arrow_back,
                     ),
                   ),
                 if (widget.autostartSupported == false)
                   Padding(
                     key: const ValueKey('settings-autostart-unavailable'),
                     padding: EdgeInsets.only(bottom: typography.spacingMd),
-                    child: _SurfacePanel(
-                      borderColor: colors.error,
+                    child: ShadCard(
+                      border: ShadBorder.all(color: colors.error, width: 1),
                       child: Text(
                         l10n.autostartUnsupported,
                         style: TextStyle(color: colors.error),
@@ -1001,12 +1398,18 @@ class _SettingsPageState extends State<_SettingsPage> {
                         ? null
                         : () => unawaited(widget.onRetryAutostart()),
                   ),
+                // A failed shared-draft save or apply must stay visible and
+                // retryable in every view that edits that draft, so it lives in
+                // the form rather than in one section's card or the action corner.
                 if (_runtimeSaveFailed)
                   persistentError(
                     key: const ValueKey('settings-runtime-save-error'),
                     message: l10n.runtimeSaveFailed,
                     action: l10n.retrySave,
-                    onPressed: _runtimeCandidate == null
+                    // The retry re-enters the shared draft, so it needs the same
+                    // readiness gate as the Save button in the action corner:
+                    // never while another runtime operation is in flight.
+                    onPressed: _runtimeCandidate == null || runtimeActionBusy
                         ? null
                         : () => unawaited(_saveRuntimeDraft()),
                   ),
@@ -1016,28 +1419,19 @@ class _SettingsPageState extends State<_SettingsPage> {
                     message: l10n.runtimeApplyFailed,
                     action: l10n.retryApplyRuntime,
                     onPressed:
-                        (runtimePending || runtimeCanStart) &&
-                            !_applyConfigurationInProgress
+                        (runtimePending ||
+                                runtimeCanStart ||
+                                runtimeCanRetry) &&
+                            !runtimeActionBusy
                         ? () => unawaited(_applySavedConfiguration())
                         : null,
                   ),
-                if (_section != _SettingsSection.home &&
-                    (runtimePending || runtimeCanStart))
-                  persistentStatus(
-                    key: const ValueKey('settings-runtime-pending-status'),
-                    message: runtimePending
-                        ? l10n.runtimeConfigSavedPending
-                        : l10n.runtimeConfigSavedForNextStart,
-                    action: runtimeStopped
-                        ? l10n.startBackend
-                        : l10n.applySavedConfiguration,
-                    onPressed: _applyConfigurationInProgress
-                        ? null
-                        : () => unawaited(_applySavedConfiguration()),
-                  ),
                 if (_section == _SettingsSection.home) ...[
-                  _SurfacePanel(
+                  localServiceCard(),
+                  SizedBox(height: typography.spacingMd),
+                  ShadCard(
                     key: const ValueKey('settings-auto-save-card'),
+                    padding: EdgeInsets.all(typography.spacingMd),
                     child: Row(
                       children: [
                         Expanded(
@@ -1060,275 +1454,203 @@ class _SettingsPageState extends State<_SettingsPage> {
                             ],
                           ),
                         ),
-                        Switch(
-                          key: const ValueKey('settings-auto-save'),
-                          value: _autoSavePreferences,
-                          onChanged: (value) =>
-                              unawaited(_setPreferenceAutoSave(value)),
+                        Semantics(
+                          label: l10n.autoSavePreferencesHeading,
+                          child: ShadSwitch(
+                            key: const ValueKey('settings-auto-save'),
+                            value: _autoSavePreferences,
+                            onChanged: (value) =>
+                                unawaited(_setPreferenceAutoSave(value)),
+                          ),
                         ),
                       ],
                     ),
                   ),
                   SizedBox(height: typography.spacingLg),
-                  sectionCard(
-                    key: const ValueKey('settings-appearance'),
-                    title: l10n.appearanceLanguageHeading,
-                    rows: [
-                      settingRow(
-                        key: const ValueKey('settings-theme-row'),
-                        title: l10n.themeHeading,
-                        subtitle: l10n.themeSubtitle,
-                        control: SegmentedButton<ThemeMode>(
-                          key: const ValueKey('settings-theme-mode'),
-                          segments: [
-                            ButtonSegment(
-                              value: ThemeMode.system,
-                              icon: const Icon(Icons.brightness_auto),
-                              label: Text(l10n.themeFollowSystem),
-                            ),
-                            ButtonSegment(
-                              value: ThemeMode.light,
-                              icon: const Icon(Icons.light_mode),
-                              label: Text(l10n.themeLight),
-                            ),
-                            ButtonSegment(
-                              value: ThemeMode.dark,
-                              icon: const Icon(Icons.dark_mode),
-                              label: Text(l10n.themeDark),
-                            ),
-                          ],
-                          selected: {_generalThemeMode},
-                          onSelectionChanged: (selection) {
-                            setState(() => _generalThemeMode = selection.first);
-                            _recordGeneralEdit();
-                            unawaited(widget.onPreviewTheme(selection.first));
-                          },
-                        ),
-                      ),
-                      settingRow(
-                        key: const ValueKey('settings-language-row'),
-                        title: l10n.languageHeading,
-                        subtitle: l10n.languageSubtitle,
-                        control: DropdownButtonFormField<String>(
-                          key: const ValueKey('settings-language'),
-                          initialValue: _generalLocale ?? 'system',
-                          items: [
-                            DropdownMenuItem(
-                              value: 'system',
-                              child: Text(l10n.languageFollowSystem),
-                            ),
-                            for (final language
-                                in LocalePreferenceStore.supported)
-                              DropdownMenuItem(
-                                value: language,
-                                child: Text(_languageLabel(language)),
-                              ),
-                          ],
-                          onChanged: (value) {
-                            final locale = value == null || value == 'system'
-                                ? null
-                                : value;
-                            setState(() => _generalLocale = locale);
-                            _recordGeneralEdit();
-                            unawaited(
-                              widget.onPreviewLocale(
-                                locale == null ? null : Locale(locale),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                  SizedBox(height: typography.spacingLg),
-                  sectionCard(
-                    key: const ValueKey('settings-runtime'),
-                    title: l10n.runtimeHeading,
-                    rows: [
-                      settingRow(
-                        key: const ValueKey('settings-runtime-application'),
-                        title: l10n.runtimeConfigurationStatus,
-                        subtitle: runtimeStatus,
-                        control: runtimePending || runtimeCanStart
-                            ? OutlinedButton(
-                                key: const ValueKey(
-                                  'settings-apply-saved-runtime',
-                                ),
-                                onPressed: _applyConfigurationInProgress
-                                    ? null
-                                    : () =>
-                                          unawaited(_applySavedConfiguration()),
-                                child: Text(
-                                  runtimeStopped
-                                      ? l10n.startBackend
-                                      : l10n.applySavedConfiguration,
-                                ),
-                              )
-                            : Text(
-                                runtimeHasApplied
-                                    ? l10n.runtimeConfigApplied
-                                    : l10n.runtimeConfigSavedForNextStart,
-                              ),
-                      ),
-                      settingRow(
-                        key: const ValueKey('settings-http-meta'),
-                        title: l10n.enableHttpMeta,
-                        subtitle: _configurationDirty
-                            ? '${l10n.enableHttpMetaSubtitle} (${l10n.unsaved})'
-                            : l10n.enableHttpMetaSubtitle,
-                        control: Switch(
-                          key: const ValueKey('settings-http-meta-toggle'),
-                          value: _httpMetaEnabled,
-                          onChanged: (value) => _updateConfiguration(
-                            _configuration.httpMeta.copyWith(enabled: value),
+                  Builder(
+                    builder: (context) {
+                      final appearance = preferenceGroup(
+                        key: const ValueKey('settings-appearance'),
+                        title: l10n.settingsQuickAppearanceHeading,
+                        fields: [
+                          preferenceField(
+                            key: const ValueKey('settings-theme-row'),
+                            title: l10n.themeHeading,
+                            subtitle: _autoSavePreferences
+                                ? l10n.themeSubtitleAutomatic
+                                : l10n.themeSubtitle,
+                            controlWidth: 320,
+                            control: preferenceThemeSelector(),
                           ),
-                        ),
-                      ),
-                      if (widget.configurationError != null)
-                        Padding(
-                          padding: EdgeInsets.all(typography.spacingMd),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  l10n.configurationInvalid(
-                                    _localizedConfigError(
-                                      l10n,
-                                      widget.configurationError!,
+                          preferenceField(
+                            key: const ValueKey('settings-language-row'),
+                            title: l10n.languageHeading,
+                            subtitle: _autoSavePreferences
+                                ? l10n.languageSubtitleAutomatic
+                                : l10n.languageSubtitle,
+                            control: preferenceLanguageSelector(),
+                          ),
+                          preferenceField(
+                            key: const ValueKey('settings-recent-logs-row'),
+                            title: l10n.recentLogs,
+                            subtitle: l10n.recentLogsSubtitle,
+                            control: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                SizedBox(
+                                  width: 140,
+                                  child: ShadInput(
+                                    key: const ValueKey(
+                                      'settings-recent-log-limit',
+                                    ),
+                                    controller: _recentLogLimit,
+                                    keyboardType: TextInputType.number,
+                                    onChanged: (_) => _recordGeneralEdit(
+                                      recentLogLimit: true,
+                                    ),
+                                    onSubmitted: _submitRecentLogLimit,
+                                    decoration: _parsedRecentLogLimit == null
+                                        ? ShadDecoration(
+                                            border: ShadBorder.all(
+                                              color: colors.error,
+                                              width: 1,
+                                            ),
+                                          )
+                                        : null,
+                                  ),
+                                ),
+                                if (_parsedRecentLogLimit == null) ...[
+                                  SizedBox(height: typography.spacingXs),
+                                  Semantics(
+                                    liveRegion: true,
+                                    child: Text(
+                                      l10n.recentLogRangeError,
+                                      style: typography.bodySmall.copyWith(
+                                        color: colors.error,
+                                      ),
                                     ),
                                   ),
-                                  style: TextStyle(color: colors.error),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ],
+                      );
+                      final desktop = preferenceGroup(
+                        key: const ValueKey('settings-desktop-behavior'),
+                        title: l10n.settingsQuickDesktopHeading,
+                        fields: [
+                          preferenceField(
+                            key: const ValueKey('settings-close-behavior-row'),
+                            title: l10n.closeBehaviorHeading,
+                            subtitle: l10n.closeBehaviorSubtitle,
+                            control: ShadSelect<CloseBehavior>(
+                              key: const ValueKey('settings-close-behavior'),
+                              initialValue: _generalCloseBehavior,
+                              minWidth: 230,
+                              maxWidth: 230,
+                              selectedOptionBuilder: (_, value) => Text(
+                                value == CloseBehavior.exitApp
+                                    ? l10n.exitApp
+                                    : l10n.closeToTray,
+                              ),
+                              options: [
+                                ShadOption(
+                                  value: CloseBehavior.exitApp,
+                                  child: Text(l10n.exitApp),
                                 ),
+                                ShadOption(
+                                  value: CloseBehavior.closeToTray,
+                                  child: Text(l10n.closeToTray),
+                                ),
+                              ],
+                              onChanged: (value) {
+                                if (value != null) {
+                                  setState(() => _generalCloseBehavior = value);
+                                  _recordGeneralEdit();
+                                }
+                              },
+                            ),
+                          ),
+                          preferenceField(
+                            key: const ValueKey('settings-launch-at-login-row'),
+                            title: l10n.launchAtLoginHeading,
+                            subtitle: l10n.launchAtLoginSubtitle,
+                            controlWidth: 70,
+                            control: ShadSwitch(
+                              key: const ValueKey('settings-launch-at-login'),
+                              value: _generalLaunchAtLogin,
+                              label: Semantics(
+                                label: l10n.launchAtLoginHeading,
                               ),
-                              OutlinedButton(
-                                onPressed: _configurationDirty
-                                    ? null
-                                    : () => unawaited(
-                                        widget.onResetConfiguration(),
+                              onChanged: (value) {
+                                setState(() => _generalLaunchAtLogin = value);
+                                _recordGeneralEdit();
+                              },
+                            ),
+                          ),
+                          preferenceField(
+                            key: const ValueKey('settings-start-hidden-row'),
+                            title: l10n.startHiddenToTrayHeading,
+                            subtitle: l10n.startHiddenToTraySubtitle,
+                            controlWidth: 70,
+                            control: ShadSwitch(
+                              key: const ValueKey('settings-start-hidden'),
+                              value: _generalStartHiddenToTray,
+                              label: Semantics(
+                                label: l10n.startHiddenToTrayHeading,
+                              ),
+                              onChanged: (value) {
+                                setState(
+                                  () => _generalStartHiddenToTray = value,
+                                );
+                                _recordGeneralEdit();
+                              },
+                            ),
+                          ),
+                        ],
+                      );
+                      return ShadCard(
+                        key: const ValueKey('settings-preferences-panel'),
+                        padding: const EdgeInsets.all(20),
+                        child: LayoutBuilder(
+                          builder: (context, panel) => panel.maxWidth >= 900
+                              ? Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Expanded(flex: 6, child: appearance),
+                                    const SizedBox(width: 32),
+                                    Container(
+                                      key: const ValueKey(
+                                        'settings-preferences-divider',
                                       ),
-                                child: Text(l10n.resetSubdockConfig),
-                              ),
-                            ],
-                          ),
+                                      width: 1,
+                                      height: 346,
+                                      color: colors.divider,
+                                    ),
+                                    const SizedBox(width: 28),
+                                    Expanded(flex: 5, child: desktop),
+                                  ],
+                                )
+                              : Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    appearance,
+                                    const SizedBox(height: 18),
+                                    ShadSeparator.horizontal(
+                                      key: const ValueKey(
+                                        'settings-preferences-divider',
+                                      ),
+                                      margin: EdgeInsets.zero,
+                                    ),
+                                    const SizedBox(height: 22),
+                                    desktop,
+                                  ],
+                                ),
                         ),
-                      if (configurationIssue != null)
-                        Padding(
-                          padding: EdgeInsets.symmetric(
-                            horizontal: typography.spacingMd,
-                            vertical: typography.spacingSm,
-                          ),
-                          child: Text(
-                            configurationIssue,
-                            style: TextStyle(color: colors.error),
-                          ),
-                        ),
-                      settingRow(
-                        key: const ValueKey('settings-backend-config-row'),
-                        title: l10n.backendConfigHeading,
-                        subtitle: _backendDirty
-                            ? '${l10n.apiFieldsSummary} (${l10n.unsaved})'
-                            : l10n.apiFieldsSummary,
-                        control: OutlinedButton.icon(
-                          key: const ValueKey('settings-card-backend-config'),
-                          onPressed: () =>
-                              _openSection(_SettingsSection.backendConfig),
-                          icon: const Icon(Icons.dns_outlined),
-                          label: Text(l10n.open),
-                        ),
-                      ),
-                      settingRow(
-                        key: const ValueKey('settings-advanced-env-row'),
-                        title: l10n.advancedRawEnv,
-                        subtitle: _dirty
-                            ? '${l10n.advancedRawEnvSubtitle} (${l10n.unsaved})'
-                            : l10n.advancedRawEnvSubtitle,
-                        control: OutlinedButton.icon(
-                          key: const ValueKey('settings-card-advanced-env'),
-                          onPressed: () =>
-                              _openSection(_SettingsSection.advancedEnv),
-                          icon: const Icon(Icons.terminal),
-                          label: Text(l10n.open),
-                        ),
-                      ),
-                      settingRow(
-                        key: const ValueKey('settings-recent-logs-row'),
-                        title: l10n.recentLogs,
-                        subtitle: l10n.recentLogsSubtitle,
-                        control: TextField(
-                          key: const ValueKey('settings-recent-log-limit'),
-                          controller: _recentLogLimit,
-                          keyboardType: TextInputType.number,
-                          decoration: InputDecoration(
-                            errorText:
-                                _recentLogLimit.text.trim().isEmpty ||
-                                    _parsedRecentLogLimit == null
-                                ? l10n.recentLogRangeError
-                                : null,
-                          ),
-                          onChanged: (_) =>
-                              _recordGeneralEdit(recentLogLimit: true),
-                          onSubmitted: _submitRecentLogLimit,
-                        ),
-                      ),
-                    ],
-                  ),
-                  SizedBox(height: typography.spacingLg),
-                  sectionCard(
-                    key: const ValueKey('settings-desktop-behavior'),
-                    title: l10n.desktopBehaviorHeading,
-                    rows: [
-                      settingRow(
-                        key: const ValueKey('settings-close-behavior-row'),
-                        title: l10n.closeBehaviorHeading,
-                        subtitle: l10n.closeBehaviorSubtitle,
-                        control: DropdownButtonFormField<CloseBehavior>(
-                          key: const ValueKey('settings-close-behavior'),
-                          initialValue: _generalCloseBehavior,
-                          items: [
-                            DropdownMenuItem(
-                              value: CloseBehavior.exitApp,
-                              child: Text(l10n.exitApp),
-                            ),
-                            DropdownMenuItem(
-                              value: CloseBehavior.closeToTray,
-                              child: Text(l10n.closeToTray),
-                            ),
-                          ],
-                          onChanged: (value) {
-                            if (value != null) {
-                              setState(() => _generalCloseBehavior = value);
-                              _recordGeneralEdit();
-                            }
-                          },
-                        ),
-                      ),
-                      settingRow(
-                        key: const ValueKey('settings-launch-at-login-row'),
-                        title: l10n.launchAtLoginHeading,
-                        subtitle: l10n.launchAtLoginSubtitle,
-                        control: Switch(
-                          key: const ValueKey('settings-launch-at-login'),
-                          value: _generalLaunchAtLogin,
-                          onChanged: (value) {
-                            setState(() => _generalLaunchAtLogin = value);
-                            _recordGeneralEdit();
-                          },
-                        ),
-                      ),
-                      settingRow(
-                        key: const ValueKey('settings-start-hidden-row'),
-                        title: l10n.startHiddenToTrayHeading,
-                        subtitle: l10n.startHiddenToTraySubtitle,
-                        control: Switch(
-                          key: const ValueKey('settings-start-hidden'),
-                          value: _generalStartHiddenToTray,
-                          onChanged: (value) {
-                            setState(() => _generalStartHiddenToTray = value);
-                            _recordGeneralEdit();
-                          },
-                        ),
-                      ),
-                    ],
+                      );
+                    },
                   ),
                   SizedBox(height: typography.spacingLg),
                   _SettingsSectionTile(
@@ -1342,12 +1664,180 @@ class _SettingsPageState extends State<_SettingsPage> {
                 SizedBox(height: typography.spacingLg),
                 if (_section == _SettingsSection.backendConfig) ...[
                   _SettingsSectionTitle(title: l10n.backendConfigHeading),
-                  _SurfacePanel(
-                    key: const ValueKey('settings-backend-config'),
+                  ShadCard(
+                    key: const ValueKey('settings-runtime'),
                     padding: EdgeInsets.zero,
                     child: Column(
+                      key: const ValueKey('settings-backend-config'),
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
+                        KeyedSubtree(
+                          key: const ValueKey('settings-runtime-application'),
+                          child: Padding(
+                            padding: EdgeInsets.all(typography.spacingMd),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  l10n.runtimeConfigurationStatus,
+                                  style: typography.titleMedium,
+                                ),
+                                SizedBox(height: typography.spacingXs),
+                                Semantics(
+                                  key: pendingStatusVisible
+                                      ? const ValueKey(
+                                          'settings-runtime-pending-status',
+                                        )
+                                      : null,
+                                  liveRegion: true,
+                                  child: Text(
+                                    runtimeStatusLabel,
+                                    style: typography.bodySmall,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: typography.spacingMd,
+                            vertical: typography.spacingXs,
+                          ),
+                          child: Text(
+                            l10n.runtimeSharedDraftScope,
+                            style: typography.bodySmall,
+                          ),
+                        ),
+                        Padding(
+                          padding: EdgeInsets.all(typography.spacingMd),
+                          child: LayoutBuilder(
+                            builder: (context, constraints) {
+                              Widget summaryColumn({
+                                required Key key,
+                                required String heading,
+                                required String? address,
+                                required String missingAddress,
+                                required String meta,
+                              }) => KeyedSubtree(
+                                key: key,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(heading, style: typography.bodySmall),
+                                    SizedBox(height: typography.spacingXs),
+                                    SelectableText(
+                                      address ?? missingAddress,
+                                      style: typography.bodySmall.copyWith(
+                                        fontFamily: uiMonoFontFamily,
+                                      ),
+                                    ),
+                                    SizedBox(height: typography.spacingXs),
+                                    Text(meta, style: typography.bodySmall),
+                                  ],
+                                ),
+                              );
+                              final current = summaryColumn(
+                                key: const ValueKey(
+                                  'settings-current-runtime-summary',
+                                ),
+                                heading: l10n.runtimeCurrentConfiguration,
+                                address: currentApiAddress,
+                                missingAddress:
+                                    l10n.runtimeNoAppliedConfiguration,
+                                meta:
+                                    '${l10n.backendRuntime}: $currentRuntimeLabel · ${l10n.enableHttpMeta}: $currentHttpMetaLabel',
+                              );
+                              final proposed = summaryColumn(
+                                key: const ValueKey(
+                                  'settings-proposed-runtime-summary',
+                                ),
+                                heading: l10n.runtimeProposedConfiguration,
+                                address: proposedApiAddress,
+                                missingAddress: l10n.runtimePreviewUnavailable,
+                                meta:
+                                    '${l10n.enableHttpMeta}: ${runtimePreview == null
+                                        ? l10n.unavailable
+                                        : runtimePreview.httpMetaEnabled
+                                        ? l10n.enabled
+                                        : l10n.disabled}',
+                              );
+                              return constraints.maxWidth >= 640
+                                  ? Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Expanded(child: current),
+                                        SizedBox(width: typography.spacingMd),
+                                        Expanded(child: proposed),
+                                      ],
+                                    )
+                                  : Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        current,
+                                        SizedBox(height: typography.spacingMd),
+                                        proposed,
+                                      ],
+                                    );
+                            },
+                          ),
+                        ),
+                        divider(),
+                        settingRow(
+                          key: const ValueKey('settings-http-meta'),
+                          title: l10n.enableHttpMeta,
+                          subtitle: _configurationDirty
+                              ? '${l10n.enableHttpMetaSubtitle} (${l10n.unsaved})'
+                              : l10n.enableHttpMetaSubtitle,
+                          control: ShadSwitch(
+                            key: const ValueKey('settings-http-meta-toggle'),
+                            value: _httpMetaEnabled,
+                            onChanged: (value) => _updateConfiguration(
+                              _configuration.httpMeta.copyWith(enabled: value),
+                            ),
+                          ),
+                        ),
+                        if (widget.configurationError != null)
+                          Padding(
+                            padding: EdgeInsets.all(typography.spacingMd),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    l10n.configurationInvalid(
+                                      _localizedConfigError(
+                                        l10n,
+                                        widget.configurationError!,
+                                      ),
+                                    ),
+                                    style: TextStyle(color: colors.error),
+                                  ),
+                                ),
+                                actionButton(
+                                  label: l10n.resetSubdockConfig,
+                                  onPressed: _configurationDirty
+                                      ? null
+                                      : () => unawaited(
+                                          widget.onResetConfiguration(),
+                                        ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        if (configurationIssue != null)
+                          Padding(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: typography.spacingMd,
+                              vertical: typography.spacingSm,
+                            ),
+                            child: Text(
+                              configurationIssue,
+                              style: TextStyle(color: colors.error),
+                            ),
+                          ),
+                        divider(),
                         if (_backendIssue != null)
                           Padding(
                             padding: EdgeInsets.symmetric(
@@ -1362,9 +1852,8 @@ class _SettingsPageState extends State<_SettingsPage> {
                         configRow(
                           key: const ValueKey('settings-backend-host-row'),
                           label: l10n.apiHost,
-                          control: TextField(
+                          control: ShadInput(
                             controller: _host,
-                            decoration: const InputDecoration(),
                             onChanged: (value) => _updateBackend(
                               _backendDraft.copyWith(
                                 apiHost: value.trim().isEmpty ? null : value,
@@ -1376,16 +1865,19 @@ class _SettingsPageState extends State<_SettingsPage> {
                         configRow(
                           key: const ValueKey('settings-backend-port-row'),
                           label: l10n.apiPort,
-                          control: TextField(
+                          control: ShadInput(
                             controller: _port,
                             keyboardType: TextInputType.number,
-                            decoration: InputDecoration(
-                              errorText:
-                                  _port.text.trim().isNotEmpty &&
-                                      _backendIssue != null
-                                  ? _backendIssue
-                                  : null,
-                            ),
+                            decoration:
+                                _port.text.trim().isNotEmpty &&
+                                    _backendIssue != null
+                                ? ShadDecoration(
+                                    border: ShadBorder.all(
+                                      color: colors.error,
+                                      width: 1,
+                                    ),
+                                  )
+                                : null,
                             onChanged: (value) => _updateBackend(
                               _backendDraft.copyWith(
                                 apiPort: int.tryParse(value.trim()),
@@ -1397,34 +1889,45 @@ class _SettingsPageState extends State<_SettingsPage> {
                         configRow(
                           key: const ValueKey('settings-backend-merge-row'),
                           label: l10n.mergeMode,
-                          control: DropdownButtonFormField<_NullableBoolDraft>(
-                            key: ValueKey('settings-merge-mode-$_mergeDraft'),
-                            initialValue: _mergeDraft,
-                            decoration: const InputDecoration(),
-                            items: [
-                              DropdownMenuItem(
-                                value: _NullableBoolDraft.inherit,
-                                child: Text(l10n.inherit),
+                          control: Align(
+                            alignment: Alignment.centerLeft,
+                            child: ShadSelect<_NullableBoolDraft>(
+                              key: ValueKey('settings-merge-mode-$_mergeDraft'),
+                              initialValue: _mergeDraft,
+                              minWidth: 250,
+                              maxWidth: 280,
+                              selectedOptionBuilder: (_, value) => Text(
+                                switch (value) {
+                                  _NullableBoolDraft.inherit => l10n.inherit,
+                                  _NullableBoolDraft.enabled => l10n.enabled,
+                                  _NullableBoolDraft.disabled => l10n.disabled,
+                                },
                               ),
-                              DropdownMenuItem(
-                                value: _NullableBoolDraft.enabled,
-                                child: Text(l10n.enabled),
-                              ),
-                              DropdownMenuItem(
-                                value: _NullableBoolDraft.disabled,
-                                child: Text(l10n.disabled),
-                              ),
-                            ],
-                            onChanged: (value) {
-                              if (value == null) return;
-                              setState(() {
-                                _mergeDraft = value;
-                                _backendDraft = _backendDraft.copyWith(
-                                  merge: _mergeValue,
-                                );
-                                _backendRevision++;
-                              });
-                            },
+                              options: [
+                                ShadOption(
+                                  value: _NullableBoolDraft.inherit,
+                                  child: Text(l10n.inherit),
+                                ),
+                                ShadOption(
+                                  value: _NullableBoolDraft.enabled,
+                                  child: Text(l10n.enabled),
+                                ),
+                                ShadOption(
+                                  value: _NullableBoolDraft.disabled,
+                                  child: Text(l10n.disabled),
+                                ),
+                              ],
+                              onChanged: (value) {
+                                if (value == null) return;
+                                setState(() {
+                                  _mergeDraft = value;
+                                  _backendDraft = _backendDraft.copyWith(
+                                    merge: _mergeValue,
+                                  );
+                                  _backendRevision++;
+                                });
+                              },
+                            ),
                           ),
                         ),
                         divider(),
@@ -1434,9 +1937,8 @@ class _SettingsPageState extends State<_SettingsPage> {
                           control: Row(
                             children: [
                               Expanded(
-                                child: TextField(
+                                child: ShadInput(
                                   controller: _path,
-                                  decoration: const InputDecoration(),
                                   onChanged: (value) => _updateBackend(
                                     _backendDraft.copyWith(
                                       frontendBackendPath: value.trim().isEmpty
@@ -1447,10 +1949,12 @@ class _SettingsPageState extends State<_SettingsPage> {
                                 ),
                               ),
                               SizedBox(width: typography.spacingSm),
-                              OutlinedButton.icon(
+                              actionButton(
                                 key: const ValueKey(
                                   'settings-backend-path-regenerate',
                                 ),
+                                label: l10n.regenerateBackendPath,
+                                icon: Icons.refresh,
                                 onPressed: () {
                                   final path = randomBackendPath();
                                   _path.text = path;
@@ -1460,8 +1964,6 @@ class _SettingsPageState extends State<_SettingsPage> {
                                     ),
                                   );
                                 },
-                                icon: const Icon(Icons.refresh),
-                                label: Text(l10n.regenerateBackendPath),
                               ),
                             ],
                           ),
@@ -1470,9 +1972,8 @@ class _SettingsPageState extends State<_SettingsPage> {
                         configRow(
                           key: const ValueKey('settings-backend-cors-row'),
                           label: l10n.corsAllowedOrigins,
-                          control: TextField(
+                          control: ShadInput(
                             controller: _cors,
-                            decoration: const InputDecoration(),
                             onChanged: (value) => _updateBackend(
                               _backendDraft.copyWith(
                                 corsAllowedOrigins: value.trim().isEmpty
@@ -1482,6 +1983,18 @@ class _SettingsPageState extends State<_SettingsPage> {
                             ),
                           ),
                         ),
+                        divider(),
+                        configRow(
+                          key: const ValueKey('settings-advanced-env-row'),
+                          label: l10n.advancedRawEnv,
+                          control: actionButton(
+                            key: const ValueKey('settings-card-advanced-env'),
+                            label: l10n.open,
+                            icon: Icons.terminal,
+                            onPressed: () =>
+                                _openSection(_SettingsSection.advancedEnv),
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -1489,10 +2002,18 @@ class _SettingsPageState extends State<_SettingsPage> {
                 SizedBox(height: typography.spacingLg),
                 if (_section == _SettingsSection.advancedEnv) ...[
                   _SettingsSectionTitle(title: l10n.advancedRawEnv),
-                  _SurfacePanel(
+                  Padding(
+                    padding: EdgeInsets.only(bottom: typography.spacingMd),
+                    child: Text(
+                      l10n.runtimeSharedDraftScope,
+                      style: typography.bodySmall,
+                    ),
+                  ),
+                  ShadCard(
                     key: const ValueKey('settings-raw-env'),
                     padding: EdgeInsets.zero,
                     child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         Padding(
                           padding: EdgeInsets.symmetric(
@@ -1512,50 +2033,68 @@ class _SettingsPageState extends State<_SettingsPage> {
                             ],
                           ),
                         ),
-                        ExpansionTile(
+                        ShadButton.raw(
                           key: const ValueKey('settings-raw-env-expansion'),
-                          tilePadding: EdgeInsets.symmetric(
+                          variant: ShadButtonVariant.ghost,
+                          width: double.infinity,
+                          height: 0,
+                          expands: true,
+                          mainAxisAlignment: MainAxisAlignment.start,
+                          padding: EdgeInsets.symmetric(
                             horizontal: typography.spacingMd,
                             vertical: typography.spacingSm,
                           ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(
-                              typography.radiusMd,
-                            ),
+                          onPressed: () => setState(
+                            () => _rawEnvironmentExpanded =
+                                !_rawEnvironmentExpanded,
                           ),
-                          collapsedShape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(
-                              typography.radiusMd,
-                            ),
-                          ),
-                          title: Text(l10n.advancedRawEnvSubtitle),
-                          initiallyExpanded: false,
-                          childrenPadding: EdgeInsets.symmetric(
-                            horizontal: typography.spacingMd,
-                            vertical: typography.spacingSm,
-                          ),
-                          children: [
-                            TextField(
-                              key: const ValueKey('settings-raw-env-editor'),
-                              controller: _raw,
-                              minLines: 8,
-                              maxLines: 16,
-                              decoration: const InputDecoration(
-                                border: OutlineInputBorder(),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(l10n.advancedRawEnvSubtitle),
                               ),
-                              onChanged: _updateRaw,
-                            ),
-                            if (issues.isNotEmpty) ...[
-                              SizedBox(height: typography.spacingS),
-                              for (final issue in issues)
-                                Text(
-                                  '${issue.line == null ? '' : l10n.lineNumber(issue.line!)}${_localizedIssue(l10n, issue)}',
-                                  style: TextStyle(color: colors.error),
-                                ),
+                              Icon(
+                                _rawEnvironmentExpanded
+                                    ? Icons.expand_less
+                                    : Icons.expand_more,
+                              ),
                             ],
-                            SizedBox(height: typography.spacingMd),
-                          ],
+                          ),
                         ),
+                        if (_rawEnvironmentExpanded)
+                          Padding(
+                            padding: EdgeInsets.all(typography.spacingMd),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                ShadInput(
+                                  key: const ValueKey(
+                                    'settings-raw-env-editor',
+                                  ),
+                                  controller: _raw,
+                                  minLines: 8,
+                                  maxLines: 16,
+                                  onChanged: _updateRaw,
+                                ),
+                                if (issues.isNotEmpty) ...[
+                                  SizedBox(height: typography.spacingS),
+                                  for (final issue in issues)
+                                    Padding(
+                                      padding: EdgeInsets.only(
+                                        bottom: typography.spacingXs,
+                                      ),
+                                      child: Semantics(
+                                        liveRegion: true,
+                                        child: Text(
+                                          '${issue.line == null ? '' : l10n.lineNumber(issue.line!)}${_localizedIssue(l10n, issue)}',
+                                          style: TextStyle(color: colors.error),
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ],
+                            ),
+                          ),
                       ],
                     ),
                   ),
@@ -1564,10 +2103,12 @@ class _SettingsPageState extends State<_SettingsPage> {
                 if (_section == _SettingsSection.about)
                   _AboutPage(
                     key: const ValueKey('settings-about-page'),
+                    active: widget.active && _section == _SettingsSection.about,
                     loader: widget.aboutInfoLoader,
                     coordinator: widget.coordinator,
-                    runtimeState: widget.coordinator.runtime.currentState,
+                    runtimeState: widget.runtimeState,
                     onOpenExternalUri: widget.onOpenExternalUri,
+                    onOpenServiceDetails: widget.onOpenServiceDetails,
                   ),
               ],
             ),
@@ -1575,81 +2116,67 @@ class _SettingsPageState extends State<_SettingsPage> {
         ),
       ],
     );
-    return Column(
+    final actions = <Widget>[
+      if (_section == _SettingsSection.home && !_autoSavePreferences) ...[
+        actionButton(
+          key: const ValueKey('settings-discard-preferences'),
+          label: l10n.discard,
+          onPressed: _generalDirty ? () => unawaited(_discardGeneral()) : null,
+          ghost: true,
+        ),
+        actionButton(
+          key: const ValueKey('settings-save-preferences'),
+          label: l10n.save,
+          primary: true,
+          onPressed:
+              !_generalDirty ||
+                  _parsedRecentLogLimit == null ||
+                  _generalSaveInProgress
+              ? null
+              : () => unawaited(_saveGeneral()),
+        ),
+      ],
+      if (isRuntimeTask) ...runtimeActions(),
+    ];
+    if (actions.isEmpty) return content;
+    _measureActionGroup();
+    final home = _section == _SettingsSection.home;
+    // The form owns the whole content area; only the last control needs room to
+    // clear the floating buttons, which the list padding below reserves.
+    return Stack(
       children: [
-        Expanded(child: content),
-        if (_section == _SettingsSection.home &&
-            ((!_autoSavePreferences && _generalDirty) || _runtimeDraftDirty))
-          SafeArea(
-            top: false,
-            child: Padding(
-              padding: EdgeInsets.all(typography.spacingMd),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  if (!_autoSavePreferences && _generalDirty)
-                    Padding(
-                      padding: EdgeInsets.only(bottom: typography.spacingSm),
-                      child: Row(
-                        children: [
-                          Expanded(child: Text(l10n.unsavedChanges)),
-                          TextButton(
-                            key: const ValueKey('settings-discard-preferences'),
-                            onPressed: () => unawaited(_discardGeneral()),
-                            child: Text(l10n.discard),
-                          ),
-                          FilledButton(
-                            key: const ValueKey('settings-save-preferences'),
-                            onPressed: _parsedRecentLogLimit == null
-                                ? null
-                                : () => unawaited(_saveGeneral()),
-                            child: Text(l10n.save),
-                          ),
-                        ],
-                      ),
-                    ),
-                  if (_runtimeDraftDirty)
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            _runtimeSaveFailed
-                                ? l10n.runtimeSaveFailed
-                                : l10n.runtimeDraftPending,
-                          ),
-                        ),
-                        FilledButton(
-                          key: const ValueKey('settings-save-all'),
-                          onPressed: _runtimeCandidate == null
-                              ? null
-                              : () => unawaited(_saveRuntimeDraft()),
-                          child: Text(l10n.saveRuntimeConfiguration),
-                        ),
-                      ],
-                    ),
-                ],
-              ),
+        Positioned.fill(child: content),
+        Positioned.fill(
+          child: Padding(
+            padding: EdgeInsets.only(
+              left: typography.spacingLg,
+              right: typography.spacingLg,
+              bottom: typography.spacingMd,
             ),
-          ),
-        if ((_section == _SettingsSection.backendConfig ||
-                _section == _SettingsSection.advancedEnv) &&
-            _runtimeDraftDirty)
-          SafeArea(
-            top: false,
-            child: Padding(
-              padding: EdgeInsets.all(typography.spacingMd),
+            child: SafeArea(
+              top: false,
               child: Align(
-                alignment: Alignment.centerRight,
-                child: FilledButton(
-                  key: const ValueKey('settings-child-save'),
-                  onPressed: _runtimeCandidate == null
-                      ? null
-                      : () => unawaited(_saveRuntimeDraft()),
-                  child: Text(l10n.save),
+                alignment: home ? Alignment.bottomLeft : Alignment.bottomCenter,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: home ? 1060 : 960),
+                  // Bottom-right inside the content frame, so the buttons sit on
+                  // the frame's baseline rather than centered in the viewport.
+                  child: Align(
+                    alignment: Alignment.bottomRight,
+                    child: actionGroup(
+                      key: ValueKey(
+                        home
+                            ? 'settings-preferences-actions'
+                            : 'settings-runtime-actions',
+                      ),
+                      actions: actions,
+                    ),
+                  ),
                 ),
               ),
             ),
           ),
+        ),
       ],
     );
   }
