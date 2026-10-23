@@ -173,6 +173,42 @@ class AppCoordinator {
     path: _effectiveValue(BackendEnvPolicy.frontendBackendPath) ?? '/',
   );
 
+  /// The frontend entry bound to the configuration actually running now.
+  /// Unlike [webUiUri], this never falls back to a newly saved configuration.
+  /// Null until a runtime has successfully applied a launch configuration.
+  Uri? get appliedWebUiUri {
+    final applied = runtime.appliedConfiguration;
+    if (applied == null) return null;
+    final environment = applied.environment;
+    final frontendOrigin = environment[BackendEnvPolicy.merge] == 'false'
+        ? runtime.endpoint.replace(
+            host:
+                environment[BackendEnvPolicy.frontendHost] ??
+                runtime.endpoint.host,
+            port:
+                int.tryParse(
+                  environment[BackendEnvPolicy.frontendPort] ?? '',
+                ) ??
+                3001,
+          )
+        : runtime.endpoint;
+    final apiUri = runtime.endpoint.replace(
+      path: environment[BackendEnvPolicy.frontendBackendPath] ?? '/',
+    );
+    return frontendOrigin
+        .replace(path: '/')
+        .replace(queryParameters: {'api': apiUri.toString()});
+  }
+
+  /// The API route paired with [appliedWebUiUri] for the active process.
+  Uri? get appliedWebUiApiUri {
+    final applied = runtime.appliedConfiguration;
+    if (applied == null) return null;
+    return runtime.endpoint.replace(
+      path: applied.environment[BackendEnvPolicy.frontendBackendPath] ?? '/',
+    );
+  }
+
   Uri get _frontendOrigin {
     if (_effectiveValue(BackendEnvPolicy.merge) != 'false') {
       return runtime.endpoint;

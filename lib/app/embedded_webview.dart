@@ -16,6 +16,17 @@ typedef EmbeddedNavigationHandler = Future<EmbeddedNavigationDecision> Function(
   EmbeddedNavigationRequest request,
 );
 typedef EmbeddedPageChangeHandler = void Function(Uri uri);
+typedef EmbeddedMainFrameFailureHandler = void Function(
+  EmbeddedMainFrameFailure failure,
+);
+
+/// A main-document failure reported by the platform WebView delegate.
+/// Platform messages, URLs, and exception text are deliberately not retained.
+class EmbeddedMainFrameFailure {
+  const EmbeddedMainFrameFailure({required this.errorCode});
+
+  final int errorCode;
+}
 
 class EmbeddedWebViewController {
   EmbeddedWebViewController._({
@@ -67,6 +78,7 @@ class EmbeddedWebViewController {
     required void Function(String message) onBlobMessage,
     required String bridgeScript,
     EmbeddedPageChangeHandler? onPageChanged,
+    EmbeddedMainFrameFailureHandler? onMainFrameFailure,
   }) {
     if (Platform.isMacOS) {
       final controller = official.WebViewController();
@@ -90,6 +102,11 @@ class EmbeddedWebViewController {
                 _publishPage(onPageChanged, url);
                 await controller.runJavaScript(bridgeScript);
               },
+              onWebResourceError: (error) => _publishMainFrameFailure(
+                onMainFrameFailure,
+                error.isForMainFrame,
+                error.errorCode,
+              ),
             ),
           );
           await controller.addJavaScriptChannel(
@@ -132,6 +149,11 @@ class EmbeddedWebViewController {
                   : fallback.NavigationDecision.prevent;
             },
             onPageFinished: (url) => _publishPage(onPageChanged, url),
+            onWebResourceError: (error) => _publishMainFrameFailure(
+              onMainFrameFailure,
+              error.isForMainFrame,
+              error.errorCode,
+            ),
           ),
         );
         await controller.addJavaScriptChannel(
@@ -170,6 +192,16 @@ class EmbeddedWebViewController {
   Future<void> goForward() => _goForward();
 
   Widget build() => _buildWidget();
+}
+
+void _publishMainFrameFailure(
+  EmbeddedMainFrameFailureHandler? handler,
+  bool? isForMainFrame,
+  int errorCode,
+) {
+  if (isForMainFrame == true) {
+    handler?.call(EmbeddedMainFrameFailure(errorCode: errorCode));
+  }
 }
 
 void _publishPage(EmbeddedPageChangeHandler? handler, String value) {

@@ -130,6 +130,7 @@ class _SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<_SettingsPage> {
+  final _scrollController = ScrollController();
   late ThemeMode _generalThemeMode;
   late String? _generalLocale;
   late CloseBehavior _generalCloseBehavior;
@@ -224,6 +225,7 @@ class _SettingsPageState extends State<_SettingsPage> {
 
   @override
   void dispose() {
+    _scrollController.dispose();
     _raw.dispose();
     _host.dispose();
     _port.dispose();
@@ -771,8 +773,17 @@ class _SettingsPageState extends State<_SettingsPage> {
 
   void _openSection(_SettingsSection section) {
     if (_section == section) return;
+    final resetScroll =
+        section == _SettingsSection.about || _section == _SettingsSection.about;
     setState(() => _section = section);
     widget.onChildStateChanged(section != _SettingsSection.home);
+    if (resetScroll) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _scrollController.hasClients) {
+          _scrollController.jumpTo(0);
+        }
+      });
+    }
   }
 
   void _backToHome() => _openSection(_SettingsSection.home);
@@ -933,6 +944,7 @@ class _SettingsPageState extends State<_SettingsPage> {
     );
     final content = ListView(
       key: const ValueKey('settings-list'),
+      controller: _scrollController,
       padding: EdgeInsets.all(typography.spacingLg),
       children: [
         Align(
@@ -1553,6 +1565,9 @@ class _SettingsPageState extends State<_SettingsPage> {
                   _AboutPage(
                     key: const ValueKey('settings-about-page'),
                     loader: widget.aboutInfoLoader,
+                    coordinator: widget.coordinator,
+                    runtimeState: widget.coordinator.runtime.currentState,
+                    onOpenExternalUri: widget.onOpenExternalUri,
                   ),
               ],
             ),

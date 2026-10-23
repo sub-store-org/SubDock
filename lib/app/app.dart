@@ -126,6 +126,7 @@ class SubDockApp extends StatefulWidget {
     required void Function(String message) onBlobMessage,
     required String bridgeScript,
     EmbeddedPageChangeHandler? onPageChanged,
+    EmbeddedMainFrameFailureHandler? onMainFrameFailure,
   })?
   webViewControllerFactory;
   final bool showCustomDesktopChrome;
@@ -179,6 +180,7 @@ class _SubDockAppState extends State<SubDockApp> {
   void initState() {
     super.initState();
     _preferenceQueue = Future<void>.value();
+    registerBundledFontLicenses();
     final preferences = widget.preferences ?? DesktopPreferences.defaults;
     _savedPreferences = preferences;
     _logReader = LogReaderState(limit: preferences.recentLogLimit);
@@ -433,6 +435,41 @@ class _SubDockAppState extends State<SubDockApp> {
     } on StateError {
       // The runtime state holds the actionable failure.
     }
+  }
+
+  Future<void> _confirmServiceAction(
+    BuildContext actionContext, {
+    required bool restart,
+  }) async {
+    if (_actionInProgress) return;
+    final l10n = AppLocalizations.of(actionContext)!;
+    final confirmed = await showDialog<bool>(
+      context: actionContext,
+      builder: (context) => AlertDialog(
+        title: Text(
+          restart
+              ? l10n.confirmRestartServiceTitle
+              : l10n.confirmStopServiceTitle,
+        ),
+        content: Text(
+          restart
+              ? l10n.confirmRestartServiceMessage
+              : l10n.confirmStopServiceMessage,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text(l10n.cancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(restart ? l10n.restart : l10n.stop),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || confirmed != true) return;
+    await _run(restart ? widget.coordinator.restart : widget.coordinator.stop);
   }
 
   Future<void> _run(Future<void> Function() action) async {
@@ -699,12 +736,21 @@ class _SubDockAppState extends State<SubDockApp> {
         unavailableComponents: _overviewComponentUnavailable,
         actionInProgress: _actionInProgress,
         onStart: () => _run(widget.coordinator.start),
-        onStop: () => _run(widget.coordinator.stop),
-        onRestart: () => _run(widget.coordinator.restart),
+        onStop: (BuildContext actionContext) =>
+            unawaited(_confirmServiceAction(actionContext, restart: false)),
+        onRestart: (BuildContext actionContext) =>
+            unawaited(_confirmServiceAction(actionContext, restart: true)),
+        onOpenLogs: () => unawaited(_selectPage(_AppPage.logs)),
       ),
       _ManagePage(
         state: _state,
         coordinator: widget.coordinator,
+        appliedWebUiUri: widget.coordinator.appliedWebUiUri,
+        appliedWebUiApiUri: widget.coordinator.appliedWebUiApiUri,
+        runtimeRunId: _logReader.currentRunId,
+        sessionIdentity:
+            _logReader.currentRunId ??
+            'revision-${widget.coordinator.appliedRevision}',
         error: _error,
         enabled: widget.enableWebView,
         onOpenExternalUri: widget.onOpenExternalUri ?? _launchExternalUri,
@@ -761,6 +807,9 @@ class _SubDockAppState extends State<SubDockApp> {
       _ShellAboutPage(
         key: const ValueKey('about-page'),
         loader: widget.aboutInfoLoader,
+        coordinator: widget.coordinator,
+        runtimeState: _state,
+        onOpenExternalUri: widget.onOpenExternalUri ?? _launchExternalUri,
       ),
     ];
     final body = Stack(

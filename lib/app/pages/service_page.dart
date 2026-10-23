@@ -69,6 +69,7 @@ class _OverviewPage extends StatelessWidget {
     required this.onStart,
     required this.onStop,
     required this.onRestart,
+    required this.onOpenLogs,
   });
 
   final RuntimeState state;
@@ -80,8 +81,9 @@ class _OverviewPage extends StatelessWidget {
   final Set<ComponentKind> unavailableComponents;
   final bool actionInProgress;
   final VoidCallback onStart;
-  final VoidCallback onStop;
-  final VoidCallback onRestart;
+  final ValueChanged<BuildContext> onStop;
+  final ValueChanged<BuildContext> onRestart;
+  final VoidCallback onOpenLogs;
 
   @override
   Widget build(BuildContext context) {
@@ -187,6 +189,17 @@ class _OverviewPage extends StatelessWidget {
               style: TextStyle(color: colors.error),
             ),
           ],
+          if (error != null ||
+              state.status == RuntimeStatus.unhealthy ||
+              state.status == RuntimeStatus.crashed) ...[
+            SizedBox(height: typography.spacingSm),
+            TextButton.icon(
+              key: const ValueKey('overview-view-logs'),
+              onPressed: onOpenLogs,
+              icon: const Icon(Icons.subject),
+              label: Text(l10n.viewLogs),
+            ),
+          ],
           SizedBox(height: typography.spacingMd),
           Wrap(
             spacing: typography.spacingS,
@@ -204,7 +217,7 @@ class _OverviewPage extends StatelessWidget {
                 onPressed:
                     actionInProgress || state.status == RuntimeStatus.stopped
                     ? null
-                    : onStop,
+                    : () => onStop(context),
                 icon: const Icon(Icons.stop),
                 label: Text(l10n.stop),
               ),
@@ -212,7 +225,7 @@ class _OverviewPage extends StatelessWidget {
                 onPressed:
                     actionInProgress || state.status != RuntimeStatus.running
                     ? null
-                    : onRestart,
+                    : () => onRestart(context),
                 icon: const Icon(Icons.restart_alt),
                 label: Text(l10n.restart),
               ),

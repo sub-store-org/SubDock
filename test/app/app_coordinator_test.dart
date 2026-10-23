@@ -308,6 +308,63 @@ void main() {
     expect(await pairStore.recoveryFile.exists(), isFalse);
   });
 
+  test(
+    'WebView origins remain bound to the applied launch configuration',
+    () async {
+      final temp = await Directory.systemTemp.createTemp(
+        'subdock_coordinator_',
+      );
+      addTearDown(() => temp.delete(recursive: true));
+      final directories = await RuntimeDirectories.fromBaseDirectory(temp);
+      final runtime = _FakeRuntime();
+      final coordinator = AppCoordinator(
+        runtime: runtime,
+        environmentStore: BackendEnvStore(directories),
+        configurationStore: SubDockConfigStore(directories),
+      );
+
+      expect(coordinator.appliedWebUiUri, isNull);
+      await coordinator.saveEnvironment(
+        BackendEnvDocument.parse(
+          'SUB_STORE_BACKEND_MERGE=false\n'
+          'SUB_STORE_FRONTEND_PORT=3100\n'
+          'SUB_STORE_FRONTEND_BACKEND_PATH=/subdock\n',
+        ),
+      );
+      await coordinator.start();
+
+      final appliedUri = coordinator.appliedWebUiUri!;
+      expect(appliedUri.origin, 'http://127.0.0.1:3100');
+      expect(appliedUri.path, '/');
+      expect(
+        appliedUri.queryParameters['api'],
+        'http://127.0.0.1:3001/subdock',
+      );
+
+      await coordinator.saveEnvironment(
+        BackendEnvDocument.parse(
+          'SUB_STORE_BACKEND_API_PORT=4000\n'
+          'SUB_STORE_BACKEND_MERGE=false\n'
+          'SUB_STORE_FRONTEND_PORT=3200\n'
+          'SUB_STORE_FRONTEND_BACKEND_PATH=/new-api\n',
+        ),
+      );
+      expect(coordinator.appliedWebUiUri, appliedUri);
+      expect(
+        coordinator.appliedWebUiApiUri,
+        Uri.parse('http://127.0.0.1:3001/subdock'),
+      );
+
+      await coordinator.restart();
+
+      expect(coordinator.appliedWebUiUri?.origin, 'http://127.0.0.1:3200');
+      expect(
+        coordinator.appliedWebUiApiUri,
+        Uri.parse('http://127.0.0.1:4000/new-api'),
+      );
+    },
+  );
+
   test('opens a standalone frontend with its proxied API URL', () async {
     final temp = await Directory.systemTemp.createTemp('subdock_coordinator_');
     addTearDown(() => temp.delete(recursive: true));

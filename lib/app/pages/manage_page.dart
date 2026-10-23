@@ -4,6 +4,10 @@ class _ManagePage extends StatefulWidget {
   const _ManagePage({
     required this.state,
     required this.coordinator,
+    required this.appliedWebUiUri,
+    required this.appliedWebUiApiUri,
+    required this.runtimeRunId,
+    required this.sessionIdentity,
     required this.error,
     required this.enabled,
     required this.onOpenExternalUri,
@@ -13,6 +17,10 @@ class _ManagePage extends StatefulWidget {
 
   final RuntimeState state;
   final AppCoordinator coordinator;
+  final Uri? appliedWebUiUri;
+  final Uri? appliedWebUiApiUri;
+  final String? runtimeRunId;
+  final String sessionIdentity;
   final Object? error;
   final bool enabled;
   final Future<bool> Function(Uri uri) onOpenExternalUri;
@@ -21,6 +29,7 @@ class _ManagePage extends StatefulWidget {
     required void Function(String message) onBlobMessage,
     required String bridgeScript,
     EmbeddedPageChangeHandler? onPageChanged,
+    EmbeddedMainFrameFailureHandler? onMainFrameFailure,
   })?
   webViewControllerFactory;
   final VoidCallback onRecover;
@@ -42,52 +51,176 @@ class _ManagePageState extends State<_ManagePage> {
   var _webViewInitialized = false;
   var _webViewLoading = false;
   var _webViewLoaded = false;
+  var _mainFrameFailurePending = false;
   String? _webViewError;
+  String? _fallbackBrowserError;
   var _missingWebView2 = false;
+  var _sessionGeneration = 0;
+  late bool _lastReady;
+  late bool _lastFallbackAvailable;
+  String? _activeSessionIdentity;
+  Uri? _activeWebUiUri;
+  Uri? _activeWebUiApiUri;
+  late final StreamSubscription<RuntimeLogRunStarted> _runStartedSubscription;
+  String? _activeRuntimeRunId;
 
-  bool get _ready =>
+  bool get _fallbackAvailable =>
       widget.state.status == RuntimeStatus.running &&
-      widget.enabled &&
-      widget.coordinator.canOpenWebUi;
+      widget.coordinator.canOpenWebUi &&
+      widget.appliedWebUiUri != null &&
+      widget.appliedWebUiApiUri != null;
+
+  bool get _ready => widget.enabled && _fallbackAvailable;
 
   @override
   void initState() {
     super.initState();
+    _activeRuntimeRunId = widget.runtimeRunId;
+    _lastReady = _ready;
+    _lastFallbackAvailable = _fallbackAvailable;
+    _runStartedSubscription = widget.coordinator.runtime.logRunStarted.listen(
+      _onRunStarted,
+    );
     unawaited(_ensureController());
+  }
+
+  @override
+  void dispose() {
+    _runStartedSubscription.cancel();
+    super.dispose();
+  }
+
+  void _onRunStarted(RuntimeLogRunStarted event) {
+    if (_activeRuntimeRunId == event.runId) return;
+    _activeRuntimeRunId = event.runId;
+    if (mounted) setState(_invalidateSession);
   }
 
   @override
   void didUpdateWidget(covariant _ManagePage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!_ready) {
-      _controller = null;
-      _currentUri = null;
-      _canGoBack = false;
-      _canGoForward = false;
-      _webViewInitialized = false;
-      _webViewLoading = false;
-      _webViewLoaded = false;
+    final readinessChanged = _lastReady != _ready;
+    _lastReady = _ready;
+    final fallbackAvailabilityChanged =
+        _lastFallbackAvailable != _fallbackAvailable;
+    _lastFallbackAvailable = _fallbackAvailable;
+    final sessionChanged =
+        oldWidget.enabled != widget.enabled ||
+        oldWidget.sessionIdentity != widget.sessionIdentity ||
+        oldWidget.runtimeRunId != widget.runtimeRunId ||
+        oldWidget.appliedWebUiUri != widget.appliedWebUiUri ||
+        oldWidget.appliedWebUiApiUri != widget.appliedWebUiApiUri;
+    if (readinessChanged || fallbackAvailabilityChanged || sessionChanged) {
+      _invalidateSession();
+      if (_ready) unawaited(_ensureController());
       return;
     }
     unawaited(_ensureController());
   }
 
+  void _invalidateSession() {
+    _sessionGeneration++;
+    _controller = null;
+    _activeSessionIdentity = null;
+    _activeWebUiUri = null;
+    _activeWebUiApiUri = null;
+    _currentUri = null;
+    _canGoBack = false;
+    _canGoForward = false;
+    _webViewInitialized = false;
+    _webViewLoading = false;
+    _webViewLoaded = false;
+    _mainFrameFailurePending = false;
+    _webViewError = null;
+    _fallbackBrowserError = null;
+    _missingWebView2 = false;
+  }
+
+  bool _requestIsCurrent(
+    int generation,
+    String identity,
+    Uri webUiUri,
+    Uri apiUri,
+  ) =>
+      mounted &&
+      _ready &&
+      generation == _sessionGeneration &&
+      identity == _activeSessionIdentity &&
+      identity == widget.sessionIdentity &&
+      widget.runtimeRunId == _activeRuntimeRunId &&
+      webUiUri == _activeWebUiUri &&
+      webUiUri == widget.appliedWebUiUri &&
+      webUiUri == widget.coordinator.appliedWebUiUri &&
+      apiUri == _activeWebUiApiUri &&
+      apiUri == widget.appliedWebUiApiUri &&
+      apiUri == widget.coordinator.appliedWebUiApiUri;
+
+  bool _isCurrentController(
+    EmbeddedWebViewController controller,
+    int generation,
+    String identity,
+    Uri webUiUri,
+    Uri apiUri,
+  ) =>
+      _requestIsCurrent(generation, identity, webUiUri, apiUri) &&
+      identical(_controller, controller);
+
   Future<void> _ensureController() async {
     if (!_ready || _controller != null) return;
+    final generation = ++_sessionGeneration;
+    final identity = widget.sessionIdentity;
+    final webUiUri = widget.appliedWebUiUri!;
+    final apiUri = widget.appliedWebUiApiUri!;
+    _activeSessionIdentity = identity;
+    _activeWebUiUri = webUiUri;
+    _activeWebUiApiUri = apiUri;
     try {
       late final EmbeddedWebViewController controller;
       final createController =
           widget.webViewControllerFactory ?? EmbeddedWebViewController.create;
       controller = createController(
-        onNavigationRequest: _onNavigationRequest,
-        onBlobMessage: (message) => unawaited(_onBridgeMessage(message)),
+        onNavigationRequest: (request) => _onNavigationRequest(
+          controller,
+          generation,
+          identity,
+          webUiUri,
+          apiUri,
+          request,
+        ),
+        onBlobMessage: (message) => unawaited(
+          _onBridgeMessage(
+            controller,
+            generation,
+            identity,
+            webUiUri,
+            apiUri,
+            message,
+          ),
+        ),
         bridgeScript: _blobDownloadBridge,
-        onPageChanged: (uri) => unawaited(_onPageChanged(controller, uri)),
+        onPageChanged: (uri) => unawaited(
+          _onPageChanged(
+            controller,
+            generation,
+            identity,
+            webUiUri,
+            apiUri,
+            uri,
+          ),
+        ),
+        onMainFrameFailure: (failure) => _onMainFrameFailure(
+          controller,
+          generation,
+          identity,
+          webUiUri,
+          apiUri,
+          failure,
+        ),
       );
-      if (!mounted || !_ready) return;
+      if (!_requestIsCurrent(generation, identity, webUiUri, apiUri)) return;
       setState(() {
         _controller = controller;
-        _currentUri = widget.coordinator.webUiUri;
+        _currentUri = webUiUri;
         _canGoBack = false;
         _canGoForward = false;
         _webViewInitialized = false;
@@ -97,15 +230,35 @@ class _ManagePageState extends State<_ManagePage> {
         _missingWebView2 = false;
       });
       await controller.initialize();
-      if (!mounted || !identical(_controller, controller)) return;
+      if (!_isCurrentController(
+        controller,
+        generation,
+        identity,
+        webUiUri,
+        apiUri,
+      )) {
+        return;
+      }
       setState(() => _webViewInitialized = true);
-      await controller.loadRequest(widget.coordinator.webUiUri);
+      await controller.loadRequest(webUiUri);
+      if (!_isCurrentController(
+        controller,
+        generation,
+        identity,
+        webUiUri,
+        apiUri,
+      )) {
+        return;
+      }
     } catch (error) {
-      if (mounted) {
+      if (mounted &&
+          _requestIsCurrent(generation, identity, webUiUri, apiUri)) {
         final l10n = AppLocalizations.of(context)!;
         setState(() {
           _missingWebView2 = _isMissingWebView2(error);
-          _webViewError = _missingWebView2 ? l10n.webView2Missing : '$error';
+          _webViewError = _missingWebView2
+              ? l10n.webView2Missing
+              : l10n.webViewLoadFailure;
           _webViewLoading = false;
           _webViewLoaded = false;
         });
@@ -113,113 +266,378 @@ class _ManagePageState extends State<_ManagePage> {
     }
   }
 
+  void _onMainFrameFailure(
+    EmbeddedWebViewController controller,
+    int generation,
+    String identity,
+    Uri webUiUri,
+    Uri apiUri,
+    EmbeddedMainFrameFailure failure,
+  ) {
+    if (!_isCurrentController(
+      controller,
+      generation,
+      identity,
+      webUiUri,
+      apiUri,
+    )) {
+      return;
+    }
+    final l10n = AppLocalizations.of(context)!;
+    setState(() {
+      _mainFrameFailurePending = true;
+      _webViewError = l10n.webViewMainFrameFailure;
+      _webViewLoading = false;
+      _webViewLoaded = false;
+      _missingWebView2 = false;
+    });
+  }
+
   Future<void> _onPageChanged(
     EmbeddedWebViewController controller,
+    int generation,
+    String identity,
+    Uri webUiUri,
+    Uri apiUri,
     Uri uri,
   ) async {
-    if (!mounted || !identical(_controller, controller)) return;
+    if (!_isCurrentController(
+          controller,
+          generation,
+          identity,
+          webUiUri,
+          apiUri,
+        ) ||
+        !_sameOrigin(uri, webUiUri) ||
+        _mainFrameFailurePending) {
+      return;
+    }
     setState(() {
       _currentUri = uri;
       _webViewLoading = false;
       _webViewLoaded = true;
+      _webViewError = null;
+      _missingWebView2 = false;
     });
     try {
       final canGoBack = await controller.canGoBack();
+      if (!_isCurrentController(
+        controller,
+        generation,
+        identity,
+        webUiUri,
+        apiUri,
+      )) {
+        return;
+      }
       final canGoForward = await controller.canGoForward();
-      if (!mounted || !identical(_controller, controller)) return;
+      if (!_isCurrentController(
+        controller,
+        generation,
+        identity,
+        webUiUri,
+        apiUri,
+      )) {
+        return;
+      }
       setState(() {
         _canGoBack = canGoBack;
         _canGoForward = canGoForward;
       });
-    } catch (error) {
-      if (mounted && identical(_controller, controller)) {
-        setState(() => _webViewError = '$error');
+    } on Object {
+      if (_isCurrentController(
+        controller,
+        generation,
+        identity,
+        webUiUri,
+        apiUri,
+      )) {
+        setState(
+          () =>
+              _webViewError = AppLocalizations.of(context)!
+                  .webViewActionFailure,
+        );
       }
     }
   }
 
-  Future<void> _refreshHistory(EmbeddedWebViewController controller) async {
+  Future<void> _refreshHistory(
+    EmbeddedWebViewController controller,
+    int generation,
+    String identity,
+    Uri webUiUri,
+    Uri apiUri,
+  ) async {
     try {
       final canGoBack = await controller.canGoBack();
+      if (!_isCurrentController(
+        controller,
+        generation,
+        identity,
+        webUiUri,
+        apiUri,
+      )) {
+        return;
+      }
       final canGoForward = await controller.canGoForward();
-      if (!mounted || !identical(_controller, controller)) return;
+      if (!_isCurrentController(
+        controller,
+        generation,
+        identity,
+        webUiUri,
+        apiUri,
+      )) {
+        return;
+      }
       setState(() {
         _canGoBack = canGoBack;
         _canGoForward = canGoForward;
       });
-    } catch (error) {
-      if (mounted && identical(_controller, controller)) {
-        setState(() => _webViewError = '$error');
+    } on Object {
+      if (_isCurrentController(
+        controller,
+        generation,
+        identity,
+        webUiUri,
+        apiUri,
+      )) {
+        setState(
+          () =>
+              _webViewError = AppLocalizations.of(context)!
+                  .webViewActionFailure,
+        );
       }
     }
   }
 
   Future<void> _goBack() async {
     final controller = _controller;
-    if (controller == null || !_canGoBack) return;
+    final generation = _sessionGeneration;
+    final identity = _activeSessionIdentity;
+    final webUiUri = _activeWebUiUri;
+    final apiUri = _activeWebUiApiUri;
+    if (controller == null ||
+        identity == null ||
+        webUiUri == null ||
+        apiUri == null ||
+        !_canGoBack) {
+      return;
+    }
     try {
       await controller.goBack();
-      await _refreshHistory(controller);
-    } catch (error) {
-      if (mounted) setState(() => _webViewError = '$error');
+      if (!_isCurrentController(
+        controller,
+        generation,
+        identity,
+        webUiUri,
+        apiUri,
+      )) {
+        return;
+      }
+      await _refreshHistory(controller, generation, identity, webUiUri, apiUri);
+    } on Object {
+      if (_isCurrentController(
+        controller,
+        generation,
+        identity,
+        webUiUri,
+        apiUri,
+      )) {
+        setState(
+          () =>
+              _webViewError = AppLocalizations.of(context)!
+                  .webViewActionFailure,
+        );
+      }
     }
   }
 
   Future<void> _goForward() async {
     final controller = _controller;
-    if (controller == null || !_canGoForward) return;
+    final generation = _sessionGeneration;
+    final identity = _activeSessionIdentity;
+    final webUiUri = _activeWebUiUri;
+    final apiUri = _activeWebUiApiUri;
+    if (controller == null ||
+        identity == null ||
+        webUiUri == null ||
+        apiUri == null ||
+        !_canGoForward) {
+      return;
+    }
     try {
       await controller.goForward();
-      await _refreshHistory(controller);
-    } catch (error) {
-      if (mounted) setState(() => _webViewError = '$error');
+      if (!_isCurrentController(
+        controller,
+        generation,
+        identity,
+        webUiUri,
+        apiUri,
+      )) {
+        return;
+      }
+      await _refreshHistory(controller, generation, identity, webUiUri, apiUri);
+    } on Object {
+      if (_isCurrentController(
+        controller,
+        generation,
+        identity,
+        webUiUri,
+        apiUri,
+      )) {
+        setState(
+          () =>
+              _webViewError = AppLocalizations.of(context)!
+                  .webViewActionFailure,
+        );
+      }
     }
   }
 
   Future<EmbeddedNavigationDecision> _onNavigationRequest(
+    EmbeddedWebViewController controller,
+    int generation,
+    String identity,
+    Uri webUiUri,
+    Uri apiUri,
     EmbeddedNavigationRequest request,
   ) async {
-    final l10n = AppLocalizations.of(context)!;
+    if (!_isCurrentController(
+      controller,
+      generation,
+      identity,
+      webUiUri,
+      apiUri,
+    )) {
+      return EmbeddedNavigationDecision.prevent;
+    }
     final uri = request.uri;
-    if (_sameOrigin(uri, widget.coordinator.webUiUri)) {
-      if (_isDownloadUri(uri)) {
-        unawaited(_saveHttpDownload(uri));
+    if (_sameOrigin(uri, webUiUri)) {
+      if (_isDownloadUri(uri, apiUri)) {
+        unawaited(
+          _saveHttpDownload(
+            controller,
+            generation,
+            identity,
+            webUiUri,
+            apiUri,
+            uri,
+          ),
+        );
         return EmbeddedNavigationDecision.prevent;
       }
       return EmbeddedNavigationDecision.navigate;
     }
     if (uri.scheme == 'http' || uri.scheme == 'https') {
       try {
-        if (!await widget.onOpenExternalUri(uri)) {
-          throw StateError(l10n.openSystemBrowserFailed(uri.toString()));
+        final opened = await widget.onOpenExternalUri(uri);
+        if (!opened &&
+            _isCurrentController(
+              controller,
+              generation,
+              identity,
+              webUiUri,
+              apiUri,
+            )) {
+          setState(
+            () =>
+                _webViewError = AppLocalizations.of(context)!
+                    .browserLaunchFailure,
+          );
         }
-      } catch (error) {
-        if (mounted) setState(() => _webViewError = '$error');
+      } on Object {
+        if (_isCurrentController(
+          controller,
+          generation,
+          identity,
+          webUiUri,
+          apiUri,
+        )) {
+          setState(
+            () =>
+                _webViewError = AppLocalizations.of(context)!
+                    .browserLaunchFailure,
+          );
+        }
       }
     }
     return EmbeddedNavigationDecision.prevent;
   }
 
-  Future<void> _saveHttpDownload(Uri uri) async {
+  Future<void> _saveHttpDownload(
+    EmbeddedWebViewController controller,
+    int generation,
+    String identity,
+    Uri webUiUri,
+    Uri apiUri,
+    Uri uri,
+  ) async {
     final l10n = AppLocalizations.of(context)!;
     try {
       final location = await getSaveLocation(
         suggestedName: _downloadName(uri.pathSegments.lastOrNull),
       );
-      if (location == null) return;
-
+      if (location == null ||
+          !_isCurrentController(
+            controller,
+            generation,
+            identity,
+            webUiUri,
+            apiUri,
+          )) {
+        return;
+      }
       final client = HttpClient();
       try {
-        final response = await (await client.getUrl(uri)).close();
+        final request = await client.getUrl(uri);
+        if (!_isCurrentController(
+          controller,
+          generation,
+          identity,
+          webUiUri,
+          apiUri,
+        )) {
+          return;
+        }
+        final response = await request.close();
+        if (!_isCurrentController(
+          controller,
+          generation,
+          identity,
+          webUiUri,
+          apiUri,
+        )) {
+          return;
+        }
         if (response.statusCode < 200 || response.statusCode >= 300) {
-          throw HttpException(
-            l10n.downloadFailedHttp(response.statusCode),
-            uri: uri,
+          setState(
+            () => _webViewError = l10n.downloadFailedHttp(response.statusCode),
           );
+          return;
         }
         final sink = File(location.path).openWrite();
         try {
-          await response.forEach(sink.add);
+          await for (final chunk in response) {
+            if (!_isCurrentController(
+              controller,
+              generation,
+              identity,
+              webUiUri,
+              apiUri,
+            )) {
+              return;
+            }
+            sink.add(chunk);
+          }
+          if (!_isCurrentController(
+            controller,
+            generation,
+            identity,
+            webUiUri,
+            apiUri,
+          )) {
+            return;
+          }
           await sink.flush();
         } finally {
           await sink.close();
@@ -227,49 +645,128 @@ class _ManagePageState extends State<_ManagePage> {
       } finally {
         client.close(force: true);
       }
-    } catch (error) {
-      if (mounted) setState(() => _webViewError = '$error');
+    } on Object {
+      if (_isCurrentController(
+        controller,
+        generation,
+        identity,
+        webUiUri,
+        apiUri,
+      )) {
+        setState(() => _webViewError = l10n.downloadFailed);
+      }
     }
   }
 
-  Future<void> _onBridgeMessage(String message) async {
-    final payload = jsonDecode(message);
+  Future<void> _onBridgeMessage(
+    EmbeddedWebViewController controller,
+    int generation,
+    String identity,
+    Uri webUiUri,
+    Uri apiUri,
+    String message,
+  ) async {
+    if (!_isCurrentController(
+      controller,
+      generation,
+      identity,
+      webUiUri,
+      apiUri,
+    )) {
+      return;
+    }
+    Object? payload;
+    try {
+      payload = jsonDecode(message);
+    } on FormatException {
+      setState(
+        () => _webViewError = AppLocalizations.of(context)!.blobExportInvalid,
+      );
+      return;
+    }
     if (payload is Map<String, dynamic> && payload['type'] == 'url') {
       if (payload['url'] case final String url) {
-        final controller = _controller;
         final uri = Uri.tryParse(url);
-        if (controller != null && uri != null) {
-          await _onPageChanged(controller, uri);
+        if (uri != null && _sameOrigin(uri, webUiUri)) {
+          await _onPageChanged(
+            controller,
+            generation,
+            identity,
+            webUiUri,
+            apiUri,
+            uri,
+          );
         }
       }
       return;
     }
-    await _saveBlob(message);
+    await _saveBlob(
+      controller,
+      generation,
+      identity,
+      webUiUri,
+      apiUri,
+      message,
+    );
   }
 
-  Future<void> _saveBlob(String message) async {
+  Future<void> _saveBlob(
+    EmbeddedWebViewController controller,
+    int generation,
+    String identity,
+    Uri webUiUri,
+    Uri apiUri,
+    String message,
+  ) async {
     final l10n = AppLocalizations.of(context)!;
     try {
       final payload = jsonDecode(message);
       if (payload is! Map<String, dynamic>) {
-        throw FormatException(l10n.blobExportInvalid);
+        setState(() => _webViewError = l10n.blobExportInvalid);
+        return;
       }
-      if (payload['error'] case final String error) throw StateError(error);
+      if (payload['error'] case final String error) {
+        setState(
+          () => _webViewError = error == 'Blob export exceeds 16 MiB'
+              ? l10n.blobExportTooLarge
+              : l10n.blobExportFailed,
+        );
+        return;
+      }
       final data = payload['data'];
       if (data is! String || data.length > (_maxBlobBytes * 4 ~/ 3) + 4) {
-        throw FormatException(l10n.blobExportTooLarge);
+        setState(() => _webViewError = l10n.blobExportTooLarge);
+        return;
       }
       final bytes = base64Decode(data);
       if (bytes.length > _maxBlobBytes) {
-        throw FormatException(l10n.blobExportTooLarge);
+        setState(() => _webViewError = l10n.blobExportTooLarge);
+        return;
       }
       final location = await getSaveLocation(
         suggestedName: _downloadName(payload['name'] as String?),
       );
-      if (location == null) return;
+      if (location == null ||
+          !_isCurrentController(
+            controller,
+            generation,
+            identity,
+            webUiUri,
+            apiUri,
+          )) {
+        return;
+      }
       await File(location.path).writeAsBytes(bytes, flush: true);
-    } catch (error) {
-      if (mounted) setState(() => _webViewError = '$error');
+    } on Object {
+      if (_isCurrentController(
+        controller,
+        generation,
+        identity,
+        webUiUri,
+        apiUri,
+      )) {
+        setState(() => _webViewError = l10n.blobExportFailed);
+      }
     }
   }
 
@@ -284,46 +781,225 @@ class _ManagePageState extends State<_ManagePage> {
     return message.contains('webview2') || message.contains('edge runtime');
   }
 
+  bool _pageContextIsCurrent({
+    required String identity,
+    required String? runtimeRunId,
+    required int generation,
+    required Uri webUiUri,
+    required Uri apiUri,
+  }) =>
+      mounted &&
+      widget.state.status == RuntimeStatus.running &&
+      widget.sessionIdentity == identity &&
+      widget.runtimeRunId == runtimeRunId &&
+      _activeRuntimeRunId == runtimeRunId &&
+      generation == _sessionGeneration &&
+      widget.appliedWebUiUri == webUiUri &&
+      widget.coordinator.appliedWebUiUri == webUiUri &&
+      widget.appliedWebUiApiUri == apiUri &&
+      widget.coordinator.appliedWebUiApiUri == apiUri;
+
   Future<void> _openWebView2Download() async {
-    final l10n = AppLocalizations.of(context)!;
-    if (!await launchUrl(
-      _webView2DownloadUri,
-      mode: LaunchMode.externalApplication,
-    )) {
-      if (mounted) {
-        setState(() => _webViewError = l10n.openWebView2DownloadFailed);
+    final identity = widget.sessionIdentity;
+    final runtimeRunId = widget.runtimeRunId;
+    final generation = _sessionGeneration;
+    final webUiUri = widget.appliedWebUiUri;
+    final apiUri = widget.appliedWebUiApiUri;
+    if (webUiUri == null || apiUri == null) return;
+    try {
+      final opened = await launchUrl(
+        _webView2DownloadUri,
+        mode: LaunchMode.externalApplication,
+      );
+      if (!opened &&
+          _pageContextIsCurrent(
+            identity: identity,
+            runtimeRunId: runtimeRunId,
+            generation: generation,
+            webUiUri: webUiUri,
+            apiUri: apiUri,
+          )) {
+        setState(
+          () =>
+              _webViewError = AppLocalizations.of(context)!
+                  .openWebView2DownloadFailed,
+        );
+      }
+    } on Object {
+      if (_pageContextIsCurrent(
+        identity: identity,
+        runtimeRunId: runtimeRunId,
+        generation: generation,
+        webUiUri: webUiUri,
+        apiUri: apiUri,
+      )) {
+        setState(
+          () =>
+              _webViewError = AppLocalizations.of(context)!
+                  .openWebView2DownloadFailed,
+        );
       }
     }
+  }
+
+  Future<void> _retryWebView() async {
+    _invalidateSession();
+    await _ensureController();
   }
 
   Future<void> _reloadCurrentPage() async {
     final controller = _controller;
-    if (controller == null) return;
+    final generation = _sessionGeneration;
+    final identity = _activeSessionIdentity;
+    final webUiUri = _activeWebUiUri;
+    final apiUri = _activeWebUiApiUri;
+    if (controller == null ||
+        identity == null ||
+        webUiUri == null ||
+        apiUri == null) {
+      return;
+    }
     try {
       await controller.reload();
-      await _refreshHistory(controller);
-    } catch (error) {
-      if (mounted) setState(() => _webViewError = '$error');
+      if (!_isCurrentController(
+        controller,
+        generation,
+        identity,
+        webUiUri,
+        apiUri,
+      )) {
+        return;
+      }
+      await _refreshHistory(controller, generation, identity, webUiUri, apiUri);
+    } on Object {
+      if (_isCurrentController(
+        controller,
+        generation,
+        identity,
+        webUiUri,
+        apiUri,
+      )) {
+        setState(
+          () =>
+              _webViewError = AppLocalizations.of(context)!
+                  .webViewActionFailure,
+        );
+      }
     }
   }
 
   Future<void> _openCurrentPage() async {
-    final l10n = AppLocalizations.of(context)!;
+    final controller = _controller;
+    final generation = _sessionGeneration;
+    final identity = _activeSessionIdentity;
+    final webUiUri = _activeWebUiUri;
+    final apiUri = _activeWebUiApiUri;
+    final uri = _currentUri;
+    if (controller == null ||
+        identity == null ||
+        webUiUri == null ||
+        apiUri == null ||
+        uri == null ||
+        !_isCurrentController(
+          controller,
+          generation,
+          identity,
+          webUiUri,
+          apiUri,
+        )) {
+      return;
+    }
     try {
-      final uri = _currentUri;
-      if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https')) {
-        throw StateError(l10n.webViewCurrentUrlUnavailable);
+      final opened = await widget.onOpenExternalUri(uri);
+      if (!opened &&
+          _isCurrentController(
+            controller,
+            generation,
+            identity,
+            webUiUri,
+            apiUri,
+          )) {
+        setState(
+          () =>
+              _webViewError = AppLocalizations.of(context)!
+                  .browserLaunchFailure,
+        );
       }
-      if (!await widget.onOpenExternalUri(uri)) {
-        throw StateError(l10n.openSystemBrowserFailed(uri.toString()));
+    } on Object {
+      if (_isCurrentController(
+        controller,
+        generation,
+        identity,
+        webUiUri,
+        apiUri,
+      )) {
+        setState(
+          () =>
+              _webViewError = AppLocalizations.of(context)!
+                  .browserLaunchFailure,
+        );
       }
-    } catch (error) {
-      if (mounted) setState(() => _webViewError = '$error');
     }
   }
 
-  bool _isDownloadUri(Uri uri) {
-    final path = widget.coordinator.webUiApiUri.path;
+  Future<void> _openFallbackBrowser() async {
+    final identity = widget.sessionIdentity;
+    final runtimeRunId = widget.runtimeRunId;
+    final generation = _sessionGeneration;
+    final webUiUri = widget.appliedWebUiUri;
+    final apiUri = widget.appliedWebUiApiUri;
+    if (webUiUri == null ||
+        apiUri == null ||
+        !_pageContextIsCurrent(
+          identity: identity,
+          runtimeRunId: runtimeRunId,
+          generation: generation,
+          webUiUri: webUiUri,
+          apiUri: apiUri,
+        )) {
+      return;
+    }
+    try {
+      final opened = await widget.onOpenExternalUri(webUiUri);
+      if (!_pageContextIsCurrent(
+        identity: identity,
+        runtimeRunId: runtimeRunId,
+        generation: generation,
+        webUiUri: webUiUri,
+        apiUri: apiUri,
+      )) {
+        return;
+      }
+      if (opened) {
+        if (_fallbackBrowserError != null) {
+          setState(() => _fallbackBrowserError = null);
+        }
+      } else {
+        setState(
+          () =>
+              _fallbackBrowserError = AppLocalizations.of(context)!
+                  .browserLaunchFailure,
+        );
+      }
+    } on Object {
+      if (_pageContextIsCurrent(
+        identity: identity,
+        runtimeRunId: runtimeRunId,
+        generation: generation,
+        webUiUri: webUiUri,
+        apiUri: apiUri,
+      )) {
+        setState(
+          () =>
+              _fallbackBrowserError = AppLocalizations.of(context)!
+                  .browserLaunchFailure,
+        );
+      }
+    }
+  }
+
+  bool _isDownloadUri(Uri uri, Uri apiUri) {
+    final path = apiUri.path;
     final prefix = path == '/' ? '' : path.replaceFirst(RegExp(r'/$'), '');
     return uri.path == '$prefix/download' ||
         uri.path.startsWith('$prefix/download/');
@@ -407,11 +1083,21 @@ class _ManagePageState extends State<_ManagePage> {
     }
     if (!_ready) {
       final issues = widget.coordinator.environmentIssues;
-      final reason = issues.isNotEmpty
-          ? _localizedIssue(l10n, issues.first)
-          : widget.error == null
-          ? widget.state.message ?? l10n.backendNotRunning
-          : _localizedError(l10n, widget.error);
+      final hasAppliedAddress = widget.appliedWebUiUri != null;
+      final canOpenInBrowser =
+          widget.state.status == RuntimeStatus.running &&
+          widget.coordinator.canOpenWebUi &&
+          hasAppliedAddress;
+      final reason =
+          _webViewError ??
+          _fallbackBrowserError ??
+          (issues.isNotEmpty
+              ? _localizedIssue(l10n, issues.first)
+              : widget.state.status == RuntimeStatus.running && !widget.enabled
+              ? l10n.webViewUnavailable
+              : widget.error == null
+              ? widget.state.message ?? l10n.backendNotRunning
+              : _localizedError(l10n, widget.error));
       return Center(
         child: Padding(
           padding: EdgeInsets.all(typography.spacingLg),
@@ -426,6 +1112,15 @@ class _ManagePageState extends State<_ManagePage> {
                   SizedBox(height: typography.spacingSm),
                   Text(reason, textAlign: TextAlign.center),
                   SizedBox(height: typography.spacingSm),
+                  if (canOpenInBrowser) ...[
+                    OutlinedButton.icon(
+                      key: const ValueKey('manage-open-fallback-browser'),
+                      onPressed: () => unawaited(_openFallbackBrowser()),
+                      icon: const Icon(Icons.open_in_browser),
+                      label: Text(l10n.openInSystemBrowser),
+                    ),
+                    SizedBox(height: typography.spacingXs),
+                  ],
                   FilledButton(
                     onPressed: widget.onRecover,
                     child: Text(
@@ -551,13 +1246,31 @@ class _ManagePageState extends State<_ManagePage> {
                             key: const ValueKey('manage-webview-error'),
                             icon: Icons.web_asset_off_outlined,
                             message: _webViewError!,
-                            action: FilledButton(
-                              onPressed: widget.onRecover,
-                              child: Text(
-                                widget.coordinator.canOpenWebUi
-                                    ? l10n.viewOverview
-                                    : l10n.fixConfiguration,
-                              ),
+                            action: Wrap(
+                              alignment: WrapAlignment.center,
+                              spacing: typography.spacingS,
+                              runSpacing: typography.spacingS,
+                              children: [
+                                FilledButton.icon(
+                                  key: const ValueKey('manage-retry-load'),
+                                  onPressed: () => unawaited(_retryWebView()),
+                                  icon: const Icon(Icons.refresh),
+                                  label: Text(l10n.retry),
+                                ),
+                                OutlinedButton.icon(
+                                  key: const ValueKey(
+                                    'manage-open-failed-browser',
+                                  ),
+                                  onPressed: () =>
+                                      unawaited(_openCurrentPage()),
+                                  icon: const Icon(Icons.open_in_browser),
+                                  label: Text(l10n.openInSystemBrowser),
+                                ),
+                                TextButton(
+                                  onPressed: widget.onRecover,
+                                  child: Text(l10n.viewOverview),
+                                ),
+                              ],
                             ),
                           )
                         : !_webViewLoading && _webViewLoaded && webView != null

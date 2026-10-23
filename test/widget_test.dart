@@ -52,10 +52,12 @@ import 'package:subdock/mobile_main.dart';
 import 'package:subdock/runtime/backend_runtime.dart';
 import 'package:subdock/runtime/runtime_directories.dart';
 import 'package:subdock/runtime/runtime_log_store.dart';
+import 'package:subdock/settings/backend_env.dart';
 import 'package:subdock/settings/backend_env_store.dart';
 import 'package:subdock/settings/config_error.dart';
 import 'package:subdock/settings/desktop_preferences.dart';
 import 'package:subdock/settings/desktop_preferences_store.dart';
+import 'package:subdock/settings/subdock_config.dart';
 import 'package:subdock/settings/subdock_config_store.dart';
 import 'package:subdock/update/component_metadata_store.dart';
 import 'package:subdock/update/component_update_checker.dart';
@@ -237,6 +239,26 @@ void main() {
       isNotNull,
     );
 
+    runtime.emitState(RuntimeStatus.crashed, message: 'fixture crash');
+    await tester.pump();
+    expect(find.byKey(const ValueKey('overview-view-logs')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('overview-view-logs')));
+    await tester.pump();
+    expect(
+      tester.widget<Offstage>(find.byKey(const ValueKey('page-logs'))).offstage,
+      isFalse,
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-overview')));
+    await tester.pump();
+    final overviewList = find
+        .descendant(
+          of: find.byKey(const ValueKey('page-overview')),
+          matching: find.byType(Scrollable),
+        )
+        .first;
+    await tester.drag(overviewList, const Offset(0, -160));
+    await tester.pumpAndSettle();
+
     tester
         .widget<FilledButton>(find.widgetWithText(FilledButton, '启动'))
         .onPressed!();
@@ -249,12 +271,60 @@ void main() {
     expect(find.textContaining('3001'), findsWidgets);
     expect(tester.takeException(), isNull);
 
-    tester
-        .widget<OutlinedButton>(find.widgetWithText(OutlinedButton, '停止'))
-        .onPressed!();
-    await tester.pump(const Duration(milliseconds: 1));
+    final restartButton = find.widgetWithText(OutlinedButton, '重启');
+    await tester.tap(restartButton);
+    await tester.pumpAndSettle();
+    expect(find.text('重启本地服务？'), findsOneWidget);
+    await tester.tap(find.widgetWithText(TextButton, '取消'));
+    await tester.pumpAndSettle();
+    expect(runtime.stops, 0);
+    expect(runtime.starts, 1);
 
+    await tester.tap(restartButton);
+    await tester.pumpAndSettle();
+    expect(find.text('重启本地服务？'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, '重启').last);
+    await _pumpRealIo(tester);
     expect(runtime.stops, 1);
+    expect(runtime.starts, 2);
+    expect(find.textContaining('运行中'), findsWidgets);
+
+    final stopButton = find.widgetWithText(OutlinedButton, '停止');
+    await tester.tap(stopButton);
+    await tester.pumpAndSettle();
+    expect(find.text('停止本地服务？'), findsOneWidget);
+    expect(runtime.stops, 1);
+    await tester.tap(find.widgetWithText(TextButton, '取消'));
+    await tester.pumpAndSettle();
+    expect(runtime.stops, 1);
+    expect(find.textContaining('运行中'), findsWidgets);
+
+    runtime.stopError = StateError('stop fixture failure');
+    await tester.tap(stopButton);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '停止').last);
+    await _pumpRealIo(tester);
+    expect(runtime.stops, 1);
+    expect(runtime.currentState.status, RuntimeStatus.running);
+    expect(find.textContaining('stop fixture failure'), findsOneWidget);
+    expect(find.byKey(const ValueKey('overview-view-logs')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('overview-view-logs')));
+    await tester.pump();
+    expect(
+      tester.widget<Offstage>(find.byKey(const ValueKey('page-logs'))).offstage,
+      isFalse,
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-overview')));
+    await tester.pump();
+
+    runtime.stopError = null;
+    await tester.ensureVisible(stopButton);
+    await tester.tap(stopButton);
+    await tester.pumpAndSettle();
+    expect(find.text('停止本地服务？'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, '停止').last);
+    await _pumpRealIo(tester);
+    expect(runtime.stops, 2);
     expect(find.text('已停止'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
   });
@@ -323,6 +393,97 @@ void main() {
     await tester.pump();
 
     expect(runtime.stops, 1);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('manage keeps a failed system-browser fallback visible', (
+    WidgetTester tester,
+  ) async {
+    final fixture = await _widgetRuntime(tester);
+    var browserCalls = 0;
+    final browserResults = <Completer<bool>>[
+      Completer<bool>(),
+      Completer<bool>(),
+      Completer<bool>(),
+    ];
+    await pumpApp(
+      tester,
+      SubDockApp(
+        coordinator: fixture.coordinator,
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('en'),
+        onOpenExternalUri: (_) => browserResults[browserCalls++].future,
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-manage')));
+    await tester.pump();
+    fixture.runtime.emitState(RuntimeStatus.running);
+    await tester.pump();
+
+    final browserButton = find.byKey(
+      const ValueKey('manage-open-fallback-browser'),
+    );
+    expect(browserButton, findsOneWidget);
+    final appliedWebUiUri = fixture.coordinator.appliedWebUiUri!;
+    final appliedWebUiApiUri = fixture.coordinator.appliedWebUiApiUri!;
+    await tester.tap(browserButton);
+    expect(browserCalls, 1);
+    fixture.runtime.emitLog(
+      RuntimeLog(
+        timestamp: DateTime.now(),
+        source: RuntimeLogSource.stdout,
+        message: 'unrelated log update',
+      ),
+    );
+    await tester.pump();
+    browserResults[0].complete(false);
+    await _pumpRealIo(tester);
+    expect(
+      find.text('The system browser could not be opened.'),
+      findsOneWidget,
+    );
+    fixture.runtime.emitLog(
+      RuntimeLog(
+        timestamp: DateTime.now(),
+        source: RuntimeLogSource.stdout,
+        message: 'later unrelated log update',
+      ),
+    );
+    await tester.pump();
+    expect(
+      find.text('The system browser could not be opened.'),
+      findsOneWidget,
+    );
+
+    await tester.tap(browserButton);
+    expect(browserCalls, 2);
+    browserResults[1].complete(true);
+    await _pumpRealIo(tester);
+    expect(find.text('The system browser could not be opened.'), findsNothing);
+
+    await tester.tap(browserButton);
+    expect(browserCalls, 3);
+    browserResults[2].complete(false);
+    await _pumpRealIo(tester);
+    expect(
+      find.text('The system browser could not be opened.'),
+      findsOneWidget,
+    );
+    fixture.runtime.emitState(RuntimeStatus.stopping);
+    await tester.pump();
+    expect(fixture.coordinator.appliedWebUiUri, appliedWebUiUri);
+    expect(fixture.coordinator.appliedWebUiApiUri, appliedWebUiApiUri);
+    fixture.runtime.emitState(
+      RuntimeStatus.crashed,
+      message: 'fixture backend crash',
+    );
+    await tester.pump();
+    expect(fixture.coordinator.appliedWebUiUri, appliedWebUiUri);
+    expect(fixture.coordinator.appliedWebUiApiUri, appliedWebUiApiUri);
+    expect(find.text('fixture backend crash'), findsOneWidget);
+    expect(find.text('The system browser could not be opened.'), findsNothing);
+    expect(fixture.runtime.stops, 0);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -1933,6 +2094,16 @@ void main() {
 
     runtime.emitState(RuntimeStatus.unhealthy);
     await tester.pump();
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('overview-stat-anomalies')),
+      400,
+      scrollable: find
+          .descendant(
+            of: find.byKey(const ValueKey('page-overview')),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
     expect(
       find.descendant(
         of: find.byKey(const ValueKey('overview-stat-anomalies')),
@@ -3013,6 +3184,7 @@ void main() {
     expect(find.text('Current version'), findsNothing);
     expect(find.text('Previous version'), findsNothing);
     expect(find.byKey(const ValueKey('settings-child-save')), findsNothing);
+    await tester.ensureVisible(find.byKey(const ValueKey('settings-back')));
     await tester.tap(find.byKey(const ValueKey('settings-back')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('settings-appearance')), findsOneWidget);
@@ -3063,11 +3235,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('settings-card-about')));
     await _pumpRealIo(tester);
-    expect(
-      find.textContaining('Application information unavailable'),
-      findsOneWidget,
-    );
-    expect(find.textContaining('metadata failed'), findsOneWidget);
+    expect(find.text('Application information unavailable'), findsWidgets);
+    expect(find.textContaining('metadata failed'), findsNothing);
+    expect(find.byKey(const ValueKey('about-retry-metadata')), findsOneWidget);
     expect(find.byKey(const ValueKey('about-version')), findsNothing);
     expect(find.byKey(const ValueKey('settings-about-page')), findsOneWidget);
     expect(find.byKey(const ValueKey('settings-child-save')), findsNothing);
@@ -3446,6 +3616,7 @@ void main() {
               required onBlobMessage,
               required bridgeScript,
               onPageChanged,
+              onMainFrameFailure,
             }) => _testWebViewController(
               initialize: () async {
                 throw StateError('initialization failed');
@@ -3465,7 +3636,9 @@ void main() {
     );
     expect(find.byKey(const ValueKey('manage-webview-error')), findsOneWidget);
     expect(find.byKey(const ValueKey('manage-webview-loading')), findsNothing);
-    expect(find.text('Bad state: initialization failed'), findsOneWidget);
+    expect(find.text('Sub-Store 页面无法加载。请重试或改用系统浏览器打开。'), findsOneWidget);
+    expect(find.textContaining('initialization failed'), findsNothing);
+    expect(runtime.stops, 0);
     expect(find.byKey(const ValueKey('fake-manage-webview')), findsNothing);
     await tester.pumpWidget(const SizedBox());
   });
@@ -3497,6 +3670,7 @@ void main() {
               required onBlobMessage,
               required bridgeScript,
               onPageChanged,
+              onMainFrameFailure,
             }) => _testWebViewController(
               initialize: () async {},
               loadRequest: (_) async {
@@ -3511,7 +3685,9 @@ void main() {
     await _pumpRealIo(tester);
 
     expect(find.byKey(const ValueKey('manage-webview-error')), findsOneWidget);
-    expect(find.text('Bad state: load failed'), findsOneWidget);
+    expect(find.text('Sub-Store 页面无法加载。请重试或改用系统浏览器打开。'), findsOneWidget);
+    expect(find.textContaining('load failed'), findsNothing);
+    expect(runtime.stops, 0);
     expect(find.byKey(const ValueKey('manage-webview-loading')), findsNothing);
     await tester.pumpWidget(const SizedBox());
   });
@@ -3544,6 +3720,7 @@ void main() {
               required onBlobMessage,
               required bridgeScript,
               onPageChanged,
+              onMainFrameFailure,
             }) => _testWebViewController(
               initialize: () => initialized.future,
               loadRequest: (_) async {},
@@ -3615,6 +3792,7 @@ void main() {
               required onBlobMessage,
               required bridgeScript,
               onPageChanged,
+              onMainFrameFailure,
             }) {
               pageChanged = onPageChanged;
               navigationRequest = onNavigationRequest;
@@ -3768,6 +3946,7 @@ void main() {
               required onBlobMessage,
               required bridgeScript,
               onPageChanged,
+              onMainFrameFailure,
             }) {
               blobMessage = onBlobMessage;
               return EmbeddedWebViewController.testing(
@@ -3801,6 +3980,346 @@ void main() {
     expect(find.text(subsUri.toString()), findsOneWidget);
     expect(find.text(coordinator.webUiUri.toString()), findsNothing);
 
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('About diagnostics redact runtime and environment secrets', (
+    WidgetTester tester,
+  ) async {
+    final updates = _FakeComponentUpdateOperations()
+      ..statuses[ComponentKind.backend] = const ComponentVersionStatus(
+        current: '1.2.3',
+        previous: 'PRIVATE_COMPONENT_SECRET',
+      );
+    final fixture = await _widgetRuntime(tester, componentUpdates: updates);
+    final runtime = fixture.runtime
+      ..appliedConfiguration = EffectiveRuntimeConfig.resolve(
+        systemEnvironment: const {'SYSTEM_SECRET': 'PRIVATE_SYSTEM_SECRET'},
+        backendEnvironment: BackendEnvDocument.parse(
+          'PRIVATE_TOKEN=PRIVATE_ENV_SECRET\nSUB_STORE_FRONTEND_BACKEND_PATH=/PRIVATE_PATH_SECRET',
+        ),
+        config: const SubDockConfig(),
+      );
+
+    expect(
+      runtime.appliedConfiguration!.environment[BackendEnvPolicy
+          .frontendBackendPath],
+      '/PRIVATE_PATH_SECRET',
+    );
+    expect(
+      fixture.coordinator.appliedWebUiApiUri!.path,
+      '/PRIVATE_PATH_SECRET',
+    );
+    var rejectBrowserLaunch = false;
+    var rejectClipboardCopy = false;
+    var browserCalls = 0;
+
+    await tester.binding.setSurfaceSize(const Size(900, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    String? copied;
+    messenger.setMockMethodCallHandler(SystemChannels.platform, (call) {
+      if (call.method == 'Clipboard.setData') {
+        if (rejectClipboardCopy) {
+          throw PlatformException(
+            code: 'clipboard-failure',
+            message: 'PRIVATE_CLIPBOARD_ERROR',
+          );
+        }
+        copied = (call.arguments as Map)['text'] as String;
+      }
+      return null;
+    });
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(SystemChannels.platform, null),
+    );
+
+    await pumpApp(
+      tester,
+      SubDockApp(
+        coordinator: fixture.coordinator,
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('en'),
+        onOpenExternalUri: (_) async {
+          browserCalls++;
+          return !rejectBrowserLaunch;
+        },
+        aboutInfoLoader: AboutInfoLoader(
+          loadPackageMetadata: () async =>
+              (version: '2.3.4', buildNumber: 'PRIVATE_BUILD_SECRET'),
+          operatingSystem: () => 'PRIVATE_OS_SECRET',
+          architecture: () => 'x64',
+        ),
+      ),
+    );
+    await _pumpRealIo(tester);
+    runtime.emitState(
+      RuntimeStatus.crashed,
+      message: 'PRIVATE_BACKEND_ERROR',
+      httpMetaStatus: HttpMetaStatus.degraded,
+      httpMetaMessage: 'PRIVATE_HTTP_META_ERROR',
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('nav-item-about')));
+    await _pumpRealIo(tester);
+
+    expect(
+      find.byKey(const ValueKey('about-diagnostics-value')),
+      findsOneWidget,
+    );
+    for (final key in [
+      'about-source-substore',
+      'about-source-node',
+      'about-source-http-meta',
+      'about-source-mihomo',
+      'about-view-licenses',
+      'about-copy-diagnostics',
+    ]) {
+      expect(find.byKey(ValueKey(key)), findsOneWidget);
+    }
+    rejectBrowserLaunch = true;
+    final source = find.byKey(const ValueKey('about-source-substore'));
+    await tester.ensureVisible(source);
+    await tester.tap(source);
+    await _pumpRealIo(tester);
+    expect(find.text('The project page could not be opened.'), findsOneWidget);
+    expect(browserCalls, 1);
+
+    rejectClipboardCopy = true;
+    final copy = find.byKey(const ValueKey('about-copy-diagnostics'));
+    await tester.ensureVisible(copy);
+    await tester.tap(copy);
+    await _pumpRealIo(tester);
+    expect(
+      find.text('The diagnostic summary could not be copied.'),
+      findsOneWidget,
+    );
+    expect(find.text('The project page could not be opened.'), findsOneWidget);
+    expect(find.textContaining('PRIVATE_CLIPBOARD_ERROR'), findsNothing);
+
+    rejectClipboardCopy = false;
+    await tester.tap(copy);
+    await _pumpRealIo(tester);
+    expect(
+      find.text('The diagnostic summary could not be copied.'),
+      findsNothing,
+    );
+    expect(find.text('The project page could not be opened.'), findsOneWidget);
+    expect(copied, contains('SubDock version: 2.3.4'));
+    expect(copied, contains('Backend status: crashed'));
+    expect(copied, contains('HTTP-META status: degraded'));
+    expect(copied, contains('Build number: unavailable'));
+    expect(copied, contains('Operating system: unavailable'));
+    for (final secret in [
+      'PRIVATE_BUILD_SECRET',
+      'PRIVATE_OS_SECRET',
+      'PRIVATE_SYSTEM_SECRET',
+      'PRIVATE_ENV_SECRET',
+      'PRIVATE_PATH_SECRET',
+      'PRIVATE_BACKEND_ERROR',
+      'PRIVATE_HTTP_META_ERROR',
+      'PRIVATE_COMPONENT_SECRET',
+    ]) {
+      expect(copied, isNot(contains(secret)));
+    }
+
+    rejectBrowserLaunch = false;
+    await tester.ensureVisible(source);
+    await tester.tap(source);
+    await _pumpRealIo(tester);
+    expect(browserCalls, 2);
+    expect(find.text('The project page could not be opened.'), findsNothing);
+    expect(
+      find.text('The diagnostic summary could not be copied.'),
+      findsNothing,
+    );
+
+    final licenses = find.byKey(const ValueKey('about-view-licenses'));
+    await tester.ensureVisible(licenses);
+    await tester.tap(licenses);
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.textContaining('Noto Sans CJK SC 2.004').first,
+      500,
+      scrollable: find.byType(Scrollable).last,
+    );
+    expect(find.textContaining('Noto Sans CJK SC 2.004'), findsWidgets);
+    await tester.scrollUntilVisible(
+      find.textContaining('DejaVu Sans Mono 2.37').first,
+      500,
+      scrollable: find.byType(Scrollable).last,
+    );
+    expect(find.textContaining('DejaVu Sans Mono 2.37'), findsWidgets);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('manage ignores callbacks from a previous runtime session', (
+    WidgetTester tester,
+  ) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    final runtime = _FakeBackendRuntime();
+    final coordinator = AppCoordinator(
+      runtime: runtime,
+      environmentStore: BackendEnvStore(directories!),
+    );
+    final sessions = <_CapturedManageCallbacks>[];
+    final openedUris = <Uri>[];
+    const selectorChannel = MethodChannel('plugins.flutter.io/file_selector');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    var savePath = Completer<String?>();
+    var savePathCalls = 0;
+    messenger.setMockMethodCallHandler(selectorChannel, (call) {
+      if (call.method == 'getSavePath') {
+        savePathCalls++;
+        return savePath.future;
+      }
+      return null;
+    });
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(selectorChannel, null),
+    );
+    final target = File.fromUri(temp.uri.resolve('stale-export.json'));
+
+    await tester.binding.setSurfaceSize(const Size(800, 600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await pumpApp(
+      tester,
+      SubDockApp(
+        coordinator: coordinator,
+        autoStart: false,
+        locale: const Locale('zh'),
+        onOpenExternalUri: (uri) async {
+          openedUris.add(uri);
+          return true;
+        },
+        webViewControllerFactory:
+            ({
+              required onNavigationRequest,
+              required onBlobMessage,
+              required bridgeScript,
+              onPageChanged,
+              onMainFrameFailure,
+            }) {
+              sessions.add(
+                _CapturedManageCallbacks(
+                  onNavigationRequest: onNavigationRequest,
+                  onBlobMessage: onBlobMessage,
+                  onPageChanged: onPageChanged,
+                  onMainFrameFailure: onMainFrameFailure,
+                ),
+              );
+              return _testWebViewController(
+                initialize: () async {},
+                loadRequest: (uri) async => onPageChanged?.call(uri),
+              );
+            },
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-manage')));
+    await tester.pump();
+    runtime.emitState(RuntimeStatus.running);
+    await _pumpRealIo(tester);
+    expect(sessions, hasLength(1));
+
+    const blobMessage =
+        '{"type":"blob","name":"stale-export.json","data":"AQID"}';
+    sessions.first.onBlobMessage(blobMessage);
+    await tester.pump();
+    expect(savePathCalls, 1);
+
+    runtime.emitRunStarted('next-runtime-session');
+    await _pumpRealIo(tester);
+    expect(sessions, hasLength(2));
+    final staleUri = coordinator.webUiUri.replace(path: '/stale');
+    sessions.first.onBlobMessage(blobMessage);
+    sessions.first.onMainFrameFailure?.call(
+      const EmbeddedMainFrameFailure(errorCode: -105),
+    );
+    sessions.first.onPageChanged?.call(staleUri);
+    expect(
+      await sessions.first.onNavigationRequest(
+        EmbeddedNavigationRequest(Uri.parse('https://example.invalid/stale')),
+      ),
+      EmbeddedNavigationDecision.prevent,
+    );
+    await tester.pump();
+    expect(savePathCalls, 1);
+    expect(openedUris, isEmpty);
+    expect(find.text(coordinator.webUiUri.toString()), findsOneWidget);
+    expect(find.text(staleUri.toString()), findsNothing);
+    expect(find.text('Sub-Store 页面加载失败。后端仍在运行；请重试或改用系统浏览器。'), findsNothing);
+
+    savePath.complete(target.path);
+    await _pumpRealIo(tester);
+    expect(await tester.runAsync(target.exists), isFalse);
+    savePath = Completer<String?>();
+
+    final currentSession = sessions.last;
+    currentSession.onMainFrameFailure?.call(
+      const EmbeddedMainFrameFailure(errorCode: -105),
+    );
+    await tester.pump();
+    expect(find.text('Sub-Store 页面加载失败。后端仍在运行；请重试或改用系统浏览器。'), findsOneWidget);
+
+    currentSession.onPageChanged?.call(coordinator.appliedWebUiUri!);
+    currentSession.onBlobMessage(
+      '{"type":"url","url":"${coordinator.appliedWebUiUri!.replace(path: '/after-failure')}"}',
+    );
+    await tester.pump();
+    expect(find.text('Sub-Store 页面加载失败。后端仍在运行；请重试或改用系统浏览器。'), findsOneWidget);
+    expect(find.byKey(const ValueKey('manage-retry-load')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('manage-open-failed-browser')),
+      findsOneWidget,
+    );
+
+    currentSession.onBlobMessage(blobMessage);
+    await tester.pump();
+    expect(savePathCalls, 2);
+    await tester.tap(find.byKey(const ValueKey('manage-retry-load')));
+    await _pumpRealIo(tester);
+    expect(sessions, hasLength(3));
+    expect(find.byKey(const ValueKey('manage-webview-error')), findsNothing);
+    expect(find.byKey(const ValueKey('fake-manage-webview')), findsOneWidget);
+    expect(find.text(coordinator.appliedWebUiUri!.toString()), findsOneWidget);
+
+    final replacementSession = sessions.last;
+    currentSession.onMainFrameFailure?.call(
+      const EmbeddedMainFrameFailure(errorCode: -105),
+    );
+    currentSession.onPageChanged?.call(staleUri);
+    currentSession.onBlobMessage(blobMessage);
+    expect(
+      await currentSession.onNavigationRequest(
+        EmbeddedNavigationRequest(
+          Uri.parse('https://example.invalid/after-retry'),
+        ),
+      ),
+      EmbeddedNavigationDecision.prevent,
+    );
+    await tester.pump();
+    expect(savePathCalls, 2);
+
+    savePath.complete(target.path);
+    await _pumpRealIo(tester);
+    expect(await tester.runAsync(target.exists), isFalse);
+
+    final recoveredUri = coordinator.appliedWebUiUri!.replace(
+      path: '/recovered',
+    );
+    replacementSession.onPageChanged?.call(recoveredUri);
+    await _pumpRealIo(tester);
+    expect(find.text(recoveredUri.toString()), findsOneWidget);
+    expect(find.byKey(const ValueKey('manage-webview-error')), findsNothing);
+    expect(runtime.stops, 0);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -4866,6 +5385,20 @@ Future<void> _pumpUntilRestoredHistoryRun(
   }
 }
 
+class _CapturedManageCallbacks {
+  const _CapturedManageCallbacks({
+    required this.onNavigationRequest,
+    required this.onBlobMessage,
+    required this.onPageChanged,
+    required this.onMainFrameFailure,
+  });
+
+  final EmbeddedNavigationHandler onNavigationRequest;
+  final void Function(String message) onBlobMessage;
+  final EmbeddedPageChangeHandler? onPageChanged;
+  final EmbeddedMainFrameFailureHandler? onMainFrameFailure;
+}
+
 EmbeddedWebViewController _testWebViewController({
   required Future<void> Function() initialize,
   required Future<void> Function(Uri uri) loadRequest,
@@ -4940,6 +5473,20 @@ class _FakeBackendRuntime extends BackendRuntime {
   var restarts = 0;
   Object? restartError;
   Object? startError;
+  Object? stopError;
+  String? stateMessage;
+  String? httpMetaMessage;
+  HttpMetaStatus httpMetaStatus = HttpMetaStatus.disabled;
+  int? httpMetaPort;
+  String? httpMetaVersion;
+  String? httpMetaMihomoVersion;
+
+  @override
+  EffectiveRuntimeConfig? appliedConfiguration = EffectiveRuntimeConfig.resolve(
+    systemEnvironment: const {},
+    backendEnvironment: BackendEnvDocument.parse(''),
+    config: const SubDockConfig(),
+  );
 
   void emitLog(RuntimeLog log) => _logs.add(log);
 
@@ -4951,25 +5498,43 @@ class _FakeBackendRuntime extends BackendRuntime {
 
   void emitState(
     RuntimeStatus status, {
+    String? message,
     HttpMetaStatus httpMetaStatus = HttpMetaStatus.disabled,
+    String? httpMetaMessage,
     int? httpMetaPort,
     String? httpMetaVersion,
     String? httpMetaMihomoVersion,
-  }) => _states.add(
-    RuntimeState(
-      status: status,
-      changedAt: DateTime.now(),
-      httpMetaStatus: httpMetaStatus,
-      httpMetaPort: httpMetaPort,
-      httpMetaVersion: httpMetaVersion,
-      httpMetaMihomoVersion: httpMetaMihomoVersion,
-    ),
-  );
+  }) {
+    stateMessage = message;
+    this.httpMetaStatus = httpMetaStatus;
+    this.httpMetaPort = httpMetaPort;
+    this.httpMetaVersion = httpMetaVersion;
+    this.httpMetaMihomoVersion = httpMetaMihomoVersion;
+    this.httpMetaMessage = httpMetaMessage;
+    _states.add(
+      RuntimeState(
+        status: status,
+        changedAt: DateTime.now(),
+        message: message,
+        httpMetaStatus: httpMetaStatus,
+        httpMetaPort: httpMetaPort,
+        httpMetaVersion: httpMetaVersion,
+        httpMetaMessage: httpMetaMessage,
+        httpMetaMihomoVersion: httpMetaMihomoVersion,
+      ),
+    );
+  }
 
   @override
   RuntimeState get currentState => RuntimeState(
     status: starts > stops ? RuntimeStatus.running : RuntimeStatus.stopped,
     changedAt: DateTime.now(),
+    message: stateMessage,
+    httpMetaStatus: httpMetaStatus,
+    httpMetaPort: httpMetaPort,
+    httpMetaMessage: httpMetaMessage,
+    httpMetaVersion: httpMetaVersion,
+    httpMetaMihomoVersion: httpMetaMihomoVersion,
   );
 
   @override
@@ -5017,6 +5582,7 @@ class _FakeBackendRuntime extends BackendRuntime {
 
   @override
   Future<void> stop() async {
+    if (stopError != null) throw stopError!;
     stops++;
     _states.add(
       RuntimeState(status: RuntimeStatus.stopped, changedAt: DateTime.now()),

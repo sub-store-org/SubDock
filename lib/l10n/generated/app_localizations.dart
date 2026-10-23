@@ -578,6 +578,36 @@ abstract class AppLocalizations {
   /// **'已有操作正在进行'**
   String get operationInProgress;
 
+  /// No description provided for @confirmStopServiceTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'停止本地服务？'**
+  String get confirmStopServiceTitle;
+
+  /// No description provided for @confirmStopServiceMessage.
+  ///
+  /// In zh, this message translates to:
+  /// **'订阅管理和前端访问将暂时中断；已保存的配置与订阅数据不会改变。'**
+  String get confirmStopServiceMessage;
+
+  /// No description provided for @confirmRestartServiceTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'重启本地服务？'**
+  String get confirmRestartServiceTitle;
+
+  /// No description provided for @confirmRestartServiceMessage.
+  ///
+  /// In zh, this message translates to:
+  /// **'订阅管理和前端访问将短暂中断；服务会使用最新已保存配置重新启动。'**
+  String get confirmRestartServiceMessage;
+
+  /// No description provided for @viewLogs.
+  ///
+  /// In zh, this message translates to:
+  /// **'查看日志'**
+  String get viewLogs;
+
   /// No description provided for @minimizeTooltip.
   ///
   /// In zh, this message translates to:
@@ -608,11 +638,47 @@ abstract class AppLocalizations {
   /// **'未检测到 Microsoft Edge WebView2 Runtime。请安装后重试。'**
   String get webView2Missing;
 
+  /// No description provided for @webViewUnavailable.
+  ///
+  /// In zh, this message translates to:
+  /// **'此平台无法使用嵌入式浏览器，可改用系统浏览器打开 Sub-Store。'**
+  String get webViewUnavailable;
+
+  /// No description provided for @webViewMainFrameFailure.
+  ///
+  /// In zh, this message translates to:
+  /// **'Sub-Store 页面加载失败。后端仍在运行；请重试或改用系统浏览器。'**
+  String get webViewMainFrameFailure;
+
+  /// No description provided for @webViewLoadFailure.
+  ///
+  /// In zh, this message translates to:
+  /// **'Sub-Store 页面无法加载。请重试或改用系统浏览器打开。'**
+  String get webViewLoadFailure;
+
+  /// No description provided for @browserLaunchFailure.
+  ///
+  /// In zh, this message translates to:
+  /// **'无法打开系统浏览器。'**
+  String get browserLaunchFailure;
+
   /// No description provided for @openSystemBrowserFailed.
   ///
   /// In zh, this message translates to:
   /// **'系统浏览器无法打开 {uri}'**
   String openSystemBrowserFailed(Object uri);
+
+  /// No description provided for @webViewActionFailure.
+  ///
+  /// In zh, this message translates to:
+  /// **'嵌入式浏览器无法完成此操作。'**
+  String get webViewActionFailure;
+
+  /// No description provided for @downloadFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'无法完成下载。'**
+  String get downloadFailed;
 
   /// No description provided for @downloadFailedHttp.
   ///
@@ -625,6 +691,12 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'Blob 导出数据格式无效'**
   String get blobExportInvalid;
+
+  /// No description provided for @blobExportFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'无法完成 Blob 导出'**
+  String get blobExportFailed;
 
   /// No description provided for @blobExportTooLarge.
   ///
@@ -1679,6 +1751,78 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'无法获取应用信息'**
   String get aboutMetadataUnavailable;
+
+  /// No description provided for @aboutRetryMetadata.
+  ///
+  /// In zh, this message translates to:
+  /// **'重试加载信息'**
+  String get aboutRetryMetadata;
+
+  /// No description provided for @aboutProjectSourceTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'项目与组件来源'**
+  String get aboutProjectSourceTitle;
+
+  /// No description provided for @aboutSubStoreSource.
+  ///
+  /// In zh, this message translates to:
+  /// **'Sub-Store 源码'**
+  String get aboutSubStoreSource;
+
+  /// No description provided for @aboutNodeSource.
+  ///
+  /// In zh, this message translates to:
+  /// **'Node.js 源码'**
+  String get aboutNodeSource;
+
+  /// No description provided for @aboutHttpMetaSource.
+  ///
+  /// In zh, this message translates to:
+  /// **'HTTP-META 源码'**
+  String get aboutHttpMetaSource;
+
+  /// No description provided for @aboutMihomoSource.
+  ///
+  /// In zh, this message translates to:
+  /// **'mihomo 源码'**
+  String get aboutMihomoSource;
+
+  /// No description provided for @aboutViewLicenses.
+  ///
+  /// In zh, this message translates to:
+  /// **'查看许可证'**
+  String get aboutViewLicenses;
+
+  /// No description provided for @aboutCopyDiagnostics.
+  ///
+  /// In zh, this message translates to:
+  /// **'复制诊断摘要'**
+  String get aboutCopyDiagnostics;
+
+  /// No description provided for @aboutDiagnosticsTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'诊断摘要'**
+  String get aboutDiagnosticsTitle;
+
+  /// No description provided for @aboutDiagnosticsCopied.
+  ///
+  /// In zh, this message translates to:
+  /// **'已复制诊断摘要'**
+  String get aboutDiagnosticsCopied;
+
+  /// No description provided for @aboutClipboardFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'无法复制诊断摘要。'**
+  String get aboutClipboardFailed;
+
+  /// No description provided for @aboutOpenLinkFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'无法打开项目页面。'**
+  String get aboutOpenLinkFailed;
 
   /// No description provided for @envIssueMissingPair.
   ///

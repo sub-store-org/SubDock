@@ -259,6 +259,21 @@ class AppLocalizationsZh extends AppLocalizations {
   String get operationInProgress => '已有操作正在进行';
 
   @override
+  String get confirmStopServiceTitle => '停止本地服务？';
+
+  @override
+  String get confirmStopServiceMessage => '订阅管理和前端访问将暂时中断；已保存的配置与订阅数据不会改变。';
+
+  @override
+  String get confirmRestartServiceTitle => '重启本地服务？';
+
+  @override
+  String get confirmRestartServiceMessage => '订阅管理和前端访问将短暂中断；服务会使用最新已保存配置重新启动。';
+
+  @override
+  String get viewLogs => '查看日志';
+
+  @override
   String get minimizeTooltip => '最小化';
 
   @override
@@ -274,9 +289,27 @@ class AppLocalizationsZh extends AppLocalizations {
   String get webView2Missing => '未检测到 Microsoft Edge WebView2 Runtime。请安装后重试。';
 
   @override
+  String get webViewUnavailable => '此平台无法使用嵌入式浏览器，可改用系统浏览器打开 Sub-Store。';
+
+  @override
+  String get webViewMainFrameFailure => 'Sub-Store 页面加载失败。后端仍在运行；请重试或改用系统浏览器。';
+
+  @override
+  String get webViewLoadFailure => 'Sub-Store 页面无法加载。请重试或改用系统浏览器打开。';
+
+  @override
+  String get browserLaunchFailure => '无法打开系统浏览器。';
+
+  @override
   String openSystemBrowserFailed(Object uri) {
     return '系统浏览器无法打开 $uri';
   }
+
+  @override
+  String get webViewActionFailure => '嵌入式浏览器无法完成此操作。';
+
+  @override
+  String get downloadFailed => '无法完成下载。';
 
   @override
   String downloadFailedHttp(Object statusCode) {
@@ -285,6 +318,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get blobExportInvalid => 'Blob 导出数据格式无效';
+
+  @override
+  String get blobExportFailed => '无法完成 Blob 导出';
 
   @override
   String get blobExportTooLarge => 'Blob 导出超过 16 MiB 限制';
@@ -840,6 +876,42 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get aboutMetadataUnavailable => '无法获取应用信息';
+
+  @override
+  String get aboutRetryMetadata => '重试加载信息';
+
+  @override
+  String get aboutProjectSourceTitle => '项目与组件来源';
+
+  @override
+  String get aboutSubStoreSource => 'Sub-Store 源码';
+
+  @override
+  String get aboutNodeSource => 'Node.js 源码';
+
+  @override
+  String get aboutHttpMetaSource => 'HTTP-META 源码';
+
+  @override
+  String get aboutMihomoSource => 'mihomo 源码';
+
+  @override
+  String get aboutViewLicenses => '查看许可证';
+
+  @override
+  String get aboutCopyDiagnostics => '复制诊断摘要';
+
+  @override
+  String get aboutDiagnosticsTitle => '诊断摘要';
+
+  @override
+  String get aboutDiagnosticsCopied => '已复制诊断摘要';
+
+  @override
+  String get aboutClipboardFailed => '无法复制诊断摘要。';
+
+  @override
+  String get aboutOpenLinkFailed => '无法打开项目页面。';
 
   @override
   String get envIssueMissingPair => '缺少 KEY=VALUE';

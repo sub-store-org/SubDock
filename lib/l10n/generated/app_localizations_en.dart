@@ -270,6 +270,23 @@ class AppLocalizationsEn extends AppLocalizations {
   String get operationInProgress => 'An operation is already in progress';
 
   @override
+  String get confirmStopServiceTitle => 'Stop the local service?';
+
+  @override
+  String get confirmStopServiceMessage =>
+      'Subscription management and frontend access will be interrupted. Your saved configuration and subscription data will remain unchanged.';
+
+  @override
+  String get confirmRestartServiceTitle => 'Restart the local service?';
+
+  @override
+  String get confirmRestartServiceMessage =>
+      'Subscription management and frontend access will be interrupted briefly. The service will restart with the latest saved configuration.';
+
+  @override
+  String get viewLogs => 'View logs';
+
+  @override
   String get minimizeTooltip => 'Minimize';
 
   @override
@@ -286,9 +303,31 @@ class AppLocalizationsEn extends AppLocalizations {
       'Microsoft Edge WebView2 Runtime was not detected. Install it and try again.';
 
   @override
+  String get webViewUnavailable =>
+      'Embedded browsing is unavailable on this platform. Open Sub-Store in your system browser instead.';
+
+  @override
+  String get webViewMainFrameFailure =>
+      'Sub-Store could not load. The backend is still running; retry or use the system browser.';
+
+  @override
+  String get webViewLoadFailure =>
+      'Sub-Store could not be loaded. Retry or open it in the system browser.';
+
+  @override
+  String get browserLaunchFailure => 'The system browser could not be opened.';
+
+  @override
   String openSystemBrowserFailed(Object uri) {
     return 'The system browser could not open $uri';
   }
+
+  @override
+  String get webViewActionFailure =>
+      'The embedded browser could not complete this action.';
+
+  @override
+  String get downloadFailed => 'The download could not be completed.';
 
   @override
   String downloadFailedHttp(Object statusCode) {
@@ -297,6 +336,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get blobExportInvalid => 'Blob export data is invalid';
+
+  @override
+  String get blobExportFailed => 'Blob export could not be completed';
 
   @override
   String get blobExportTooLarge => 'Blob export exceeds the 16 MiB limit';
@@ -884,6 +926,43 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get aboutMetadataUnavailable => 'Application information unavailable';
+
+  @override
+  String get aboutRetryMetadata => 'Retry loading information';
+
+  @override
+  String get aboutProjectSourceTitle => 'Project and component sources';
+
+  @override
+  String get aboutSubStoreSource => 'Sub-Store source';
+
+  @override
+  String get aboutNodeSource => 'Node.js source';
+
+  @override
+  String get aboutHttpMetaSource => 'HTTP-META source';
+
+  @override
+  String get aboutMihomoSource => 'mihomo source';
+
+  @override
+  String get aboutViewLicenses => 'View licenses';
+
+  @override
+  String get aboutCopyDiagnostics => 'Copy diagnostic summary';
+
+  @override
+  String get aboutDiagnosticsTitle => 'Diagnostic summary';
+
+  @override
+  String get aboutDiagnosticsCopied => 'Diagnostic summary copied';
+
+  @override
+  String get aboutClipboardFailed =>
+      'The diagnostic summary could not be copied.';
+
+  @override
+  String get aboutOpenLinkFailed => 'The project page could not be opened.';
 
   @override
   String get envIssueMissingPair => 'Missing KEY=VALUE';
