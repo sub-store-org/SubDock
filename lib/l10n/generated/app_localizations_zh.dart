@@ -128,6 +128,80 @@ class AppLocalizationsZh extends AppLocalizations {
   String get backendStoppedForUpdates => 'Backend 已停止，可以更改组件。';
 
   @override
+  String get updateAll => '全部更新';
+
+  @override
+  String get maintenanceDescription =>
+      'SubDock 会协调停止服务、变更组件和恢复运行。后续步骤失败时，已成功变更的组件会保留。';
+
+  @override
+  String get maintenanceHeading => '组件维护';
+
+  @override
+  String get maintenancePreparing => '正在准备组件变更…';
+
+  @override
+  String get maintenanceStopping => '正在停止 Backend…';
+
+  @override
+  String get maintenanceUpdating => '正在变更组件…';
+
+  @override
+  String get maintenanceStarting => '正在使用已保存配置启动 Backend…';
+
+  @override
+  String get maintenanceCompleted => '组件维护已完成。';
+
+  @override
+  String get maintenanceFailed => '组件维护已停止，所选变更尚未全部完成。';
+
+  @override
+  String get maintenanceStartFailed => '组件文件已就绪，但 Backend 未能启动。';
+
+  @override
+  String get maintenanceInterrupted => '先前的组件操作意外中断。请检查剩余工作后再继续。';
+
+  @override
+  String get maintenanceAwaitingStart => '组件文件已就绪。准备好后可启动 Backend 以应用变更。';
+
+  @override
+  String get maintenanceBlocked => '组件维护恢复需要处理；Backend 启动已阻止。';
+
+  @override
+  String get maintenanceRetry => '重试剩余操作';
+
+  @override
+  String get maintenanceRetryStart => '重试启动 Backend';
+
+  @override
+  String get maintenanceTargetPending => '待处理';
+
+  @override
+  String get maintenanceTargetCompleted => '已完成';
+
+  @override
+  String get maintenanceTargetFailed => '失败';
+
+  @override
+  String get maintenanceRefreshFailed => '组件文件已变更，但无法刷新已安装版本。';
+
+  @override
+  String get maintenanceConfirmTitle => '确认组件变更';
+
+  @override
+  String maintenanceConfirmDescription(Object targets) {
+    return '所选版本：$targets。SubDock 会按需停止 Backend；后续步骤失败时会保留已成功的变更。';
+  }
+
+  @override
+  String get maintenanceRollbackDataWarning =>
+      '回滚 Backend 时也会恢复关联的数据快照，可能覆盖该快照之后新增或修改的订阅。';
+
+  @override
+  String get maintenanceRecoveryBlocked =>
+      '维护记录无效或与已安装组件文件不匹配。记录已保留以便恢复，不会自动更新组件或启动服务。';
+
+  @override
   String get stopBackend => '停止 Backend';
 
   @override

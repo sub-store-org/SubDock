@@ -132,6 +132,87 @@ class AppLocalizationsEn extends AppLocalizations {
       'Backend is stopped. Component changes are available.';
 
   @override
+  String get updateAll => 'Update all';
+
+  @override
+  String get maintenanceDescription =>
+      'SubDock coordinates stopping, component changes, and recovery. Successful component changes remain in place if a later step fails.';
+
+  @override
+  String get maintenanceHeading => 'Component maintenance';
+
+  @override
+  String get maintenancePreparing => 'Preparing component changes…';
+
+  @override
+  String get maintenanceStopping => 'Stopping Backend…';
+
+  @override
+  String get maintenanceUpdating => 'Changing components…';
+
+  @override
+  String get maintenanceStarting =>
+      'Starting Backend with the saved configuration…';
+
+  @override
+  String get maintenanceCompleted => 'Component maintenance completed.';
+
+  @override
+  String get maintenanceFailed =>
+      'Component maintenance stopped before all selected changes completed.';
+
+  @override
+  String get maintenanceStartFailed =>
+      'Component files are ready, but Backend did not start.';
+
+  @override
+  String get maintenanceInterrupted =>
+      'An earlier component operation was interrupted. Review the remaining work before continuing.';
+
+  @override
+  String get maintenanceAwaitingStart =>
+      'Component files are ready. Start Backend when you are ready to apply them.';
+
+  @override
+  String get maintenanceBlocked =>
+      'Component maintenance recovery needs attention. Backend start is blocked.';
+
+  @override
+  String get maintenanceRetry => 'Retry remaining work';
+
+  @override
+  String get maintenanceRetryStart => 'Retry Backend start';
+
+  @override
+  String get maintenanceTargetPending => 'Waiting';
+
+  @override
+  String get maintenanceTargetCompleted => 'Completed';
+
+  @override
+  String get maintenanceTargetFailed => 'Failed';
+
+  @override
+  String get maintenanceRefreshFailed =>
+      'Files changed, but the installed version could not be refreshed.';
+
+  @override
+  String get maintenanceConfirmTitle => 'Confirm component changes';
+
+  @override
+  String maintenanceConfirmDescription(Object targets) {
+    return 'Selected versions: $targets. SubDock stops Backend when needed and keeps successful changes if a later step fails.';
+  }
+
+  @override
+  String get maintenanceRollbackDataWarning =>
+      'Rolling back Backend also restores its linked data snapshot and may overwrite subscription changes made since that snapshot.';
+
+  @override
+  String get maintenanceRecoveryBlocked =>
+      'The maintenance record is invalid or does not match installed component files. It was retained for recovery and no update or start will run automatically.';
+
+  @override
   String get stopBackend => 'Stop Backend';
 
   @override

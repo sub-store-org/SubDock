@@ -24,6 +24,7 @@ import '../update/component_update_checker.dart';
 import '../update/component_update_service.dart';
 import 'app_colors.dart';
 import 'app_coordinator.dart';
+import 'maintenance_operation.dart';
 import 'app_typography.dart';
 import 'about_info.dart';
 import 'close_request_guard.dart';
@@ -224,6 +225,11 @@ class _SubDockAppState extends State<SubDockApp> {
   }
 
   Future<void> _autoStart() async {
+    final maintenance = widget.coordinator.maintenanceOperation;
+    if (widget.coordinator.maintenanceRecoveryError != null ||
+        maintenance != null) {
+      return;
+    }
     try {
       await widget.coordinator.start();
     } catch (error) {

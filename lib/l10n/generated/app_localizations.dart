@@ -326,6 +326,144 @@ abstract class AppLocalizations {
   /// **'Backend 已停止，可以更改组件。'**
   String get backendStoppedForUpdates;
 
+  /// No description provided for @updateAll.
+  ///
+  /// In zh, this message translates to:
+  /// **'全部更新'**
+  String get updateAll;
+
+  /// No description provided for @maintenanceDescription.
+  ///
+  /// In zh, this message translates to:
+  /// **'SubDock 会协调停止服务、变更组件和恢复运行。后续步骤失败时，已成功变更的组件会保留。'**
+  String get maintenanceDescription;
+
+  /// No description provided for @maintenanceHeading.
+  ///
+  /// In zh, this message translates to:
+  /// **'组件维护'**
+  String get maintenanceHeading;
+
+  /// No description provided for @maintenancePreparing.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在准备组件变更…'**
+  String get maintenancePreparing;
+
+  /// No description provided for @maintenanceStopping.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在停止 Backend…'**
+  String get maintenanceStopping;
+
+  /// No description provided for @maintenanceUpdating.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在变更组件…'**
+  String get maintenanceUpdating;
+
+  /// No description provided for @maintenanceStarting.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在使用已保存配置启动 Backend…'**
+  String get maintenanceStarting;
+
+  /// No description provided for @maintenanceCompleted.
+  ///
+  /// In zh, this message translates to:
+  /// **'组件维护已完成。'**
+  String get maintenanceCompleted;
+
+  /// No description provided for @maintenanceFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'组件维护已停止，所选变更尚未全部完成。'**
+  String get maintenanceFailed;
+
+  /// No description provided for @maintenanceStartFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'组件文件已就绪，但 Backend 未能启动。'**
+  String get maintenanceStartFailed;
+
+  /// No description provided for @maintenanceInterrupted.
+  ///
+  /// In zh, this message translates to:
+  /// **'先前的组件操作意外中断。请检查剩余工作后再继续。'**
+  String get maintenanceInterrupted;
+
+  /// No description provided for @maintenanceAwaitingStart.
+  ///
+  /// In zh, this message translates to:
+  /// **'组件文件已就绪。准备好后可启动 Backend 以应用变更。'**
+  String get maintenanceAwaitingStart;
+
+  /// No description provided for @maintenanceBlocked.
+  ///
+  /// In zh, this message translates to:
+  /// **'组件维护恢复需要处理；Backend 启动已阻止。'**
+  String get maintenanceBlocked;
+
+  /// No description provided for @maintenanceRetry.
+  ///
+  /// In zh, this message translates to:
+  /// **'重试剩余操作'**
+  String get maintenanceRetry;
+
+  /// No description provided for @maintenanceRetryStart.
+  ///
+  /// In zh, this message translates to:
+  /// **'重试启动 Backend'**
+  String get maintenanceRetryStart;
+
+  /// No description provided for @maintenanceTargetPending.
+  ///
+  /// In zh, this message translates to:
+  /// **'待处理'**
+  String get maintenanceTargetPending;
+
+  /// No description provided for @maintenanceTargetCompleted.
+  ///
+  /// In zh, this message translates to:
+  /// **'已完成'**
+  String get maintenanceTargetCompleted;
+
+  /// No description provided for @maintenanceTargetFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'失败'**
+  String get maintenanceTargetFailed;
+
+  /// No description provided for @maintenanceRefreshFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'组件文件已变更，但无法刷新已安装版本。'**
+  String get maintenanceRefreshFailed;
+
+  /// No description provided for @maintenanceConfirmTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'确认组件变更'**
+  String get maintenanceConfirmTitle;
+
+  /// No description provided for @maintenanceConfirmDescription.
+  ///
+  /// In zh, this message translates to:
+  /// **'所选版本：{targets}。SubDock 会按需停止 Backend；后续步骤失败时会保留已成功的变更。'**
+  String maintenanceConfirmDescription(Object targets);
+
+  /// No description provided for @maintenanceRollbackDataWarning.
+  ///
+  /// In zh, this message translates to:
+  /// **'回滚 Backend 时也会恢复关联的数据快照，可能覆盖该快照之后新增或修改的订阅。'**
+  String get maintenanceRollbackDataWarning;
+
+  /// No description provided for @maintenanceRecoveryBlocked.
+  ///
+  /// In zh, this message translates to:
+  /// **'维护记录无效或与已安装组件文件不匹配。记录已保留以便恢复，不会自动更新组件或启动服务。'**
+  String get maintenanceRecoveryBlocked;
+
   /// No description provided for @stopBackend.
   ///
   /// In zh, this message translates to:

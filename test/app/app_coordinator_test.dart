@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:subdock/app/app_coordinator.dart';
+import 'package:subdock/app/maintenance_operation.dart';
 import 'package:subdock/runtime/backend_runtime.dart';
 import 'package:subdock/runtime/runtime_directories.dart';
 import 'package:subdock/settings/backend_env.dart';
@@ -15,6 +16,7 @@ import 'package:subdock/update/component_metadata_store.dart';
 import 'package:subdock/update/component_update_checker.dart';
 import 'package:subdock/update/component_update_service.dart';
 import 'package:subdock/update/github_release_client.dart';
+import 'package:subdock/update/maintenance_attempt_store.dart';
 
 void main() {
   test('serializes environment activation before a backend start', () async {
@@ -536,64 +538,558 @@ void main() {
     },
   );
 
-  test('serializes a component update with runtime actions', () async {
+  test(
+    'reserves maintenance and rejects conflicting runtime and save intents',
+    () async {
+      final temp = await Directory.systemTemp.createTemp(
+        'subdock_coordinator_',
+      );
+      addTearDown(() => temp.delete(recursive: true));
+      final directories = await RuntimeDirectories.fromBaseDirectory(temp);
+      final runtime = _FakeRuntime();
+      final updates = _FakeUpdates(runtime.operations, blockUpdates: true);
+      final coordinator = AppCoordinator(
+        runtime: runtime,
+        environmentStore: BackendEnvStore(directories),
+        componentUpdates: updates,
+        maintenanceAttemptStore: MaintenanceAttemptStore(directories),
+      );
+
+      final confirmed = await coordinator.checkComponent(
+        ComponentKind.frontend,
+      );
+      final maintenance = coordinator.runComponentUpdates({
+        ComponentKind.frontend: confirmed,
+      });
+      await updates.updateEntered.future;
+      expect(coordinator.maintenanceOperation?.isActive, isTrue);
+      await expectLater(() => coordinator.start(), throwsStateError);
+      await expectLater(
+        () => coordinator.applyConfiguration(),
+        throwsStateError,
+      );
+      await expectLater(() => coordinator.stop(), throwsStateError);
+      await expectLater(
+        () => coordinator.saveRuntimeConfiguration(
+          BackendEnvDocument.parse('SUB_STORE_BACKEND_API_PORT=4000\\n'),
+          const SubDockConfig(),
+        ),
+        throwsStateError,
+      );
+      await expectLater(
+        () => coordinator.updateComponent(updates.backendUpdate),
+        throwsStateError,
+      );
+      expect(runtime.operations, ['update:frontend:2.32.0']);
+
+      updates.releaseUpdate.complete();
+      final result = await maintenance;
+
+      expect(result.phase, MaintenancePhase.completed);
+      expect(result.remainingTargets, isEmpty);
+      expect(runtime.operations, ['update:frontend:2.32.0']);
+      expect(await MaintenanceAttemptStore(directories).load(), isNull);
+    },
+  );
+
+  test(
+    'updates confirmed Frontend before Backend and resumes once when running',
+    () async {
+      final temp = await Directory.systemTemp.createTemp(
+        'subdock_coordinator_',
+      );
+      addTearDown(() => temp.delete(recursive: true));
+      final directories = await RuntimeDirectories.fromBaseDirectory(temp);
+      final runtime = _FakeRuntime();
+      final updates = _FakeUpdates(runtime.operations);
+      final coordinator = AppCoordinator(
+        runtime: runtime,
+        environmentStore: BackendEnvStore(directories),
+        componentUpdates: updates,
+        maintenanceAttemptStore: MaintenanceAttemptStore(directories),
+      );
+      await coordinator.saveEnvironment(
+        BackendEnvDocument.parse('SUB_STORE_BACKEND_API_PORT=3002\n'),
+      );
+      await coordinator.start();
+      final frontend = await coordinator.checkComponent(ComponentKind.frontend);
+      final backend = await coordinator.checkComponent(ComponentKind.backend);
+
+      final result = await coordinator.runComponentUpdates({
+        ComponentKind.backend: backend,
+        ComponentKind.frontend: frontend,
+      });
+
+      expect(result.phase, MaintenancePhase.completed);
+      expect(result.results.map((item) => item.target.kind), [
+        ComponentKind.frontend,
+        ComponentKind.backend,
+      ]);
+      expect(runtime.operations, [
+        'configuration:3002',
+        'start',
+        'stop',
+        'update:frontend:2.32.0',
+        'update:backend:2.39.0',
+        'start',
+      ]);
+      expect(updates.currentVersions, {
+        ComponentKind.frontend: '2.32.0',
+        ComponentKind.backend: '2.39.0',
+      });
+      expect(await MaintenanceAttemptStore(directories).load(), isNull);
+    },
+  );
+
+  test('retry preserves a committed component and does not restart a stopped Backend', () async {
     final temp = await Directory.systemTemp.createTemp('subdock_coordinator_');
     addTearDown(() => temp.delete(recursive: true));
+    final directories = await RuntimeDirectories.fromBaseDirectory(temp);
+    final runtime = _FakeRuntime();
+    final updates = _FakeUpdates(runtime.operations)
+      ..updateErrors[ComponentKind.backend] = StateError('snapshot failed');
+    final store = MaintenanceAttemptStore(directories);
+    final coordinator = AppCoordinator(
+      runtime: runtime,
+      environmentStore: BackendEnvStore(directories),
+      componentUpdates: updates,
+      maintenanceAttemptStore: store,
+    );
+    await coordinator.start();
+    final frontend = await coordinator.checkComponent(ComponentKind.frontend);
+    final backend = await coordinator.checkComponent(ComponentKind.backend);
+
+    final first = await coordinator.runComponentUpdates({
+      ComponentKind.frontend: frontend,
+      ComponentKind.backend: backend,
+    });
+
+    expect(first.phase, MaintenancePhase.failed);
+    expect(first.failureStage, MaintenanceFailureStage.updating);
+    expect(first.results.map((result) => result.state), [
+      MaintenanceTargetState.completed,
+      MaintenanceTargetState.failed,
+    ]);
+    expect(runtime.currentState.status, RuntimeStatus.stopped);
+    expect(updates.currentVersions[ComponentKind.frontend], '2.32.0');
+    expect(updates.currentVersions[ComponentKind.backend], '2.38.4');
+    expect((await store.load())?.completed, [ComponentKind.frontend]);
+
+    updates.updateErrors.remove(ComponentKind.backend);
+    await coordinator.checkComponent(ComponentKind.backend);
+    final retried = await coordinator.retryMaintenance();
+
+    expect(retried.phase, MaintenancePhase.completed);
+    expect(updates.updateCalls, [
+      'frontend:2.32.0',
+      'backend:2.39.0',
+      'backend:2.39.0',
+    ]);
+    expect(runtime.currentState.status, RuntimeStatus.stopped);
+    expect(runtime.operations, [
+      'start',
+      'stop',
+      'update:frontend:2.32.0',
+      'update:backend:2.39.0',
+      'update:backend:2.39.0',
+    ]);
+    expect(await store.load(), isNull);
+  });
+
+  test('crashed Backend retry uses the latest saved configuration without reinstalling', () async {
+    final temp = await Directory.systemTemp.createTemp('subdock_coordinator_');
+    addTearDown(() => temp.delete(recursive: true));
+    final directories = await RuntimeDirectories.fromBaseDirectory(temp);
+    final runtime = _FakeRuntime();
+    final updates = _FakeUpdates(runtime.operations);
+    final store = MaintenanceAttemptStore(directories);
+    final coordinator = AppCoordinator(
+      runtime: runtime,
+      environmentStore: BackendEnvStore(directories),
+      componentUpdates: updates,
+      maintenanceAttemptStore: store,
+    );
+    await coordinator.saveEnvironment(
+      BackendEnvDocument.parse('SUB_STORE_BACKEND_API_PORT=3002\n'),
+    );
+    await coordinator.start();
+    runtime.startError = StateError('start failed');
+    final confirmed = await coordinator.checkComponent(ComponentKind.frontend);
+
+    final failed = await coordinator.runComponentUpdates({
+      ComponentKind.frontend: confirmed,
+    });
+
+    expect(failed.phase, MaintenancePhase.startFailed);
+    expect(failed.startOnly, isTrue);
+    expect(runtime.currentState.status, RuntimeStatus.crashed);
+    expect((await store.load())?.startOnly, isTrue);
+    updates.updateErrors.clear();
+    runtime.startError = null;
+    await coordinator.saveEnvironment(
+      BackendEnvDocument.parse('SUB_STORE_BACKEND_API_PORT=4310\n'),
+    );
+
+    final retried = await coordinator.retryMaintenance();
+
+    expect(retried.phase, MaintenancePhase.completed);
+    expect(updates.updateCalls, ['frontend:2.32.0']);
+    expect(
+      runtime.appliedConfiguration?.environment['SUB_STORE_BACKEND_API_PORT'],
+      '4310',
+    );
+    expect(runtime.operations, [
+      'configuration:3002',
+      'start',
+      'stop',
+      'update:frontend:2.32.0',
+      'configuration:4310',
+      'stop',
+      'start',
+    ]);
+    expect(await store.load(), isNull);
+  });
+
+  test(
+    'start-only retry stops an unhealthy Backend before launching',
+    () async {
+      final temp = await Directory.systemTemp.createTemp(
+        'subdock_coordinator_',
+      );
+      addTearDown(() => temp.delete(recursive: true));
+      final directories = await RuntimeDirectories.fromBaseDirectory(temp);
+      final store = MaintenanceAttemptStore(directories);
+      await store.save(
+        MaintenanceAttempt(
+          targets: const [
+            MaintenanceTarget(
+              kind: ComponentKind.frontend,
+              action: MaintenanceAction.update,
+              currentVersion: '2.31.3',
+              targetVersion: '2.32.0',
+            ),
+          ],
+          completed: const [ComponentKind.frontend],
+          phase: MaintenancePhase.starting,
+          restoreAfterChanges: true,
+          startOnly: true,
+        ),
+      );
+      final runtime = _FakeRuntime().._status = RuntimeStatus.unhealthy;
+      final updates = _FakeUpdates(runtime.operations)
+        ..currentVersions[ComponentKind.frontend] = '2.32.0';
+      final coordinator = AppCoordinator(
+        runtime: runtime,
+        environmentStore: BackendEnvStore(directories),
+        componentUpdates: updates,
+        maintenanceAttemptStore: store,
+      );
+      await coordinator.restoreMaintenanceAttempt();
+
+      final result = await coordinator.retryMaintenance();
+
+      expect(result.phase, MaintenancePhase.completed);
+      expect(runtime.operations, ['stop', 'start']);
+      expect(runtime.currentState.status, RuntimeStatus.running);
+      expect(updates.updateCalls, isEmpty);
+      expect(await store.load(), isNull);
+    },
+  );
+
+  test('marker cleanup retry does not restart a recovered Backend', () async {
+    final temp = await Directory.systemTemp.createTemp('subdock_coordinator_');
+    addTearDown(() => temp.delete(recursive: true));
+    final directories = await RuntimeDirectories.fromBaseDirectory(temp);
+    final store = _FailOnceClearMaintenanceAttemptStore(directories);
+    await store.save(
+      MaintenanceAttempt(
+        targets: const [
+          MaintenanceTarget(
+            kind: ComponentKind.frontend,
+            action: MaintenanceAction.update,
+            currentVersion: '2.31.3',
+            targetVersion: '2.32.0',
+          ),
+        ],
+        completed: const [ComponentKind.frontend],
+        phase: MaintenancePhase.starting,
+        restoreAfterChanges: true,
+        startOnly: true,
+      ),
+    );
+    final runtime = _FakeRuntime();
+    final updates = _FakeUpdates(runtime.operations)
+      ..currentVersions[ComponentKind.frontend] = '2.32.0';
+    final coordinator = AppCoordinator(
+      runtime: runtime,
+      environmentStore: BackendEnvStore(directories),
+      componentUpdates: updates,
+      maintenanceAttemptStore: store,
+    );
+    await coordinator.restoreMaintenanceAttempt();
+
+    final failed = await coordinator.retryMaintenance();
+
+    expect(failed.phase, MaintenancePhase.blocked);
+    expect(failed.failureStage, MaintenanceFailureStage.recovery);
+    expect(failed.results.single.state, MaintenanceTargetState.completed);
+    expect(runtime.currentState.status, RuntimeStatus.running);
+    expect(runtime.operations, ['start']);
+    expect(updates.updateCalls, isEmpty);
+    expect((await store.load())?.completed, [ComponentKind.frontend]);
+    final operationsBeforeCleanupRetry = List<String>.of(runtime.operations);
+
+    final retried = await coordinator.retryMaintenance();
+
+    expect(retried.phase, MaintenancePhase.completed);
+    expect(runtime.operations, operationsBeforeCleanupRetry);
+    expect(updates.updateCalls, isEmpty);
+    expect(await store.load(), isNull);
+  });
+
+  test('stopped-origin cleanup retry leaves the Backend stopped', () async {
+    final temp = await Directory.systemTemp.createTemp('subdock_coordinator_');
+    addTearDown(() => temp.delete(recursive: true));
+    final directories = await RuntimeDirectories.fromBaseDirectory(temp);
+    final store = _FailOnceClearMaintenanceAttemptStore(directories);
     final runtime = _FakeRuntime();
     final updates = _FakeUpdates(runtime.operations);
     final coordinator = AppCoordinator(
       runtime: runtime,
-      environmentStore: BackendEnvStore(
-        await RuntimeDirectories.fromBaseDirectory(temp),
-      ),
+      environmentStore: BackendEnvStore(directories),
       componentUpdates: updates,
+      maintenanceAttemptStore: store,
+    );
+    final confirmed = await coordinator.checkComponent(ComponentKind.frontend);
+
+    final failed = await coordinator.runComponentUpdates({
+      ComponentKind.frontend: confirmed,
+    });
+
+    expect(failed.phase, MaintenancePhase.blocked);
+    expect(failed.failureStage, MaintenanceFailureStage.recovery);
+    expect(failed.results.single.state, MaintenanceTargetState.completed);
+    expect(runtime.currentState.status, RuntimeStatus.stopped);
+    expect(runtime.operations, ['update:frontend:2.32.0']);
+    expect(updates.updateCalls, ['frontend:2.32.0']);
+    expect((await store.load())?.completed, [ComponentKind.frontend]);
+
+    final retried = await coordinator.retryMaintenance();
+
+    expect(retried.phase, MaintenancePhase.completed);
+    expect(runtime.currentState.status, RuntimeStatus.stopped);
+    expect(runtime.operations, ['update:frontend:2.32.0']);
+    expect(updates.updateCalls, ['frontend:2.32.0']);
+    expect(await store.load(), isNull);
+  });
+
+  test('stop failure leaves all component files untouched', () async {
+    final temp = await Directory.systemTemp.createTemp('subdock_coordinator_');
+    addTearDown(() => temp.delete(recursive: true));
+    final directories = await RuntimeDirectories.fromBaseDirectory(temp);
+    final runtime = _FakeRuntime()..startError = null;
+    final updates = _FakeUpdates(runtime.operations);
+    final store = MaintenanceAttemptStore(directories);
+    final coordinator = AppCoordinator(
+      runtime: runtime,
+      environmentStore: BackendEnvStore(directories),
+      componentUpdates: updates,
+      maintenanceAttemptStore: store,
+    );
+    await coordinator.start();
+    runtime.stopError = StateError('stop failed');
+    final confirmed = await coordinator.checkComponent(ComponentKind.frontend);
+
+    final result = await coordinator.runComponentUpdates({
+      ComponentKind.frontend: confirmed,
+    });
+
+    expect(result.failureStage, MaintenanceFailureStage.stopping);
+    expect(updates.updateCalls, isEmpty);
+    expect(runtime.currentState.status, RuntimeStatus.running);
+    expect(runtime.operations, ['start']);
+    expect((await store.load())?.phase, MaintenancePhase.failed);
+  });
+
+  test('interprets interrupted results after component recovery without resuming work', () async {
+    final temp = await Directory.systemTemp.createTemp('subdock_coordinator_');
+    addTearDown(() => temp.delete(recursive: true));
+    final directories = await RuntimeDirectories.fromBaseDirectory(temp);
+    final store = MaintenanceAttemptStore(directories);
+    await store.save(
+      MaintenanceAttempt(
+        targets: const [
+          MaintenanceTarget(
+            kind: ComponentKind.frontend,
+            action: MaintenanceAction.update,
+            currentVersion: '2.31.3',
+            targetVersion: '2.32.0',
+          ),
+          MaintenanceTarget(
+            kind: ComponentKind.backend,
+            action: MaintenanceAction.update,
+            currentVersion: '2.38.4',
+            targetVersion: '2.39.0',
+          ),
+        ],
+        completed: const [ComponentKind.frontend],
+        phase: MaintenancePhase.updating,
+        restoreAfterChanges: true,
+        startOnly: false,
+      ),
+    );
+    final runtime = _FakeRuntime();
+    final updates = _FakeUpdates(runtime.operations)
+      ..currentVersions[ComponentKind.frontend] = '2.32.0';
+    var recovered = false;
+    final coordinator = AppCoordinator(
+      runtime: runtime,
+      environmentStore: BackendEnvStore(directories),
+      componentUpdates: updates,
+      maintenanceAttemptStore: store,
+      componentRecovery: () async => recovered = true,
     );
 
-    final update = coordinator.updateComponent(updates.availableUpdate);
-    await updates.updateEntered.future;
-    final stop = coordinator.stop();
-    try {
-      await Future<void>.value();
-      expect(runtime.operations, ['update']);
-    } finally {
-      updates.releaseUpdate.complete();
-    }
-    await Future.wait([update, stop]);
+    await coordinator.retryComponentRecovery();
 
-    expect(runtime.operations, ['update', 'stop']);
+    expect(recovered, isTrue);
+    expect(
+      coordinator.maintenanceOperation?.phase,
+      MaintenancePhase.interrupted,
+    );
+    expect(
+      coordinator.maintenanceOperation?.results.map((result) => result.state),
+      [MaintenanceTargetState.completed, MaintenanceTargetState.pending],
+    );
+    expect(runtime.operations, isEmpty);
+    expect(updates.updateCalls, isEmpty);
+    expect((await store.load())?.completed, [ComponentKind.frontend]);
   });
 
   test(
-    'rejects every component mutation while runtime is not stopped',
+    'transient maintenance recovery failure clears after revalidation',
     () async {
-      for (final status in RuntimeStatus.values.where(
-        (status) => status != RuntimeStatus.stopped,
-      )) {
+      final temp = await Directory.systemTemp.createTemp(
+        'subdock_coordinator_',
+      );
+      addTearDown(() => temp.delete(recursive: true));
+      final directories = await RuntimeDirectories.fromBaseDirectory(temp);
+      final store = MaintenanceAttemptStore(directories);
+      await store.save(
+        MaintenanceAttempt(
+          targets: const [
+            MaintenanceTarget(
+              kind: ComponentKind.frontend,
+              action: MaintenanceAction.update,
+              currentVersion: '2.31.3',
+              targetVersion: '2.32.0',
+            ),
+          ],
+          completed: const [],
+          phase: MaintenancePhase.updating,
+          restoreAfterChanges: false,
+          startOnly: false,
+        ),
+      );
+      final runtime = _FakeRuntime();
+      final updates = _FakeUpdates(runtime.operations)
+        ..failStatusOnCall[ComponentKind.frontend] = 1
+        ..statusErrors[ComponentKind.frontend] = StateError(
+          'temporary failure',
+        );
+      final coordinator = AppCoordinator(
+        runtime: runtime,
+        environmentStore: BackendEnvStore(directories),
+        componentUpdates: updates,
+        maintenanceAttemptStore: store,
+      );
+
+      await coordinator.restoreMaintenanceAttempt();
+
+      expect(coordinator.maintenanceRecoveryError, isNotNull);
+      expect(await store.file.exists(), isTrue);
+      expect(runtime.operations, isEmpty);
+      updates.statusErrors.remove(ComponentKind.frontend);
+
+      await coordinator.restoreMaintenanceAttempt();
+
+      expect(coordinator.maintenanceRecoveryError, isNull);
+      expect(
+        coordinator.maintenanceOperation?.phase,
+        MaintenancePhase.interrupted,
+      );
+      expect((await store.load())?.completed, isEmpty);
+      await coordinator.start();
+      expect(runtime.currentState.status, RuntimeStatus.running);
+
+      await coordinator.stop();
+      updates.statusErrors[ComponentKind.frontend] = StateError(
+        'temporary failure',
+      );
+      updates.failStatusOnCall[ComponentKind.frontend] = 3;
+      await coordinator.restoreMaintenanceAttempt();
+      expect(coordinator.maintenanceRecoveryError, isNotNull);
+      await store.clear();
+
+      await coordinator.restoreMaintenanceAttempt();
+
+      expect(coordinator.maintenanceRecoveryError, isNull);
+      expect(coordinator.maintenanceOperation, isNull);
+      await coordinator.start();
+      expect(runtime.currentState.status, RuntimeStatus.running);
+    },
+  );
+
+  test('corrupt maintenance marker blocks start and remains available for diagnosis', () async {
+    final temp = await Directory.systemTemp.createTemp('subdock_coordinator_');
+    addTearDown(() => temp.delete(recursive: true));
+    final directories = await RuntimeDirectories.fromBaseDirectory(temp);
+    final store = MaintenanceAttemptStore(directories);
+    await store.file.writeAsString('{not json');
+    final runtime = _FakeRuntime();
+    final coordinator = AppCoordinator(
+      runtime: runtime,
+      environmentStore: BackendEnvStore(directories),
+      componentUpdates: _FakeUpdates(runtime.operations),
+      maintenanceAttemptStore: store,
+    );
+
+    await coordinator.restoreMaintenanceAttempt();
+    await expectLater(coordinator.start(), throwsA(isA<AppConfigError>()));
+
+    expect(coordinator.maintenanceRecoveryError, isNotNull);
+    expect(await store.file.readAsString(), '{not json');
+    expect(runtime.operations, isEmpty);
+  });
+
+  test(
+    'does not change components while the Backend is transitioning',
+    () async {
+      for (final status in [RuntimeStatus.starting, RuntimeStatus.stopping]) {
         final temp = await Directory.systemTemp.createTemp(
           'subdock_coordinator_',
         );
         addTearDown(() => temp.delete(recursive: true));
+        final directories = await RuntimeDirectories.fromBaseDirectory(temp);
         final runtime = _FakeRuntime(status: status);
         final updates = _FakeUpdates(runtime.operations);
         final coordinator = AppCoordinator(
           runtime: runtime,
-          environmentStore: BackendEnvStore(
-            await RuntimeDirectories.fromBaseDirectory(temp),
-          ),
+          environmentStore: BackendEnvStore(directories),
           componentUpdates: updates,
-          componentRecovery: () async => runtime.operations.add('recover'),
+          maintenanceAttemptStore: MaintenanceAttemptStore(directories),
+        );
+        final confirmed = await coordinator.checkComponent(
+          ComponentKind.frontend,
         );
 
-        for (final action in <Future<void> Function()>[
-          () => coordinator.updateComponent(updates.frontendUpdate),
-          () => coordinator.updateComponent(updates.backendUpdate),
-          () => coordinator.rollbackComponent(ComponentKind.frontend),
-          () => coordinator.rollbackComponent(ComponentKind.backend),
-          coordinator.retryComponentRecovery,
-        ]) {
-          await expectLater(action(), throwsStateError);
-        }
-        expect(updates.operations, isEmpty);
+        final result = await coordinator.runComponentUpdates({
+          ComponentKind.frontend: confirmed,
+        });
+
+        expect(result.phase, MaintenancePhase.failed);
+        expect(result.failureStage, MaintenanceFailureStage.recovery);
+        expect(updates.updateCalls, isEmpty);
         expect(runtime.operations, isEmpty);
       }
     },
@@ -601,18 +1097,35 @@ void main() {
 }
 
 class _FakeUpdates implements ComponentUpdateOperations {
-  _FakeUpdates(this.operations);
+  _FakeUpdates(this.operations, {this.blockUpdates = false});
 
   final List<String> operations;
+  final bool blockUpdates;
   final updateEntered = Completer<void>();
   final releaseUpdate = Completer<void>();
+  final currentVersions = <ComponentKind, String>{
+    ComponentKind.frontend: '2.31.3',
+    ComponentKind.backend: '2.38.4',
+  };
+  final previousVersions = <ComponentKind, String?>{
+    ComponentKind.frontend: '2.30.0',
+    ComponentKind.backend: '2.38.3',
+  };
+  final statusCalls = <ComponentKind, int>{};
+  final checkCalls = <ComponentKind, int>{};
+  final failStatusOnCall = <ComponentKind, int>{};
+  final statusErrors = <ComponentKind, Object>{};
+  final checkErrors = <ComponentKind, Object>{};
+  final updateErrors = <ComponentKind, Object>{};
+  final updateCalls = <String>[];
+  final rollbackCalls = <ComponentKind>[];
   final frontendUpdate = ComponentUpdate(
     kind: ComponentKind.frontend,
     currentVersion: '2.31.3',
     availableVersion: '2.32.0',
     release: GithubRelease(
       version: '2.32.0',
-      releaseUri: Uri.parse('https://example.invalid/release'),
+      releaseUri: Uri.parse('https://example.invalid/frontend'),
       assets: [],
     ),
   );
@@ -622,27 +1135,53 @@ class _FakeUpdates implements ComponentUpdateOperations {
     availableVersion: '2.39.0',
     release: GithubRelease(
       version: '2.39.0',
-      releaseUri: Uri.parse('https://example.invalid/release'),
+      releaseUri: Uri.parse('https://example.invalid/backend'),
       assets: [],
     ),
   );
   ComponentUpdate get availableUpdate => frontendUpdate;
 
   @override
-  Future<ComponentVersionStatus> status(ComponentKind kind) async =>
-      const ComponentVersionStatus(current: '2.31.3');
+  Future<ComponentVersionStatus> status(ComponentKind kind) async {
+    final count = (statusCalls[kind] ?? 0) + 1;
+    statusCalls[kind] = count;
+    final error = statusErrors[kind];
+    if (failStatusOnCall[kind] == count && error != null) throw error;
+    return ComponentVersionStatus(
+      current: currentVersions[kind]!,
+      previous: previousVersions[kind],
+    );
+  }
 
   @override
-  Future<ComponentUpdate> check(ComponentKind kind) async => availableUpdate;
+  Future<ComponentUpdate> check(ComponentKind kind) async {
+    checkCalls[kind] = (checkCalls[kind] ?? 0) + 1;
+    final error = checkErrors[kind];
+    if (error != null) throw error;
+    return kind == ComponentKind.frontend ? frontendUpdate : backendUpdate;
+  }
 
   @override
-  Future<void> rollback(ComponentKind kind) async => operations.add('rollback');
+  Future<void> rollback(ComponentKind kind) async {
+    rollbackCalls.add(kind);
+    operations.add('rollback:${kind.name}');
+    final previous = previousVersions[kind];
+    if (previous == null) throw StateError('No previous component');
+    previousVersions[kind] = currentVersions[kind];
+    currentVersions[kind] = previous;
+  }
 
   @override
   Future<void> update(ComponentUpdate update) async {
-    operations.add('update');
-    updateEntered.complete();
-    await releaseUpdate.future;
+    updateCalls.add('${update.kind.name}:${update.availableVersion}');
+    operations.add('update:${update.kind.name}:${update.availableVersion}');
+    if (blockUpdates) {
+      if (!updateEntered.isCompleted) updateEntered.complete();
+      await releaseUpdate.future;
+    }
+    final error = updateErrors[update.kind];
+    if (error != null) throw error;
+    currentVersions[update.kind] = update.availableVersion;
   }
 }
 
@@ -721,7 +1260,12 @@ class _FakeRuntime extends BackendRuntime {
 
   @override
   Future<void> start() async {
-    if (startError != null) throw startError!;
+    if (startError != null) {
+      // Match DesktopBackendRuntime's state after a failed launch.
+      _status = RuntimeStatus.crashed;
+      _states.add(RuntimeState(status: _status, changedAt: DateTime.now()));
+      throw startError!;
+    }
     _applied = _pendingConfiguration;
     _status = RuntimeStatus.running;
     operations.add('start');
@@ -732,5 +1276,20 @@ class _FakeRuntime extends BackendRuntime {
     if (stopError != null) throw stopError!;
     _status = RuntimeStatus.stopped;
     operations.add('stop');
+  }
+}
+
+class _FailOnceClearMaintenanceAttemptStore extends MaintenanceAttemptStore {
+  _FailOnceClearMaintenanceAttemptStore(super.directories);
+
+  var failNextClear = true;
+
+  @override
+  Future<void> clear() async {
+    if (failNextClear) {
+      failNextClear = false;
+      throw StateError('maintenance marker cleanup failed');
+    }
+    await super.clear();
   }
 }

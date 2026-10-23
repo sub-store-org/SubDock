@@ -29,7 +29,6 @@ import 'package:flutter/material.dart'
         Switch,
         Theme,
         ThemeMode,
-        TextButton,
         Text,
         TextField,
         ValueNotifier;
@@ -46,6 +45,7 @@ import 'package:subdock/app/app_typography.dart'
     show uiMonoFontFamily, uiTextFontFamily;
 import 'package:subdock/app/embedded_webview.dart';
 import 'package:subdock/app/mobile_placeholder_runtime.dart';
+import 'package:subdock/app/maintenance_operation.dart';
 import 'package:subdock/l10n/generated/app_localizations.dart';
 import 'package:subdock/mobile_main.dart';
 import 'package:subdock/runtime/backend_runtime.dart';
@@ -60,6 +60,7 @@ import 'package:subdock/update/component_metadata_store.dart';
 import 'package:subdock/update/component_update_checker.dart';
 import 'package:subdock/update/github_release_client.dart';
 import 'package:subdock/update/component_update_service.dart';
+import 'package:subdock/update/maintenance_attempt_store.dart';
 
 import 'support/pump_app.dart';
 
@@ -1338,6 +1339,103 @@ void main() {
   });
 
   testWidgets(
+    'startup does not start after completed stopped-origin maintenance',
+    (tester) async {
+      late Directory temp;
+      addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox());
+        await tester.pump();
+      });
+      final directories = await tester.runAsync(() async {
+        temp = await Directory.systemTemp.createTemp('subdock_widget_');
+        return RuntimeDirectories.fromBaseDirectory(temp);
+      });
+
+      final normalRuntime = _FakeBackendRuntime();
+      final normalCoordinator = AppCoordinator(
+        runtime: normalRuntime,
+        environmentStore: BackendEnvStore(directories!),
+      );
+      await pumpApp(
+        tester,
+        SubDockApp(
+          coordinator: normalCoordinator,
+          enableWebView: false,
+          locale: const Locale('en'),
+        ),
+      );
+      await _pumpRealIo(tester);
+      expect(normalRuntime.starts, 1);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+      await tester.runAsync(() => normalCoordinator.dispose());
+
+      final attemptStore = MaintenanceAttemptStore(directories);
+      await tester.runAsync(
+        () => attemptStore.save(
+          MaintenanceAttempt(
+            targets: const [
+              MaintenanceTarget(
+                kind: ComponentKind.frontend,
+                action: MaintenanceAction.update,
+                currentVersion: '1.0.0',
+                targetVersion: '1.1.0',
+              ),
+            ],
+            completed: const [ComponentKind.frontend],
+            phase: MaintenancePhase.updating,
+            restoreAfterChanges: false,
+            startOnly: false,
+          ),
+        ),
+      );
+      final updates = _FakeComponentUpdateOperations()
+        ..statuses[ComponentKind.frontend] = const ComponentVersionStatus(
+          current: '1.1.0',
+          previous: '1.0.0',
+        );
+      final runtime = _FakeBackendRuntime();
+      final coordinator = AppCoordinator(
+        runtime: runtime,
+        environmentStore: BackendEnvStore(directories),
+        componentUpdates: updates,
+        maintenanceAttemptStore: attemptStore,
+      );
+      await tester.runAsync(() => coordinator.restoreMaintenanceAttempt());
+
+      await pumpApp(
+        tester,
+        SubDockApp(
+          coordinator: coordinator,
+          enableWebView: false,
+          locale: const Locale('en'),
+        ),
+      );
+      await _pumpRealIo(tester);
+      expect(runtime.starts, 0);
+      expect(runtime.currentState.status, RuntimeStatus.stopped);
+      expect(await tester.runAsync(attemptStore.load), isNull);
+
+      await tester.tap(find.byKey(const ValueKey('nav-item-updates')));
+      await _pumpRealIo(tester);
+      expect(
+        coordinator.maintenanceOperation?.phase,
+        MaintenancePhase.completed,
+      );
+      expect(
+        find.byKey(const ValueKey('updates-maintenance-result')),
+        findsOneWidget,
+      );
+      expect(find.text('Component maintenance completed.'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('updates-maintenance-retry')),
+        findsNothing,
+      );
+    },
+  );
+
+  testWidgets(
     'updates layout keeps packaged resources distinct at 599 and 600 pixels',
     (WidgetTester tester) async {
       final updates = _FakeComponentUpdateOperations();
@@ -1432,41 +1530,11 @@ void main() {
           }
         }
 
-        final stop = find.byKey(const ValueKey('updates-backend-stop'));
-        final notice = find.byKey(const ValueKey('updates-backend-notice'));
-        await tester.ensureVisible(stop);
-        await tester.pump();
-        expect(tester.widget<OutlinedButton>(stop).onPressed, isNotNull);
-        expect(stop.hitTestable(), findsOneWidget);
-        final stopRect = tester.getRect(stop);
-        final noticeRect = tester.getRect(notice);
-        final noticeHeading = find.descendant(
-          of: notice,
-          matching: find.text('${l10n.backendRuntime} ${l10n.running}'),
+        expect(
+          find.byKey(const ValueKey('updates-update-all')),
+          findsOneWidget,
         );
-        final noticeBody = find.descendant(
-          of: notice,
-          matching: find.text(
-            'Stop Backend before updating or rolling back components.',
-          ),
-        );
-        expect(noticeHeading, findsOneWidget);
-        expect(noticeBody, findsOneWidget);
-        final noticeTextRect = unionRects([
-          tester.getRect(noticeHeading),
-          tester.getRect(noticeBody),
-        ]);
-        expect(stopRect.left, greaterThanOrEqualTo(noticeRect.left));
-        expect(stopRect.right, lessThanOrEqualTo(noticeRect.right));
-        expect(stopRect.top, greaterThanOrEqualTo(noticeRect.top));
-        expect(stopRect.bottom, lessThanOrEqualTo(noticeRect.bottom));
-        if (compact) {
-          expect(stopRect.top, greaterThanOrEqualTo(noticeTextRect.bottom));
-        } else {
-          expect(stopRect.left, greaterThanOrEqualTo(noticeTextRect.right));
-          expect(stopRect.top, lessThan(noticeTextRect.bottom));
-          expect(stopRect.bottom, greaterThan(noticeTextRect.top));
-        }
+        expect(find.text(l10n.maintenanceDescription), findsOneWidget);
 
         await tester.ensureVisible(packagedSection);
         await tester.pumpAndSettle();
@@ -1577,7 +1645,9 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     },
   );
-  testWidgets('backend update page stops a running backend', (tester) async {
+  testWidgets('guided maintenance confirms and resumes a running Backend', (
+    tester,
+  ) async {
     late Directory temp;
     addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
     await tester.binding.setSurfaceSize(const Size(600, 480));
@@ -1588,7 +1658,21 @@ void main() {
     });
     final runtime = _FakeBackendRuntime();
     await runtime.start();
-    final updates = _FakeComponentUpdateOperations();
+    final updates = _FakeComponentUpdateOperations()
+      ..statuses[ComponentKind.backend] = const ComponentVersionStatus(
+        current: '1.0.0',
+        previous: '0.9.0',
+      )
+      ..checkResults[ComponentKind.backend] = ComponentUpdate(
+        kind: ComponentKind.backend,
+        currentVersion: '1.0.0',
+        availableVersion: '1.1.0',
+        release: GithubRelease(
+          version: '1.1.0',
+          releaseUri: Uri.parse('https://example.invalid/backend'),
+          assets: const [],
+        ),
+      );
     final coordinator = AppCoordinator(
       runtime: runtime,
       environmentStore: BackendEnvStore(directories!),
@@ -1631,7 +1715,7 @@ void main() {
     );
     expect(
       find.byKey(const ValueKey('component-update-action-backend')),
-      findsNothing,
+      findsOneWidget,
     );
     expect(
       find.byKey(const ValueKey('component-rollback-action-backend')),
@@ -1647,8 +1731,8 @@ void main() {
       await tester.pump();
       expect(
         tester
-            .widget<OutlinedButton>(
-              find.byKey(const ValueKey('updates-backend-stop')),
+            .widget<FilledButton>(
+              find.byKey(const ValueKey('component-update-action-backend')),
             )
             .onPressed,
         isNull,
@@ -1656,35 +1740,32 @@ void main() {
     }
     runtime.emitState(RuntimeStatus.running);
     await tester.pump();
-    expect(
-      find.byKey(const ValueKey('component-update-action-backend')),
-      findsNothing,
+    final updateButton = find.byKey(
+      const ValueKey('component-update-action-backend'),
     );
+    await tester.ensureVisible(updateButton);
+    expect(tester.widget<FilledButton>(updateButton).onPressed, isNotNull);
+    await tester.tap(updateButton);
+    await tester.pump();
     expect(
-      tester
-          .widget<TextButton>(
-            find.byKey(const ValueKey('component-rollback-action-backend')),
-          )
-          .onPressed,
-      isNull,
+      find.textContaining('Selected versions: Backend 1.1.0'),
+      findsOneWidget,
     );
-    expect(
-      tester
-          .widget<OutlinedButton>(
-            find.byKey(const ValueKey('updates-backend-stop')),
-          )
-          .onPressed,
-      isNotNull,
-    );
-    await tester.tap(find.byKey(const ValueKey('updates-backend-stop')));
+    await tester.tap(find.text('Cancel'));
+    await tester.pump();
+    expect(runtime.stops, 0);
+    expect(updates.updateCalls, isEmpty);
+    await tester.ensureVisible(updateButton);
+    await tester.tap(updateButton);
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, 'Continue'));
     await _pumpRealIo(tester);
     expect(runtime.stops, 1);
-    expect(
-      find.text('Backend is stopped. Component changes are available.'),
-      findsNothing,
-    );
-    expect(updates.updateCalls, isEmpty);
+    expect(runtime.starts, 2);
+    expect(runtime.restarts, 0);
+    expect(updates.updateCalls, hasLength(1));
     expect(updates.rollbackCalls, isEmpty);
+    expect(updates.statuses[ComponentKind.backend]?.current, '1.1.0');
     await _pumpRealIo(tester);
     expect(updates.checkCalls[ComponentKind.backend], 1);
     expect(updates.checkCalls[ComponentKind.frontend], 1);
@@ -1747,124 +1828,151 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets(
-    'stopped component update reloads status and requires a manual start',
-    (tester) async {
-      late Directory temp;
-      addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
-      await tester.binding.setSurfaceSize(const Size(600, 480));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
-      final directories = await tester.runAsync(() async {
-        temp = await Directory.systemTemp.createTemp('subdock_widget_');
-        return RuntimeDirectories.fromBaseDirectory(temp);
-      });
-      final updates = _FakeComponentUpdateOperations()
-        ..statuses[ComponentKind.frontend] = const ComponentVersionStatus(
-          current: '1.0.0',
-          previous: '0.9.0',
-        )
-        ..checkResults[ComponentKind.frontend] = ComponentUpdate(
-          kind: ComponentKind.frontend,
-          currentVersion: '1.0.0',
-          availableVersion: '1.1.0',
-          release: GithubRelease(
-            version: '1.1.0',
-            releaseUri: Uri.parse('https://example.invalid/frontend'),
-            assets: const [],
-          ),
-        );
-      final runtime = _FakeBackendRuntime();
-      final opened = <Uri>[];
-      final coordinator = AppCoordinator(
-        runtime: runtime,
-        environmentStore: BackendEnvStore(directories!),
-        componentUpdates: updates,
-      );
-      await pumpApp(
-        tester,
-        SubDockApp(
-          coordinator: coordinator,
-          autoStart: false,
-          enableWebView: false,
-          locale: const Locale('en'),
-          onOpenExternalUri: (uri) async {
-            opened.add(uri);
-            return true;
-          },
+  testWidgets('stopped component update keeps the Backend stopped', (
+    tester,
+  ) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    await tester.binding.setSurfaceSize(const Size(600, 480));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    final updates = _FakeComponentUpdateOperations()
+      ..statuses[ComponentKind.frontend] = const ComponentVersionStatus(
+        current: '1.0.0',
+        previous: '0.9.0',
+      )
+      ..checkResults[ComponentKind.frontend] = ComponentUpdate(
+        kind: ComponentKind.frontend,
+        currentVersion: '1.0.0',
+        availableVersion: '1.1.0',
+        release: GithubRelease(
+          version: '1.1.0',
+          releaseUri: Uri.parse('https://example.invalid/frontend'),
+          assets: const [],
         ),
       );
-      await tester.tap(find.byKey(const ValueKey('nav-item-updates')));
-      await tester.pumpAndSettle();
-      await _pumpRealIo(tester);
-      expect(
-        find.byKey(const ValueKey('component-release-notes-frontend')),
-        findsOneWidget,
-      );
-      await tester.tap(
-        find.byKey(const ValueKey('component-release-notes-frontend')),
-      );
-      expect(opened, [Uri.parse('https://example.invalid/frontend')]);
-      await tester.tap(
-        find.byKey(const ValueKey('component-update-action-frontend')),
-      );
-      await _pumpRealIo(tester);
-      expect(updates.updateCalls, hasLength(1));
-      expect(updates.rollbackCalls, isEmpty);
-      expect(runtime.restarts, 0);
-      expect(find.textContaining('Current version: 1.1.0'), findsOneWidget);
-      expect(
-        find.byKey(const ValueKey('component-start-now-frontend')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const ValueKey('component-release-notes-frontend')),
-        findsNothing,
-      );
-      final restart = find.byKey(
-        const ValueKey('component-start-now-frontend'),
-      );
-      await tester.ensureVisible(restart);
-      await tester.tap(restart);
-      await _pumpRealIo(tester);
-      expect(runtime.starts, 1);
-      expect(runtime.restarts, 0);
-      expect(
-        find.byKey(const ValueKey('component-start-now-frontend')),
-        findsNothing,
-      );
-      expect(updates.updateCalls, hasLength(1));
-      expect(updates.rollbackCalls, isEmpty);
-      final updateCount = updates.updateCalls.length;
-      final rollbackCount = updates.rollbackCalls.length;
-      final restartCount = runtime.restarts;
-      final openedCount = opened.length;
-      updates.checkErrors[ComponentKind.frontend] = StateError(
-        'network failed',
-      );
-      final recheck = find.byKey(
-        const ValueKey('component-update-recheck-frontend'),
-      );
-      await tester.ensureVisible(recheck);
-      await tester.tap(recheck);
-      await _pumpRealIo(tester);
-      expect(
-        find.byKey(const ValueKey('component-release-notes-frontend')),
-        findsNothing,
-      );
-      expect(opened, hasLength(openedCount));
-      expect(
-        find.byKey(const ValueKey('component-update-local-status-frontend')),
-        findsOneWidget,
-      );
-      expect(find.textContaining('Current version: 1.1.0'), findsOneWidget);
-      expect(updates.updateCalls.length, updateCount);
-      expect(updates.rollbackCalls.length, rollbackCount);
-      expect(runtime.restarts, restartCount);
-      await tester.pumpWidget(const SizedBox());
-    },
-  );
+    final runtime = _FakeBackendRuntime();
+    final opened = <Uri>[];
+    var browserCalls = 0;
+    final coordinator = AppCoordinator(
+      runtime: runtime,
+      environmentStore: BackendEnvStore(directories!),
+      componentUpdates: updates,
+    );
+    await pumpApp(
+      tester,
+      SubDockApp(
+        coordinator: coordinator,
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('en'),
+        onOpenExternalUri: (uri) async {
+          browserCalls++;
+          if (browserCalls == 1) return false;
+          if (browserCalls == 2) {
+            throw StateError('browser callback failed');
+          }
+          opened.add(uri);
+          return true;
+        },
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-updates')));
+    await tester.pumpAndSettle();
+    await _pumpRealIo(tester);
+    expect(
+      find.byKey(const ValueKey('component-release-notes-frontend')),
+      findsOneWidget,
+    );
+    final releaseNotes = find.byKey(
+      const ValueKey('component-release-notes-frontend'),
+    );
+    await tester.ensureVisible(releaseNotes);
+    await tester.tap(releaseNotes);
+    await tester.pump();
+    expect(find.byKey(const ValueKey('updates-action-error')), findsOneWidget);
+    expect(
+      find.textContaining('The system browser could not open'),
+      findsOneWidget,
+    );
+    expect(updates.updateCalls, isEmpty);
+    expect(runtime.stops, 0);
 
-  testWidgets('rollback requires confirmation and reloads swapped status', (
+    await tester.ensureVisible(releaseNotes);
+    await tester.tap(releaseNotes);
+    await tester.pump();
+    expect(find.textContaining('browser callback failed'), findsOneWidget);
+    expect(updates.updateCalls, isEmpty);
+    expect(runtime.stops, 0);
+
+    await tester.ensureVisible(releaseNotes);
+    await tester.tap(releaseNotes);
+    await tester.pump();
+    expect(opened, [Uri.parse('https://example.invalid/frontend')]);
+    expect(find.byKey(const ValueKey('updates-action-error')), findsNothing);
+    final updateButton = find.byKey(
+      const ValueKey('component-update-action-frontend'),
+    );
+    await tester.ensureVisible(updateButton);
+    await tester.tap(updateButton);
+    await tester.pump();
+    expect(
+      find.textContaining('Selected versions: Frontend 1.1.0'),
+      findsOneWidget,
+    );
+    await tester.tap(find.widgetWithText(FilledButton, 'Continue'));
+    await _pumpRealIo(tester);
+    expect(updates.updateCalls, hasLength(1));
+    expect(updates.rollbackCalls, isEmpty);
+    expect(runtime.starts, 0);
+    expect(runtime.stops, 0);
+    expect(runtime.restarts, 0);
+    expect(find.textContaining('Current 1.1.0'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('updates-maintenance-result')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('component-start-now-frontend')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('component-release-notes-frontend')),
+      findsNothing,
+    );
+    expect(updates.updateCalls, hasLength(1));
+    expect(updates.rollbackCalls, isEmpty);
+    final updateCount = updates.updateCalls.length;
+    final rollbackCount = updates.rollbackCalls.length;
+    final restartCount = runtime.restarts;
+    final openedCount = opened.length;
+    updates.checkErrors[ComponentKind.frontend] = StateError('network failed');
+    final recheck = find.byKey(
+      const ValueKey('component-update-recheck-frontend'),
+    );
+    await tester.ensureVisible(recheck);
+    await tester.tap(recheck);
+    await _pumpRealIo(tester);
+    expect(
+      find.byKey(const ValueKey('component-release-notes-frontend')),
+      findsNothing,
+    );
+    expect(opened, hasLength(openedCount));
+    expect(
+      find.byKey(const ValueKey('component-update-local-status-frontend')),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Current 1.1.0'), findsOneWidget);
+    expect(updates.updateCalls.length, updateCount);
+    expect(updates.rollbackCalls.length, rollbackCount);
+    expect(runtime.restarts, restartCount);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('Backend rollback confirmation warns about its data snapshot', (
     tester,
   ) async {
     late Directory temp;
@@ -1880,8 +1988,9 @@ void main() {
         current: '2.0.0',
         previous: '1.0.0',
       );
+    final runtime = _FakeBackendRuntime();
     final coordinator = AppCoordinator(
-      runtime: _FakeBackendRuntime(),
+      runtime: runtime,
       environmentStore: BackendEnvStore(directories!),
       componentUpdates: updates,
     );
@@ -1907,6 +2016,12 @@ void main() {
     );
     await tester.pump();
     expect(find.text('Roll back from 2.0.0 to 1.0.0?'), findsOneWidget);
+    expect(
+      find.textContaining(
+        'Rolling back Backend also restores its linked data snapshot',
+      ),
+      findsOneWidget,
+    );
     await tester.tap(find.text('Cancel'));
     await tester.pump();
     expect(updates.rollbackCalls, isEmpty);
@@ -1920,23 +2035,39 @@ void main() {
     await tester.tap(find.text('Rollback').last);
     await _pumpRealIo(tester);
     expect(updates.rollbackCalls, [ComponentKind.backend]);
-    expect(find.textContaining('Current version: 1.0.0'), findsOneWidget);
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey('component-update-local-status-backend')),
+          )
+          .data,
+      'Current 1.0.0, previous 2.0.0',
+    );
+    expect(runtime.starts, 0);
+    expect(runtime.stops, 0);
+    expect(
+      find.byKey(const ValueKey('updates-maintenance-result')),
+      findsOneWidget,
+    );
     expect(
       find.byKey(const ValueKey('component-start-now-backend')),
-      findsOneWidget,
+      findsNothing,
     );
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('start failure keeps the start-required action', (tester) async {
+  testWidgets('failed automatic start can be retried without reinstalling', (
+    tester,
+  ) async {
     late Directory temp;
     addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
     final directories = await tester.runAsync(() async {
       temp = await Directory.systemTemp.createTemp('subdock_widget_');
       return RuntimeDirectories.fromBaseDirectory(temp);
     });
-    final runtime = _FakeBackendRuntime()
-      ..startError = StateError('start failed');
+    final runtime = _FakeBackendRuntime();
+    await runtime.start();
+    runtime.startError = StateError('start failed');
     final updates = _FakeComponentUpdateOperations()
       ..statuses[ComponentKind.frontend] = const ComponentVersionStatus(
         current: '1.0.0',
@@ -1969,24 +2100,41 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('nav-item-updates')));
     await tester.pumpAndSettle();
     await _pumpRealIo(tester);
-    await tester.tap(
-      find.byKey(const ValueKey('component-update-action-frontend')),
+    final updateButton = find.byKey(
+      const ValueKey('component-update-action-frontend'),
     );
-    await _pumpRealIo(tester);
-    await tester.tap(
-      find.byKey(const ValueKey('component-start-now-frontend')),
-    );
-    await _pumpRealIo(tester);
-    expect(runtime.starts, 0);
+    await tester.ensureVisible(updateButton);
+    await tester.tap(updateButton);
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, 'Continue'));
+    await _pumpRealIo(tester, turns: 200);
+    expect(runtime.starts, 1);
+    expect(runtime.stops, 1);
+    expect(updates.updateCalls, hasLength(1));
     expect(
       find.byKey(const ValueKey('component-start-now-frontend')),
+      findsNothing,
+    );
+    final retry = find.byKey(const ValueKey('updates-maintenance-retry'));
+    expect(retry, findsOneWidget);
+    expect(find.text('Retry Backend start'), findsOneWidget);
+
+    runtime.startError = null;
+    await tester.ensureVisible(retry);
+    await tester.tap(retry);
+    await _pumpRealIo(tester);
+
+    expect(runtime.starts, 2);
+    expect(runtime.stops, 1);
+    expect(updates.updateCalls, hasLength(1));
+    expect(
+      find.textContaining('Component maintenance completed'),
       findsOneWidget,
     );
-    expect(find.textContaining('start failed'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('update failure preserves local status and unlocks update', (
+  testWidgets('update failure retains the installed version and release', (
     tester,
   ) async {
     late Directory temp;
@@ -2032,10 +2180,21 @@ void main() {
     await tester.tap(
       find.byKey(const ValueKey('component-update-action-frontend')),
     );
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, 'Continue'));
     await _pumpRealIo(tester);
     expect(updates.updateCalls, hasLength(1));
     expect(updates.rollbackCalls, isEmpty);
-    expect(find.textContaining('Current version: 1.0.0'), findsOneWidget);
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(
+              const ValueKey('component-update-local-status-frontend'),
+            ),
+          )
+          .data,
+      'Current 1.0.0, previous 0.9.0',
+    );
     expect(find.textContaining('update failed'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('component-start-now-frontend')),
@@ -2053,7 +2212,7 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('rollback failure preserves local status', (tester) async {
+  testWidgets('rollback failure retains the installed version', (tester) async {
     late Directory temp;
     addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
     final directories = await tester.runAsync(() async {
@@ -2094,8 +2253,14 @@ void main() {
     await tester.tap(find.text('Rollback').last);
     await _pumpRealIo(tester);
     expect(updates.rollbackCalls, [ComponentKind.backend]);
-    expect(find.textContaining('Current version: 2.0.0'), findsOneWidget);
-    expect(find.textContaining('Previous version: 1.0.0'), findsOneWidget);
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey('component-update-local-status-backend')),
+          )
+          .data,
+      'Current 2.0.0, previous 1.0.0',
+    );
     expect(find.textContaining('rollback failed'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('component-start-now-backend')),

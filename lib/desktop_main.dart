@@ -25,6 +25,7 @@ import 'update/component_resource_resolver.dart';
 import 'update/component_update_service.dart';
 import 'update/data_backup_store.dart';
 import 'update/github_release_client.dart';
+import 'update/maintenance_attempt_store.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -83,6 +84,7 @@ Future<void> main() async {
     configurationStore: SubDockConfigStore(directories),
     startupBlocker: startupBlocker,
     componentRecovery: recovery.recoverPending,
+    maintenanceAttemptStore: MaintenanceAttemptStore(directories),
     componentUpdates: ComponentUpdateService(
       runtime: runtime,
       directories: directories,
@@ -101,6 +103,7 @@ Future<void> main() async {
     // half set of configuration files is never consumed.
     startupBlocker ??= coordinator.runtimeConfigurationError;
   }
+  await coordinator.restoreMaintenanceAttempt();
   // The tray is built before the app loads its preference, so the resolver
   // reads a mutable holder that the locale-change callback updates. Resolve
   // the persisted preference here so a saved en preference shows in the tray
