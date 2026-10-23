@@ -45,7 +45,7 @@ class DesktopBackendRuntime implements BackendRuntime {
              metadataStore: ComponentMetadataStore(directories.components),
            ),
        _defaultPort = port,
-       _userEnvironment = Map<String, String>.of(userEnvironment);
+       _pendingEnvironment = Map<String, String>.of(userEnvironment);
 
   static const _healthCheckInterval = Duration(seconds: 1);
   static const _healthCheckTimeout = Duration(seconds: 10);
@@ -59,7 +59,13 @@ class DesktopBackendRuntime implements BackendRuntime {
   final DesktopRuntimeProfile _profile;
   final ComponentResourceResolver _componentResources;
   final int _defaultPort;
-  Map<String, String> _userEnvironment;
+  Map<String, String> _pendingEnvironment;
+  bool _pendingHttpMetaEnabled = true;
+  EffectiveRuntimeConfig? _pendingConfiguration;
+  Map<String, String>? _launchEnvironment;
+  bool _launchHttpMetaEnabled = true;
+  EffectiveRuntimeConfig? _launchConfiguration;
+  EffectiveRuntimeConfig? _appliedConfiguration;
   final _logs = StreamController<RuntimeLog>.broadcast(sync: true);
   final _states = StreamController<RuntimeState>.broadcast(sync: true);
 
@@ -80,12 +86,23 @@ class DesktopBackendRuntime implements BackendRuntime {
   bool _stopping = false;
   bool _checkingHealth = false;
   bool _disposed = false;
-  bool _httpMetaEnabled = true;
   HttpMetaStatus _httpMetaStatus = HttpMetaStatus.disabled;
   int? _httpMetaPort;
   String? _httpMetaVersion;
   String? _httpMetaMessage;
   String? _httpMetaMihomoVersion;
+
+  Map<String, String> get _environmentValueSource => _process == null
+      ? _pendingEnvironment
+      : (_launchEnvironment ?? _pendingEnvironment);
+
+  /// The configuration of the backend process that is currently running.
+  ///
+  /// Null while no process exists, so a pending activation never reads as
+  /// applied before a successful start.
+  @override
+  EffectiveRuntimeConfig? get appliedConfiguration =>
+      _process == null ? null : _appliedConfiguration;
 
   @override
   RuntimeState get currentState => _currentState;
@@ -140,15 +157,16 @@ class DesktopBackendRuntime implements BackendRuntime {
   Future<void> activateUserEnvironment(Map<String, String> environment) =>
       _serialize(() async {
         _ensureActive();
-        _userEnvironment = Map<String, String>.of(environment);
+        _pendingEnvironment = Map<String, String>.of(environment);
       });
 
   @override
   Future<void> activateConfiguration(EffectiveRuntimeConfig configuration) =>
       _serialize(() async {
         _ensureActive();
-        _userEnvironment = Map<String, String>.of(configuration.environment);
-        _httpMetaEnabled = configuration.httpMetaEnabled;
+        _pendingConfiguration = configuration;
+        _pendingEnvironment = Map<String, String>.of(configuration.environment);
+        _pendingHttpMetaEnabled = configuration.httpMetaEnabled;
       });
 
   @override
@@ -182,19 +200,32 @@ class DesktopBackendRuntime implements BackendRuntime {
     return next;
   }
 
+  /// Freezes the pending configuration into the launch snapshot.
+  ///
+  /// Every real start entry point funnels through here, so the running
+  /// process's endpoint, health checks, WebView origin and HTTP-META flag all
+  /// keep the values captured at start until that process is replaced.
+  void _freezeLaunchSnapshot() {
+    _launchEnvironment = Map<String, String>.of(_pendingEnvironment);
+    _launchHttpMetaEnabled = _pendingHttpMetaEnabled;
+    _launchConfiguration = _pendingConfiguration;
+    _appliedConfiguration = null;
+  }
+
   Future<void> _start() async {
     if (_process != null) {
       if (_currentState.status == RuntimeStatus.running) return;
       throw StateError('Backend process is already active');
     }
+    _freezeLaunchSnapshot();
 
     _stopping = false;
     _emit(RuntimeStatus.starting);
     try {
       _activeLogRunId = await logStore.beginRun();
+      final resources = await _componentResources.resolve();
       await _startHttpMeta();
       await _verifyPortAvailable();
-      final resources = await _componentResources.resolve();
       final manifest = await _readRuntimeManifest(resources.backend);
       final node = await _resolveNode(manifest.testedNode);
       await _verifyExternalBinaries(manifest.externalBinaries);
@@ -229,6 +260,7 @@ class DesktopBackendRuntime implements BackendRuntime {
       if (!identical(_process, process)) {
         throw StateError('Backend exited during startup');
       }
+      _appliedConfiguration = _launchConfiguration;
       _emit(RuntimeStatus.running);
       _startHealthMonitor();
     } catch (error, stackTrace) {
@@ -346,7 +378,7 @@ class DesktopBackendRuntime implements BackendRuntime {
   }
 
   Future<void> _startHttpMeta() async {
-    if (!_httpMetaEnabled) {
+    if (!_launchHttpMetaEnabled) {
       _httpMetaStatus = HttpMetaStatus.disabled;
       _httpMetaMessage = null;
       _httpMetaVersion = null;
@@ -770,7 +802,7 @@ class DesktopBackendRuntime implements BackendRuntime {
     environment[pathKey] = originalPath.isEmpty
         ? binaryPath
         : '$binaryPath${Platform.pathSeparator}$originalPath';
-    environment.addAll(_userEnvironment);
+    environment.addAll(_environmentValueSource);
     environment.putIfAbsent(
       'SUB_STORE_BACKEND_API_HOST',
       () => InternetAddress.loopbackIPv4.address,
@@ -795,7 +827,7 @@ class DesktopBackendRuntime implements BackendRuntime {
   }
 
   String? _environmentValue(String key) =>
-      _userEnvironment[key] ?? Platform.environment[key];
+      _environmentValueSource[key] ?? Platform.environment[key];
 
   Uri _apiUrl() {
     final backendPrefixEnabled =

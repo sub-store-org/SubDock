@@ -39,6 +39,8 @@ dependencies:
   crypto: ^3.0.7
   file_selector: ^1.1.0
   path_provider: ^2.1.5
+  # 固定控件版本，避免依赖升级造成外观漂移。
+  shadcn_ui: 0.57.1
   tray_manager: 0.8.0
   url_launcher: ^6.3.2
   webview_all: ^1.4.2
@@ -72,6 +74,19 @@ flutter:
   # ImageAsset loads the tray PNG from the bundled Flutter assets.
   assets:
     - assets/icon/app_icon_32.png
+    # 随包分发的字体许可证；正文与许可证同进应用包，用户可离线查看。
+    - assets/fonts/LICENSE-Noto-Sans-CJK.txt
+    - assets/fonts/LICENSE-DejaVu.txt
+
+  # 正文用 Noto Sans CJK SC 2.004，代码文本用 DejaVu Sans Mono 2.37。
+  # 等宽族以正文族为回退，避免中文字符在等宽文本里显示为缺字方框。
+  fonts:
+    - family: UiText
+      fonts:
+        - asset: assets/fonts/ui-text.ttf
+    - family: UiMono
+      fonts:
+        - asset: assets/fonts/ui-mono.ttf
 
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in

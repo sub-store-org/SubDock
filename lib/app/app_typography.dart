@@ -2,6 +2,18 @@ import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
 
+/// Bundled text family: Noto Sans CJK SC, shipped in `assets/fonts/` so the
+/// shell does not depend on the host's installed fonts.
+const uiTextFontFamily = 'UiText';
+
+/// Bundled code/monospace family: DejaVu Sans Mono.
+const uiMonoFontFamily = 'UiMono';
+
+/// Fallback for [uiMonoFontFamily]. DejaVu Sans Mono has no CJK glyphs, so
+/// without this the Chinese characters in runtime values render as missing
+/// glyph boxes; falling back to the text family keeps them readable.
+const uiMonoFontFamilyFallback = <String>[uiTextFontFamily];
+
 /// Typography and metric tokens for the SubDock shell.
 ///
 /// Mirrors [AppColors]: one value set per brightness (currently the metrics
@@ -19,6 +31,7 @@ class AppTypography extends ThemeExtension<AppTypography> {
     required this.bodyMedium,
     required this.bodySmall,
     required this.labelSmall,
+    required this.codeSmall,
     required this.spacingXs,
     required this.spacingS,
     required this.spacingSm,
@@ -31,7 +44,7 @@ class AppTypography extends ThemeExtension<AppTypography> {
   });
 
   /// Light value set. Metrics follow the seeded Material 3 text scale with the
-  /// neutral-gray ladder (direction A); spacing/radius match the 4-8-12-16-24-32
+  /// neutral-gray ladder; spacing/radius match the 4-8-12-16-24-32
   /// grid the shell already uses in its EdgeInsets constants.
   static const AppTypography light = AppTypography(
     titleLarge: TextStyle(
@@ -53,6 +66,12 @@ class AppTypography extends ThemeExtension<AppTypography> {
     bodyMedium: TextStyle(fontSize: 14, height: 1.43),
     bodySmall: TextStyle(fontSize: 12, height: 1.33),
     labelSmall: TextStyle(fontSize: 11, height: 1.45),
+    codeSmall: TextStyle(
+      fontSize: 12,
+      height: 1.33,
+      fontFamily: uiMonoFontFamily,
+      fontFamilyFallback: uiMonoFontFamilyFallback,
+    ),
     spacingXs: 4,
     spacingS: 8,
     spacingSm: 12,
@@ -86,6 +105,12 @@ class AppTypography extends ThemeExtension<AppTypography> {
     bodyMedium: TextStyle(fontSize: 14, height: 1.43),
     bodySmall: TextStyle(fontSize: 12, height: 1.33),
     labelSmall: TextStyle(fontSize: 11, height: 1.45),
+    codeSmall: TextStyle(
+      fontSize: 12,
+      height: 1.33,
+      fontFamily: uiMonoFontFamily,
+      fontFamilyFallback: uiMonoFontFamilyFallback,
+    ),
     spacingXs: 4,
     spacingS: 8,
     spacingSm: 12,
@@ -104,6 +129,10 @@ class AppTypography extends ThemeExtension<AppTypography> {
   final TextStyle bodyMedium;
   final TextStyle bodySmall;
   final TextStyle labelSmall;
+
+  /// Code/monospace value style: bundled mono family with the text family as
+  /// CJK fallback, for runtime addresses and versions.
+  final TextStyle codeSmall;
   final double spacingXs;
   final double spacingS;
   final double spacingSm;
@@ -123,6 +152,7 @@ class AppTypography extends ThemeExtension<AppTypography> {
     TextStyle? bodyMedium,
     TextStyle? bodySmall,
     TextStyle? labelSmall,
+    TextStyle? codeSmall,
     double? spacingXs,
     double? spacingS,
     double? spacingSm,
@@ -141,6 +171,7 @@ class AppTypography extends ThemeExtension<AppTypography> {
       bodyMedium: bodyMedium ?? this.bodyMedium,
       bodySmall: bodySmall ?? this.bodySmall,
       labelSmall: labelSmall ?? this.labelSmall,
+      codeSmall: codeSmall ?? this.codeSmall,
       spacingXs: spacingXs ?? this.spacingXs,
       spacingS: spacingS ?? this.spacingS,
       spacingSm: spacingSm ?? this.spacingSm,
@@ -164,6 +195,7 @@ class AppTypography extends ThemeExtension<AppTypography> {
       bodyMedium: TextStyle.lerp(bodyMedium, other.bodyMedium, t)!,
       bodySmall: TextStyle.lerp(bodySmall, other.bodySmall, t)!,
       labelSmall: TextStyle.lerp(labelSmall, other.labelSmall, t)!,
+      codeSmall: TextStyle.lerp(codeSmall, other.codeSmall, t)!,
       spacingXs: lerpDouble(spacingXs, other.spacingXs, t)!,
       spacingS: lerpDouble(spacingS, other.spacingS, t)!,
       spacingSm: lerpDouble(spacingSm, other.spacingSm, t)!,
@@ -187,6 +219,7 @@ class AppTypography extends ThemeExtension<AppTypography> {
         bodyMedium == other.bodyMedium &&
         bodySmall == other.bodySmall &&
         labelSmall == other.labelSmall &&
+        codeSmall == other.codeSmall &&
         spacingXs == other.spacingXs &&
         spacingS == other.spacingS &&
         spacingSm == other.spacingSm &&
@@ -207,6 +240,7 @@ class AppTypography extends ThemeExtension<AppTypography> {
     bodyMedium,
     bodySmall,
     labelSmall,
+    codeSmall,
     spacingXs,
     spacingS,
     spacingSm,

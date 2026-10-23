@@ -82,6 +82,39 @@ void main() {
     expect(second, isNot(first));
     expect(await store.list(), containsAll(<String>[first, second]));
   });
+
+  test('retention keeps a protected snapshot that is the oldest', () async {
+    await _write(data, 'settings.json', 'protected');
+    final protected = await store.create(data);
+    for (var index = 0; index < 3; index++) {
+      await Future<void>.delayed(const Duration(milliseconds: 1));
+      await _write(data, 'settings.json', 'generation-$index');
+      await store.create(data, protected: {protected});
+    }
+
+    final retained = await store.list();
+
+    // The protected snapshot survives even though it is the oldest entry, and
+    // the retention limit still returns to three by dropping an unprotected
+    // one instead.
+    expect(retained, contains(protected));
+    expect(retained, hasLength(3));
+
+    await store.prune(protected: {protected});
+
+    expect(await store.list(), contains(protected));
+    expect(await store.list(), hasLength(3));
+
+    // Once the snapshot is no longer in use, ordinary retention may drop it.
+    for (var index = 0; index < 3; index++) {
+      await Future<void>.delayed(const Duration(milliseconds: 1));
+      await _write(data, 'settings.json', 'later-$index');
+      await store.create(data);
+    }
+
+    expect(await store.list(), isNot(contains(protected)));
+    expect(await store.list(), hasLength(3));
+  });
 }
 
 Future<void> _write(Directory root, String path, String value) async {

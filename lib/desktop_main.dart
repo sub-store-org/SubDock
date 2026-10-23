@@ -48,17 +48,20 @@ Future<void> main() async {
   );
   final logStore = RuntimeLogStore(directories);
   await logStore.initialize();
+  final metadataStore = ComponentMetadataStore(directories.components);
+  final dataBackups = DataBackupStore(
+    backupsDirectory: directories.backups,
+    stagingDirectory: directories.staging,
+  );
+  final recovery = ComponentRecovery(
+    bundleDirectory: File(Platform.resolvedExecutable).parent,
+    dataDirectory: directories.data,
+    metadataStore: metadataStore,
+    dataBackups: dataBackups,
+  );
   Object? startupBlocker;
   try {
-    await ComponentRecovery(
-      bundleDirectory: File(Platform.resolvedExecutable).parent,
-      dataDirectory: directories.data,
-      metadataStore: ComponentMetadataStore(directories.components),
-      dataBackups: DataBackupStore(
-        backupsDirectory: directories.backups,
-        stagingDirectory: directories.staging,
-      ),
-    ).recoverPending();
+    await recovery.recoverPending();
   } catch (error) {
     startupBlocker = AppConfigError(
       AppConfigErrorCode.componentRecoveryFailed,
@@ -68,11 +71,6 @@ Future<void> main() async {
   final runtime = DesktopBackendRuntime(
     directories: directories,
     logStore: logStore,
-  );
-  final metadataStore = ComponentMetadataStore(directories.components);
-  final dataBackups = DataBackupStore(
-    backupsDirectory: directories.backups,
-    stagingDirectory: directories.staging,
   );
   final resources = ComponentResourceResolver(
     bundleDirectory: File(Platform.resolvedExecutable).parent,
@@ -84,6 +82,7 @@ Future<void> main() async {
     environmentStore: BackendEnvStore(directories),
     configurationStore: SubDockConfigStore(directories),
     startupBlocker: startupBlocker,
+    componentRecovery: recovery.recoverPending,
     componentUpdates: ComponentUpdateService(
       runtime: runtime,
       directories: directories,
@@ -98,6 +97,9 @@ Future<void> main() async {
     await coordinator.loadEnvironment();
   } on AppConfigError {
     // The settings page provides the recovery path via `configurationError`.
+    // An unresolved pair recovery must also keep the service stopped so a
+    // half set of configuration files is never consumed.
+    startupBlocker ??= coordinator.runtimeConfigurationError;
   }
   // The tray is built before the app loads its preference, so the resolver
   // reads a mutable holder that the locale-change callback updates. Resolve
@@ -184,10 +186,7 @@ Future<void> prepareStartupWindow({
   required WindowReadyHandler waitUntilReady,
 }) async {
   if (startHiddenToTray) await hide();
-  await waitUntilReady(
-    desktopWindowOptions(),
-    startHiddenToTray ? hide : show,
-  );
+  await waitUntilReady(desktopWindowOptions(), startHiddenToTray ? hide : show);
 }
 
 Future<void> _showWindow() async {

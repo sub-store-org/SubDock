@@ -68,7 +68,12 @@ class BackendComponentUpdater {
         File.fromUri(staged.uri.resolve('runtime-manifest.json')),
       );
 
-      backupId = await backups.create(directories.data);
+      // The committed association stays in use while the new candidate is
+      // published, so the snapshot it names must outlive this retention pass.
+      backupId = await backups.create(
+        directories.data,
+        protected: {?prior.previousBackupId},
+      );
       await candidate.parent.create(recursive: true);
       await restrictDirectoryToCurrentUser(candidate.parent);
       await staged.rename(candidate.path);
@@ -81,6 +86,7 @@ class BackendComponentUpdater {
           baseline: prior.baseline,
           active: version,
           previous: previous,
+          previousBackupId: backupId,
           pending: ComponentPending(version: version, backupId: backupId),
         ),
       );
@@ -93,13 +99,20 @@ class BackendComponentUpdater {
           baseline: prior.baseline,
           active: version,
           previous: previous,
+          previousBackupId: backupId,
         ),
       );
     } catch (_) {
       if (pendingSaved) {
         await _rollback(prior, backupId!, version);
-      } else if (await candidate.exists()) {
-        await candidate.delete(recursive: true);
+      } else {
+        if (await candidate.exists()) {
+          await candidate.delete(recursive: true);
+        }
+        // The update never published a pointer, so nothing can restore from
+        // this snapshot; keeping it would push the association a rollback
+        // needs past the retention limit.
+        if (backupId != null) await backups.discard(backupId);
       }
       rethrow;
     } finally {

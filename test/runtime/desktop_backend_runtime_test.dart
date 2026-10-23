@@ -8,6 +8,7 @@ import 'package:subdock/runtime/desktop_backend_runtime.dart';
 import 'package:subdock/runtime/runtime_directories.dart';
 import 'package:subdock/runtime/runtime_log_store.dart';
 import 'package:subdock/settings/backend_env.dart';
+import 'package:subdock/settings/subdock_config.dart';
 import 'package:subdock/update/component_metadata_store.dart';
 
 void main() {
@@ -226,6 +227,52 @@ void main() {
       },
     );
 
+    for (final kind in ComponentKind.values) {
+      test(
+        'blocks every child while ${kind.name} recovery is pending',
+        () async {
+          runtime = await _createRuntime(
+            temp,
+            httpMetaPort: await _unusedPort(),
+          );
+          final directories = await RuntimeDirectories.fromBaseDirectory(
+            Directory.fromUri(temp.uri.resolve('application-support/')),
+          );
+          final metadata = ComponentMetadataStore(directories.components);
+          final baseline = kind == ComponentKind.backend ? '2.38.4' : '2.31.3';
+          await metadata.save(
+            kind,
+            ComponentMetadata(
+              baseline: baseline,
+              previous: baseline,
+              pending: const ComponentPending(version: 'interrupted'),
+            ),
+          );
+          final selected = File.fromUri(
+            temp.uri.resolve('bundle/data/runtime/selected'),
+          );
+          expect(await selected.exists(), isFalse);
+
+          await expectLater(
+            runtime.start(),
+            throwsA(
+              isA<StateError>().having(
+                (error) => error.message,
+                'message',
+                contains('unresolved operation'),
+              ),
+            ),
+          );
+          expect(await selected.exists(), isFalse);
+
+          await metadata.save(kind, ComponentMetadata(baseline: baseline));
+          await runtime.start();
+          expect(await runtime.isHealthy(), isTrue);
+          expect(await selected.exists(), isTrue);
+        },
+      );
+    }
+
     test('activates user environment on the next backend start', () async {
       final configuredPort = await _unusedPort();
       final logs = <RuntimeLog>[];
@@ -245,6 +292,30 @@ void main() {
         logs.map((log) => log.message),
         contains('data path:${runtime.directories.data.path}'),
       );
+    });
+
+    test('keeps the running entry and health checks when a newer configuration is activated', () async {
+      final runningPort = runtime.port;
+      await runtime.activateUserEnvironment({
+        'SUB_STORE_BACKEND_API_PORT': '$runningPort',
+      });
+      await runtime.start();
+      expect(await runtime.isHealthy(), isTrue);
+
+      final nextPort = await _unusedPort();
+      await runtime.activateConfiguration(
+        EffectiveRuntimeConfig.resolve(
+          systemEnvironment: const <String, String>{},
+          backendEnvironment: BackendEnvDocument.parse(
+            'SUB_STORE_BACKEND_API_PORT=$nextPort\n',
+          ),
+          config: const SubDockConfig(),
+        ),
+      );
+
+      expect(runtime.endpoint.port, runningPort);
+      expect(runtime.port, runningPort);
+      expect(await runtime.isHealthy(), isTrue);
     });
 
     test('health checks honor the configured frontend backend path', () async {
@@ -350,27 +421,58 @@ void main() {
       );
     });
 
-    test('reports failed startup and terminates a stalled backend', () async {
-      runtime = await _createRuntime(temp, mode: 'stall');
-      final states = <RuntimeState>[];
-      final subscription = runtime.state.listen(states.add);
-      addTearDown(subscription.cancel);
-
-      await expectLater(
-        runtime.start().timeout(const Duration(seconds: 30)),
-        throwsA(
-          isA<StateError>().having(
-            (error) => error.message,
-            'message',
-            contains('Backend did not become healthy'),
+    test(
+      'reports failed startup without reusing the previous applied identity',
+      () async {
+        await runtime.activateConfiguration(
+          EffectiveRuntimeConfig.resolve(
+            systemEnvironment: const <String, String>{},
+            backendEnvironment: BackendEnvDocument.parse(
+              'SUB_STORE_BACKEND_API_PORT=${runtime.port}\n',
+            ),
+            config: const SubDockConfig(),
           ),
-        ),
-      );
-      await _waitFor(
-        () => states.any((state) => state.status == RuntimeStatus.crashed),
-      );
-      expect(states.last.status, RuntimeStatus.crashed);
-    });
+        );
+        await runtime.start();
+        expect(runtime.appliedConfiguration, isNotNull);
+        await runtime.stop();
+        // Reuse the existing real-process stall fixture for the next launch.
+        final bundle = File.fromUri(
+          temp.uri.resolve('bundle/data/backend/sub-store.bundle.js'),
+        );
+        await bundle.writeAsString(
+          (await bundle.readAsString()).replaceFirst(
+            "const mode = 'healthy';",
+            "const mode = 'stall';",
+          ),
+        );
+        final started = runtime.logs.firstWhere(
+          (log) => log.message == 'fixture stdout',
+        );
+        final states = <RuntimeState>[];
+        final subscription = runtime.state.listen(states.add);
+        addTearDown(subscription.cancel);
+
+        final starting = runtime.start().timeout(const Duration(seconds: 30));
+        unawaited(starting.then<void>((_) {}, onError: (Object _) {}));
+        await started.timeout(const Duration(seconds: 5));
+        expect(runtime.appliedConfiguration, isNull);
+        await expectLater(
+          starting,
+          throwsA(
+            isA<StateError>().having(
+              (error) => error.message,
+              'message',
+              contains('Backend did not become healthy'),
+            ),
+          ),
+        );
+        await _waitFor(
+          () => states.any((state) => state.status == RuntimeStatus.crashed),
+        );
+        expect(states.last.status, RuntimeStatus.crashed);
+      },
+    );
 
     test('persists the final shutdown output before finalizing', () async {
       runtime = await _createRuntime(temp, shutdownTail: true);

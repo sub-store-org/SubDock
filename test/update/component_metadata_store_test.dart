@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:subdock/settings/config_error.dart';
 import 'package:subdock/update/component_metadata_store.dart';
 
 void main() {
@@ -71,5 +72,67 @@ void main() {
     );
 
     expect(metadata.pending?.operation, ComponentPendingOperation.legacy);
+  });
+
+  test('reads metadata written before snapshot association existed', () async {
+    final temp = await Directory.systemTemp.createTemp('subdock_component_');
+    addTearDown(() => temp.delete(recursive: true));
+    final store = ComponentMetadataStore(temp);
+    await File('${temp.path}/backend.json').writeAsString(
+      '{"baseline":"2.38.4","active":"2.39.0","previous":"2.38.4"}',
+    );
+
+    final metadata = await store.load(
+      ComponentKind.backend,
+      baseline: 'ignored',
+    );
+
+    // Readable, but with no association it must not claim to be rollbackable.
+    expect(metadata.previous, '2.38.4');
+    expect(metadata.previousBackupId, isNull);
+  });
+
+  test(
+    'rejects a wrong-typed snapshot association instead of ignoring it',
+    () async {
+      final temp = await Directory.systemTemp.createTemp('subdock_component_');
+      addTearDown(() => temp.delete(recursive: true));
+      final store = ComponentMetadataStore(temp);
+      await File('${temp.path}/backend.json').writeAsString(
+        '{"baseline":"2.38.4","previous":"2.38.4","previousBackupId":7}',
+      );
+
+      await expectLater(
+        store.load(ComponentKind.backend, baseline: 'ignored'),
+        throwsA(
+          isA<AppConfigError>().having(
+            (error) => error.code,
+            'code',
+            AppConfigErrorCode.metadataInvalid,
+          ),
+        ),
+      );
+    },
+  );
+
+  test('rejects a wrong-typed pending snapshot association', () async {
+    final temp = await Directory.systemTemp.createTemp('subdock_component_');
+    addTearDown(() => temp.delete(recursive: true));
+    final store = ComponentMetadataStore(temp);
+    await File('${temp.path}/backend.json').writeAsString(
+      '{"baseline":"2.38.4","pending":{"version":"2.39.0",'
+      '"previousBackupId":false}}',
+    );
+
+    await expectLater(
+      store.load(ComponentKind.backend, baseline: 'ignored'),
+      throwsA(
+        isA<AppConfigError>().having(
+          (error) => error.code,
+          'code',
+          AppConfigErrorCode.pendingMetadataInvalid,
+        ),
+      ),
+    );
   });
 }

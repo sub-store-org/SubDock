@@ -15,12 +15,19 @@ class DataBackupStore {
   final Directory backupsDirectory;
   final Directory stagingDirectory;
 
-  Future<String> create(Directory dataDirectory) async {
+  /// Copies [dataDirectory] into a new retained snapshot. Every id in
+  /// [protected] survives the retention limit, so a rollback must not lose the
+  /// snapshot it is about to consume or to hand to a retry.
+  Future<String> create(
+    Directory dataDirectory, {
+    Set<String> protected = const <String>{},
+  }) async {
     if (!await dataDirectory.exists()) {
       throw StateError(
         'Backend data directory is missing: ${dataDirectory.path}',
       );
     }
+    _requireBackupIds(protected, 'protected');
     await Future.wait([
       backupsDirectory.create(recursive: true),
       stagingDirectory.create(recursive: true),
@@ -42,7 +49,7 @@ class DataBackupStore {
       await _copyDirectory(dataDirectory, staging);
       await staging.rename(target.path);
       await restrictDirectoryToCurrentUser(target);
-      await _prune();
+      await _prune(protected: protected);
       return id;
     } finally {
       if (await staging.exists()) await staging.delete(recursive: true);
@@ -117,6 +124,13 @@ class DataBackupStore {
     if (await backup.exists()) await backup.delete(recursive: true);
   }
 
+  /// Re-applies the retained-backup limit at a safe boundary, keeping every
+  /// snapshot named in [protected].
+  Future<void> prune({Set<String> protected = const <String>{}}) async {
+    _requireBackupIds(protected, 'protected');
+    await _prune(protected: protected);
+  }
+
   Future<void> _copyDirectory(Directory source, Directory destination) async {
     await destination.create(recursive: true);
     await restrictDirectoryToCurrentUser(destination);
@@ -141,12 +155,22 @@ class DataBackupStore {
     }
   }
 
-  Future<void> _prune() async {
+  Future<void> _prune({Set<String> protected = const <String>{}}) async {
     final ids = await list();
-    if (ids.length <= _retainedBackups) return;
-    for (final id in ids.take(ids.length - _retainedBackups)) {
+    var excess = ids.length - _retainedBackups;
+    if (excess <= 0) return;
+    for (final id in ids) {
+      if (excess == 0) break;
+      if (protected.contains(id)) continue;
       await Directory.fromUri(backupsDirectory.uri.resolve('$id/'))
           .delete(recursive: true);
+      excess--;
+    }
+  }
+
+  void _requireBackupIds(Set<String> ids, String name) {
+    for (final id in ids) {
+      if (!_idPattern.hasMatch(id)) throw ArgumentError.value(id, name);
     }
   }
 

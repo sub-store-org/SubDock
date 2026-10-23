@@ -62,6 +62,8 @@ void main() {
         await File('${data.path}/settings.json').readAsString(),
         '{"generation":1}',
       );
+      // The restored 2.39.0 becomes `previous` but its data snapshot was
+      // overwritten, so no association is claimed for it.
       expect(
         await metadata.load(ComponentKind.backend, baseline: 'ignored'),
         const ComponentMetadata(baseline: '2.38.4', previous: '2.39.0'),
@@ -175,6 +177,74 @@ void main() {
     expect(await File('${data.path}/settings.json').readAsString(), 'before');
   });
 
+  test(
+    'repairs only the pending Backend and keeps a committed Frontend',
+    () async {
+      await _write(data, 'settings.json', 'before-update');
+      final backup = await backups.create(data);
+      await _write(data, 'settings.json', 'after-update');
+      const committedFrontend = ComponentMetadata(
+        baseline: '2.31.3',
+        active: '2.32.0',
+        previous: '2.31.3',
+      );
+      await metadata.save(ComponentKind.frontend, committedFrontend);
+      await metadata.save(
+        ComponentKind.backend,
+        ComponentMetadata(
+          baseline: '2.38.4',
+          active: '2.39.0',
+          previous: '2.38.4',
+          previousBackupId: backup,
+          pending: ComponentPending(version: '2.39.0', backupId: backup),
+        ),
+      );
+
+      expect(await recovery.recoverPending(), isTrue);
+
+      expect(
+        await metadata.load(ComponentKind.backend, baseline: 'ignored'),
+        // The failed 2.39.0 resumes as previous, but its data snapshot was
+        // overwritten, so no association is claimed for it.
+        const ComponentMetadata(baseline: '2.38.4', previous: '2.39.0'),
+      );
+      expect(
+        await metadata.load(ComponentKind.frontend, baseline: 'ignored'),
+        committedFrontend,
+      );
+    },
+  );
+
+  test(
+    'keeps pending metadata when recovery cannot find its snapshot',
+    () async {
+      await _write(data, 'settings.json', 'current');
+      await metadata.save(
+        ComponentKind.backend,
+        const ComponentMetadata(
+          baseline: '2.38.4',
+          active: '2.39.0',
+          previous: '2.38.4',
+          pending: ComponentPending(version: '2.39.0', backupId: 'data-1-1'),
+        ),
+      );
+
+      await expectLater(recovery.recoverPending(), throwsA(isA<StateError>()));
+
+      // The unresolved operation survives, so startup still has to block rather
+      // than run against an unknown component/data pairing.
+      final pending = await metadata.load(
+        ComponentKind.backend,
+        baseline: 'ignored',
+      );
+      expect(pending.pending, isNotNull);
+      expect(
+        await File('${data.path}/settings.json').readAsString(),
+        'current',
+      );
+    },
+  );
+
   test('does not retain a legacy rollback safety snapshot', () async {
     await _write(data, 'settings.json', 'baseline');
     final target = await backups.create(data);
@@ -191,6 +261,85 @@ void main() {
 
     expect(await backups.list(), contains(target));
     expect(await backups.list(), isNot(contains(safety)));
+  });
+
+  test('re-links the restored previous version to its own snapshot', () async {
+    await _write(data, 'settings.json', 'data-of-2-38-4');
+    final target = await backups.create(data);
+    await _write(data, 'settings.json', 'data-of-2-39-0');
+    final safety = await backups.create(data);
+    await _write(data, 'settings.json', 'partially-restored');
+    await _writeMetadata(
+      temp,
+      '{"baseline":"2.38.4","previous":"2.39.0",'
+      '"previousBackupId":"$safety",'
+      '"pending":{"version":"2.38.4","backupId":"$safety",'
+      '"previousBackupId":"$target",'
+      '"operation":"rollback"}}',
+    );
+
+    expect(await recovery.recoverPending(), isTrue);
+
+    // The interrupted rollback resumed 2.39.0 as active, so 2.38.4 returns
+    // to `previous` paired with the data snapshot that version ran with.
+    expect(
+      await metadata.load(ComponentKind.backend, baseline: 'ignored'),
+      ComponentMetadata(
+        baseline: '2.38.4',
+        active: '2.39.0',
+        previous: '2.38.4',
+        previousBackupId: target,
+      ),
+    );
+    expect(
+      await File('${data.path}/settings.json').readAsString(),
+      'data-of-2-39-0',
+    );
+    expect(await backups.list(), contains(target));
+    expect(await backups.list(), isNot(contains(safety)));
+  });
+
+  test('keeps the linked snapshot when recovery prunes backups', () async {
+    await _write(data, 'settings.json', 'data-of-2-38-4');
+    final target = await backups.create(data);
+    // Updates that ran while 2.38.4 was the rollback target protected its
+    // snapshot, so it can be the oldest entry of an over-limit set.
+    for (var index = 0; index < 3; index++) {
+      await Future<void>.delayed(const Duration(milliseconds: 1));
+      await _write(data, 'settings.json', 'stale-$index');
+      await backups.create(data, protected: {target});
+    }
+    expect(await backups.list(), contains(target));
+    await Future<void>.delayed(const Duration(milliseconds: 1));
+    await _write(data, 'settings.json', 'data-of-2-39-0');
+    final safety = await backups.create(data, protected: {target});
+    await _write(data, 'settings.json', 'interrupted');
+    await _writeMetadata(
+      temp,
+      '{"baseline":"2.38.4","previous":"2.39.0",'
+      '"previousBackupId":"$safety",'
+      '"pending":{"version":"2.38.4","backupId":"$safety",'
+      '"previousBackupId":"$target",'
+      '"operation":"rollback"}}',
+    );
+
+    expect(await recovery.recoverPending(), isTrue);
+
+    // Recovery discards the snapshot it consumed and prunes to the retained
+    // limit without evicting the snapshot the restored metadata depends on.
+    final retained = await backups.list();
+    expect(retained.length, lessThanOrEqualTo(3));
+    expect(retained, contains(target));
+    expect(retained, isNot(contains(safety)));
+    expect(
+      await metadata.load(ComponentKind.backend, baseline: 'ignored'),
+      ComponentMetadata(
+        baseline: '2.38.4',
+        active: '2.39.0',
+        previous: '2.38.4',
+        previousBackupId: target,
+      ),
+    );
   });
 }
 

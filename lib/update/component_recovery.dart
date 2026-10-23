@@ -33,13 +33,24 @@ class ComponentRecovery {
     );
     if (backend.pending == null && frontend.pending == null) return false;
 
+    var revertedBackend = backend;
     if (backend.pending case final pending?) {
       final backupId = pending.backupId;
       if (backupId == null) {
         throw StateError('Pending Backend update has no data backup');
       }
       await dataBackups.restore(backupId, dataDirectory);
-      await metadataStore.save(ComponentKind.backend, _rollBack(backend));
+      // A pending update's snapshot holds the data of the version recovery
+      // resumes as active, not of the version it publishes as previous; the
+      // latter has no provable snapshot, so it must not claim one.
+      revertedBackend = _rollBack(
+        backend,
+        previousBackupId:
+            pending.operation == ComponentPendingOperation.rollback
+            ? pending.previousBackupId
+            : null,
+      );
+      await metadataStore.save(ComponentKind.backend, revertedBackend);
       if (pending.operation != ComponentPendingOperation.update) {
         await dataBackups.discard(backupId);
       }
@@ -47,10 +58,23 @@ class ComponentRecovery {
     if (frontend.pending != null) {
       await metadataStore.save(ComponentKind.frontend, _rollBack(frontend));
     }
+    // Recovery is a safe boundary: no operation is in flight, so the retained
+    // snapshot limit applies again while the association the restored metadata
+    // still points at survives.
+    await dataBackups.prune(protected: {?revertedBackend.previousBackupId});
     return true;
   }
 
-  ComponentMetadata _rollBack(ComponentMetadata metadata) {
+  /// Restores the pointers an interrupted operation was moving away from.
+  ///
+  /// [previousBackupId] becomes the association of the restored `previous`
+  /// version; it is only knowable when the interrupted operation recorded it.
+  /// Otherwise the restored version is reported as not safely rollbackable
+  /// rather than paired with whichever snapshot happens to be newest.
+  ComponentMetadata _rollBack(
+    ComponentMetadata metadata, {
+    String? previousBackupId,
+  }) {
     if (metadata.previous == null) {
       throw StateError('Pending component metadata has no rollback target');
     }
@@ -58,6 +82,7 @@ class ComponentRecovery {
       baseline: metadata.baseline,
       active: metadata.previous == metadata.baseline ? null : metadata.previous,
       previous: metadata.active ?? metadata.baseline,
+      previousBackupId: previousBackupId,
     );
   }
 }

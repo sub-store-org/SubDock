@@ -167,3 +167,31 @@ Future<void> writeUpdateFile(Directory root, String path, String value) async {
   await file.parent.create(recursive: true);
   await file.writeAsString(value);
 }
+
+/// Writes the minimal complete files a component version needs so it can be
+/// resolved and rolled back to; the rollback gate checks real file existence.
+Future<void> writeComponentVersion(
+  UpdateFixture fixture,
+  ComponentKind kind,
+  String version,
+) async {
+  switch (kind) {
+    case ComponentKind.backend:
+      await writeUpdateFile(
+        fixture.directories.components,
+        'backend/$version/sub-store.bundle.js',
+        '$version bundle',
+      );
+      await writeUpdateFile(
+        fixture.directories.components,
+        'backend/$version/runtime-manifest.json',
+        '{"testedNode":"24.15.0","externalBinary":[]}',
+      );
+    case ComponentKind.frontend:
+      await writeUpdateFile(
+        fixture.directories.components,
+        'frontend/$version/index.html',
+        '$version frontend',
+      );
+  }
+}

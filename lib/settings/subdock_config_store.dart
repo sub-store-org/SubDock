@@ -13,6 +13,13 @@ class SubDockConfigStore {
 
   File get file => File.fromUri(directories.config.uri.resolve('subdock.json'));
 
+  /// The exact bytes [save] writes for [config].
+  static String encode(SubDockConfig config) =>
+      '${const JsonEncoder.withIndent('  ').convert(config.toJson())}\n';
+
+  Future<String?> readRaw() async =>
+      await file.exists() ? file.readAsString(encoding: utf8) : null;
+
   Future<SubDockConfig> load() async {
     if (!await file.exists()) return const SubDockConfig();
     try {
@@ -26,15 +33,20 @@ class SubDockConfigStore {
 
   Future<void> save(SubDockConfig config) async {
     SubDockConfig.fromJson(config.toJson());
+    await replaceRaw(encode(config));
+  }
+
+  /// Replaces the file with bytes already validated by the caller.
+  ///
+  /// [RuntimeConfigurationStore] uses this to persist a candidate it validated
+  /// and restored as one pair; it skips re-parsing so the previous bytes are
+  /// re-written verbatim.
+  Future<void> replaceRaw(String rawText) async {
     final temporary = File(
       '${file.path}.$pid.${DateTime.now().microsecondsSinceEpoch}.tmp',
     );
     try {
-      await temporary.writeAsString(
-        '${const JsonEncoder.withIndent('  ').convert(config.toJson())}\n',
-        encoding: utf8,
-        flush: true,
-      );
+      await temporary.writeAsString(rawText, encoding: utf8, flush: true);
       await restrictFileToCurrentUser(temporary);
       await temporary.rename(file.path);
       await restrictFileToCurrentUser(file);

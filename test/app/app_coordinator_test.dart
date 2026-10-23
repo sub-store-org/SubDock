@@ -8,6 +8,7 @@ import 'package:subdock/runtime/runtime_directories.dart';
 import 'package:subdock/settings/backend_env.dart';
 import 'package:subdock/settings/backend_env_store.dart';
 import 'package:subdock/settings/config_error.dart';
+import 'package:subdock/settings/runtime_configuration_store.dart';
 import 'package:subdock/settings/subdock_config.dart';
 import 'package:subdock/settings/subdock_config_store.dart';
 import 'package:subdock/update/component_metadata_store.dart';
@@ -76,6 +77,233 @@ void main() {
       expect(coordinator.webUiUri.port, 4000);
     },
   );
+
+  test('saving while the backend runs keeps the active entry', () async {
+    final temp = await Directory.systemTemp.createTemp('subdock_coordinator_');
+    addTearDown(() => temp.delete(recursive: true));
+    final directories = await RuntimeDirectories.fromBaseDirectory(temp);
+    final runtime = _FakeRuntime();
+    final coordinator = AppCoordinator(
+      runtime: runtime,
+      environmentStore: BackendEnvStore(directories),
+      configurationStore: SubDockConfigStore(directories),
+    );
+    await coordinator.saveEnvironment(
+      BackendEnvDocument.parse('SUB_STORE_BACKEND_API_PORT=3002\n'),
+    );
+    await coordinator.start();
+    expect(coordinator.webUiApiUri.port, 3002);
+    final applied = coordinator.appliedRevision;
+
+    await coordinator.saveConfiguration(
+      const SubDockConfig(backend: SubDockBackendConfig(apiPort: 4000)),
+    );
+
+    expect(coordinator.webUiApiUri.port, 3002);
+    expect(coordinator.hasPendingConfiguration, isTrue);
+    expect(coordinator.appliedRevision, applied);
+    expect(coordinator.savedRevision, greaterThan(applied));
+  });
+
+  test('applying the saved pair stops before it starts', () async {
+    final temp = await Directory.systemTemp.createTemp('subdock_coordinator_');
+    addTearDown(() => temp.delete(recursive: true));
+    final directories = await RuntimeDirectories.fromBaseDirectory(temp);
+    final runtime = _FakeRuntime();
+    final coordinator = AppCoordinator(
+      runtime: runtime,
+      environmentStore: BackendEnvStore(directories),
+      configurationStore: SubDockConfigStore(directories),
+    );
+    await coordinator.saveEnvironment(
+      BackendEnvDocument.parse('SUB_STORE_BACKEND_API_PORT=3002\n'),
+    );
+    await coordinator.start();
+    await coordinator.saveConfiguration(
+      const SubDockConfig(backend: SubDockBackendConfig(apiPort: 4000)),
+    );
+
+    await coordinator.applyConfiguration();
+
+    final stopIndex = runtime.operations.indexOf('stop');
+    final lastStart = runtime.operations.lastIndexOf('start');
+    expect(stopIndex, greaterThan(0));
+    expect(stopIndex, lessThan(lastStart));
+    expect(coordinator.webUiApiUri.port, 4000);
+    expect(coordinator.hasPendingConfiguration, isFalse);
+  });
+
+  test('a failed stop leaves the saved pair pending and unstarted', () async {
+    final temp = await Directory.systemTemp.createTemp('subdock_coordinator_');
+    addTearDown(() => temp.delete(recursive: true));
+    final directories = await RuntimeDirectories.fromBaseDirectory(temp);
+    final runtime = _FakeRuntime();
+    final coordinator = AppCoordinator(
+      runtime: runtime,
+      environmentStore: BackendEnvStore(directories),
+      configurationStore: SubDockConfigStore(directories),
+    );
+    await coordinator.saveEnvironment(
+      BackendEnvDocument.parse('SUB_STORE_BACKEND_API_PORT=3002\n'),
+    );
+    await coordinator.start();
+    await coordinator.saveConfiguration(
+      const SubDockConfig(backend: SubDockBackendConfig(apiPort: 4000)),
+    );
+    runtime.stopError = StateError('stop fixture failure');
+
+    await expectLater(
+      coordinator.applyConfiguration(),
+      throwsA(isA<StateError>()),
+    );
+
+    expect(coordinator.webUiApiUri.port, 3002);
+    expect(coordinator.hasPendingConfiguration, isTrue);
+    expect(runtime.operations.where((op) => op == 'start'), hasLength(1));
+  });
+
+  test('a failed start does not advance the applied revision', () async {
+    final temp = await Directory.systemTemp.createTemp('subdock_coordinator_');
+    addTearDown(() => temp.delete(recursive: true));
+    final directories = await RuntimeDirectories.fromBaseDirectory(temp);
+    final runtime = _FakeRuntime();
+    final coordinator = AppCoordinator(
+      runtime: runtime,
+      environmentStore: BackendEnvStore(directories),
+      configurationStore: SubDockConfigStore(directories),
+    );
+    await coordinator.saveEnvironment(
+      BackendEnvDocument.parse('SUB_STORE_BACKEND_API_PORT=3002\n'),
+    );
+    runtime.startError = StateError('start fixture failure');
+
+    await expectLater(coordinator.start(), throwsA(isA<StateError>()));
+
+    expect(coordinator.appliedRevision, 0);
+    expect(coordinator.hasPendingConfiguration, isFalse);
+  });
+
+  test('restart consumes the latest saved pair including HTTP-META', () async {
+    final temp = await Directory.systemTemp.createTemp('subdock_coordinator_');
+    addTearDown(() => temp.delete(recursive: true));
+    final directories = await RuntimeDirectories.fromBaseDirectory(temp);
+    final runtime = _FakeRuntime();
+    final coordinator = AppCoordinator(
+      runtime: runtime,
+      environmentStore: BackendEnvStore(directories),
+      configurationStore: SubDockConfigStore(directories),
+    );
+    await coordinator.saveEnvironment(
+      BackendEnvDocument.parse('SUB_STORE_BACKEND_API_PORT=3002\n'),
+    );
+    await coordinator.start();
+    await coordinator.saveConfiguration(
+      const SubDockConfig(
+        backend: SubDockBackendConfig(apiPort: 4000),
+        httpMeta: SubDockHttpMetaConfig(enabled: false),
+      ),
+    );
+
+    await coordinator.restart();
+
+    expect(coordinator.webUiApiUri.port, 4000);
+    expect(coordinator.hasPendingConfiguration, isFalse);
+    expect(runtime.appliedHttpMetaEnabled, isFalse);
+  });
+
+  test('a saved HTTP-META change alone reads as pending', () async {
+    final temp = await Directory.systemTemp.createTemp('subdock_coordinator_');
+    addTearDown(() => temp.delete(recursive: true));
+    final directories = await RuntimeDirectories.fromBaseDirectory(temp);
+    final runtime = _FakeRuntime();
+    final coordinator = AppCoordinator(
+      runtime: runtime,
+      environmentStore: BackendEnvStore(directories),
+      configurationStore: SubDockConfigStore(directories),
+    );
+    await coordinator.loadEnvironment();
+    await coordinator.start();
+    final applied = coordinator.appliedRevision;
+
+    await coordinator.saveConfiguration(
+      const SubDockConfig(httpMeta: SubDockHttpMetaConfig(enabled: false)),
+    );
+
+    expect(coordinator.hasPendingConfiguration, isTrue);
+    expect(coordinator.appliedRevision, applied);
+  });
+
+  for (final alreadyLoaded in [false, true]) {
+    test(
+      'blocks unresolved configuration recovery ${alreadyLoaded ? 'after loading' : 'at startup'} and allows repair',
+      () async {
+        final temp = await Directory.systemTemp.createTemp(
+          'subdock_coordinator_',
+        );
+        addTearDown(() => temp.delete(recursive: true));
+        final directories = await RuntimeDirectories.fromBaseDirectory(temp);
+        final runtime = _FakeRuntime();
+        final store = RuntimeConfigurationStore(
+          directories: directories,
+          environmentStore: BackendEnvStore(directories),
+          configurationStore: SubDockConfigStore(directories),
+        );
+        final coordinator = AppCoordinator(
+          runtime: runtime,
+          environmentStore: BackendEnvStore(directories),
+          configurationStore: SubDockConfigStore(directories),
+          runtimeConfigurationStore: store,
+        );
+        if (alreadyLoaded) await coordinator.loadEnvironment();
+        final before = List<String>.of(runtime.operations);
+        await store.recoveryFile.writeAsString('{not json');
+        if (!alreadyLoaded) {
+          await expectLater(
+            coordinator.loadEnvironment(),
+            throwsA(isA<AppConfigError>()),
+          );
+        }
+
+        await expectLater(coordinator.start(), throwsA(isA<AppConfigError>()));
+
+        expect(runtime.operations, before);
+        expect(coordinator.runtimeConfigurationError, isNotNull);
+        // Repair the deliberately corrupt record; retry the same start entry.
+        await store.recoveryFile.delete();
+        await coordinator.start();
+        expect(runtime.currentState.status, RuntimeStatus.running);
+        expect(coordinator.runtimeConfigurationError, isNull);
+      },
+    );
+  }
+
+  test('loads the pair through its recovery owner on startup', () async {
+    final temp = await Directory.systemTemp.createTemp('subdock_coordinator_');
+    addTearDown(() => temp.delete(recursive: true));
+    final directories = await RuntimeDirectories.fromBaseDirectory(temp);
+    final runtime = _FakeRuntime();
+    final coordinator = AppCoordinator(
+      runtime: runtime,
+      environmentStore: BackendEnvStore(directories),
+      configurationStore: SubDockConfigStore(directories),
+    );
+
+    await coordinator.loadEnvironment();
+
+    expect(coordinator.configuration.backend.frontendBackendPath, isNotNull);
+    final persisted = await SubDockConfigStore(directories).load();
+    expect(
+      persisted.backend.frontendBackendPath,
+      coordinator.configuration.backend.frontendBackendPath,
+    );
+    expect(coordinator.savedRevision, 1);
+    final pairStore = RuntimeConfigurationStore(
+      directories: directories,
+      environmentStore: BackendEnvStore(directories),
+      configurationStore: SubDockConfigStore(directories),
+    );
+    expect(await pairStore.recoveryFile.exists(), isFalse);
+  });
 
   test('opens a standalone frontend with its proxied API URL', () async {
     final temp = await Directory.systemTemp.createTemp('subdock_coordinator_');
@@ -249,13 +477,16 @@ void main() {
   });
 
   test(
-    'refuses backend start when update recovery could not complete',
+    'blocks failed component recovery and serializes a successful retry',
     () async {
       final temp = await Directory.systemTemp.createTemp(
         'subdock_coordinator_',
       );
       addTearDown(() => temp.delete(recursive: true));
       final runtime = _FakeRuntime();
+      var canRecover = false;
+      final entered = Completer<void>();
+      final release = Completer<void>();
       final coordinator = AppCoordinator(
         runtime: runtime,
         environmentStore: BackendEnvStore(
@@ -265,11 +496,43 @@ void main() {
           AppConfigErrorCode.componentRecoveryFailed,
           detail: 'test',
         ),
+        componentRecovery: () async {
+          if (!canRecover) throw StateError('component recovery failed');
+          entered.complete();
+          await release.future;
+        },
+      );
+      addTearDown(coordinator.dispose);
+      final observedBlockers = <Object?>[];
+      coordinator.configurationChanges.addListener(
+        () => observedBlockers.add(coordinator.startupBlocker),
       );
 
       await expectLater(coordinator.start(), throwsA(isA<AppConfigError>()));
-
+      await expectLater(
+        coordinator.retryComponentRecovery(),
+        throwsA(isA<AppConfigError>()),
+      );
+      await expectLater(coordinator.start(), throwsA(isA<AppConfigError>()));
       expect(runtime.operations, isEmpty);
+      expect(observedBlockers, contains(isA<AppConfigError>()));
+      expect(coordinator.startupBlocker, isNotNull);
+
+      canRecover = true;
+      final retry = coordinator.retryComponentRecovery();
+      await entered.future;
+      final start = coordinator.start();
+      try {
+        expect(runtime.operations, isEmpty);
+        expect(coordinator.startupBlocker, isNotNull);
+      } finally {
+        release.complete();
+      }
+      await Future.wait([retry, start]);
+
+      expect(runtime.operations, ['start']);
+      expect(coordinator.startupBlocker, isNull);
+      expect(observedBlockers.last, isNull);
     },
   );
 
@@ -318,6 +581,7 @@ void main() {
             await RuntimeDirectories.fromBaseDirectory(temp),
           ),
           componentUpdates: updates,
+          componentRecovery: () async => runtime.operations.add('recover'),
         );
 
         for (final action in <Future<void> Function()>[
@@ -325,6 +589,7 @@ void main() {
           () => coordinator.updateComponent(updates.backendUpdate),
           () => coordinator.rollbackComponent(ComponentKind.frontend),
           () => coordinator.rollbackComponent(ComponentKind.backend),
+          coordinator.retryComponentRecovery,
         ]) {
           await expectLater(action(), throwsStateError);
         }
@@ -382,19 +647,39 @@ class _FakeUpdates implements ComponentUpdateOperations {
 }
 
 class _FakeRuntime extends BackendRuntime {
-  _FakeRuntime({this.status = RuntimeStatus.stopped});
+  _FakeRuntime({this._status = RuntimeStatus.stopped});
 
-  final RuntimeStatus status;
   final operations = <String>[];
   final _states = StreamController<RuntimeState>.broadcast();
-  var port = 3001;
+  RuntimeStatus _status;
+  Map<String, String> _pending = const <String, String>{};
+  EffectiveRuntimeConfig? _pendingConfiguration;
+  EffectiveRuntimeConfig? _applied;
+  Object? stopError;
+  Object? startError;
 
   @override
   RuntimeState get currentState =>
-      RuntimeState(status: status, changedAt: DateTime.now());
+      RuntimeState(status: _status, changedAt: DateTime.now());
+
+  Map<String, String> get _active => _status == RuntimeStatus.stopped
+      ? _pending
+      : (_applied?.environment ?? _pending);
+
+  int get _activePort =>
+      int.tryParse(_active['SUB_STORE_BACKEND_API_PORT'] ?? '') ?? 3001;
+
+  /// Models the frozen launch snapshot: a running process keeps its applied
+  /// configuration until it is stopped and started again.
+  @override
+  EffectiveRuntimeConfig? get appliedConfiguration =>
+      _status == RuntimeStatus.stopped ? null : _applied;
+
+  bool? get appliedHttpMetaEnabled =>
+      _status == RuntimeStatus.stopped ? null : _applied?.httpMetaEnabled;
 
   @override
-  Uri get endpoint => Uri.parse('http://127.0.0.1:$port');
+  Uri get endpoint => Uri.parse('http://127.0.0.1:$_activePort');
 
   @override
   Stream<RuntimeLog> get logs => const Stream<RuntimeLog>.empty();
@@ -404,21 +689,19 @@ class _FakeRuntime extends BackendRuntime {
 
   @override
   Future<void> activateUserEnvironment(Map<String, String> environment) async {
-    port =
-        int.tryParse(environment['SUB_STORE_BACKEND_API_PORT'] ?? '') ?? port;
-    operations.add('environment:$port');
+    _pending = Map<String, String>.of(environment);
+    operations.add('environment:$_activePort');
   }
 
   @override
   Future<void> activateConfiguration(
     EffectiveRuntimeConfig configuration,
   ) async {
-    port =
-        int.tryParse(
-          configuration.environment['SUB_STORE_BACKEND_API_PORT'] ?? '',
-        ) ??
-        port;
-    operations.add('configuration:$port');
+    _pending = Map<String, String>.of(configuration.environment);
+    _pendingConfiguration = configuration;
+    final pendingPort =
+        int.tryParse(_pending['SUB_STORE_BACKEND_API_PORT'] ?? '') ?? 3001;
+    operations.add('configuration:$pendingPort');
   }
 
   @override
@@ -431,11 +714,23 @@ class _FakeRuntime extends BackendRuntime {
   Future<bool> isHealthy() async => false;
 
   @override
-  Future<void> restart() async => operations.add('restart');
+  Future<void> restart() async {
+    await stop();
+    await start();
+  }
 
   @override
-  Future<void> start() async => operations.add('start');
+  Future<void> start() async {
+    if (startError != null) throw startError!;
+    _applied = _pendingConfiguration;
+    _status = RuntimeStatus.running;
+    operations.add('start');
+  }
 
   @override
-  Future<void> stop() async => operations.add('stop');
+  Future<void> stop() async {
+    if (stopError != null) throw stopError!;
+    _status = RuntimeStatus.stopped;
+    operations.add('stop');
+  }
 }

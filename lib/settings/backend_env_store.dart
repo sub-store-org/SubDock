@@ -13,6 +13,9 @@ class BackendEnvStore {
 
   File get file => File.fromUri(directories.config.uri.resolve('backend.env'));
 
+  Future<String?> readRaw() async =>
+      await file.exists() ? file.readAsString(encoding: utf8) : null;
+
   Future<BackendEnvDocument> load() async {
     if (!await file.exists()) return BackendEnvDocument.parse('');
     return BackendEnvDocument.parse(await file.readAsString(encoding: utf8));
@@ -26,15 +29,20 @@ class BackendEnvStore {
         issue: issues.first,
       );
     }
+    await replaceRaw(document.rawText);
+  }
+
+  /// Replaces the file with bytes already validated by the caller.
+  ///
+  /// [RuntimeConfigurationStore] uses this to persist a candidate it validated
+  /// and restored as one pair; it skips re-parsing so the previous bytes are
+  /// re-written verbatim.
+  Future<void> replaceRaw(String rawText) async {
     final temporary = File(
       '${file.path}.$pid.${DateTime.now().microsecondsSinceEpoch}.tmp',
     );
     try {
-      await temporary.writeAsString(
-        document.rawText,
-        encoding: utf8,
-        flush: true,
-      );
+      await temporary.writeAsString(rawText, encoding: utf8, flush: true);
       await restrictFileToCurrentUser(temporary);
       await temporary.rename(file.path);
       await restrictFileToCurrentUser(file);

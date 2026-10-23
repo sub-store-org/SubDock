@@ -7,6 +7,13 @@ abstract class BackendRuntime {
 
   Uri get endpoint;
 
+  /// The configuration the running process was started with.
+  ///
+  /// Null while nothing is running, so a saved or pending configuration never
+  /// reads as applied before a successful start. Runtimes that own no process
+  /// keep the null default.
+  EffectiveRuntimeConfig? get appliedConfiguration => null;
+
   Future<void> start();
 
   Future<void> stop();

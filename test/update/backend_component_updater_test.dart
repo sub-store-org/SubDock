@@ -23,12 +23,14 @@ void main() {
 
     await updater.update(backendRelease('2.39.0'));
 
+    final committedBackup = (await fixture.backups.list()).single;
     expect(
       await fixture.readMetadata(ComponentKind.backend, baseline: 'ignored'),
-      const ComponentMetadata(
+      ComponentMetadata(
         baseline: '2.38.4',
         active: '2.39.0',
         previous: '2.38.4',
+        previousBackupId: committedBackup,
       ),
     );
     expect(
@@ -150,12 +152,14 @@ void main() {
       fixture.metadata.failOn = {};
       fixture.metadata.resetSaveCount();
       await updater.update(backendRelease('2.39.0'));
+      final retryBackup = (await fixture.backups.list()).single;
       expect(
         await fixture.readMetadata(ComponentKind.backend, baseline: 'ignored'),
-        const ComponentMetadata(
+        ComponentMetadata(
           baseline: '2.38.4',
           active: '2.39.0',
           previous: '2.38.4',
+          previousBackupId: retryBackup,
         ),
       );
       final backupId = (await fixture.backups.list()).single;
@@ -175,6 +179,156 @@ void main() {
       _expectRuntimeIdle(fixture.runtime);
     });
   }
+
+  test('retries an update cleanly after its pending save failed', () async {
+    final fixture = await createUpdateFixture();
+    addTearDown(fixture.dispose);
+    await writeComponentVersion(fixture, ComponentKind.backend, '2.38.4');
+    await writeUpdateFile(
+      fixture.directories.data,
+      'settings.json',
+      'prior-data',
+    );
+    const prior = ComponentMetadata(baseline: '2.38.4');
+    await fixture.metadata.save(ComponentKind.backend, prior);
+    fixture.metadata.failOn = {1};
+    fixture.metadata.resetSaveCount();
+    final downloads = _CountingDownloads();
+
+    await expectLater(
+      _updater(fixture, downloads).update(backendRelease('2.39.0')),
+      throwsA(isA<StateError>()),
+    );
+
+    expect(
+      await fixture.readMetadata(ComponentKind.backend, baseline: 'ignored'),
+      prior,
+    );
+    expect(
+      await File('${fixture.directories.data.path}/settings.json')
+          .readAsString(),
+      'prior-data',
+    );
+    expect(await fixture.backups.list(), isEmpty);
+    _expectRuntimeIdle(fixture.runtime);
+
+    // The failed attempt left nothing that could later be mistaken for the
+    // previous version's snapshot.
+    fixture.metadata.failOn = {};
+    fixture.metadata.resetSaveCount();
+    await _updater(fixture, downloads).update(backendRelease('2.39.0'));
+
+    final committed = (await fixture.backups.list()).single;
+    expect(
+      await fixture.readMetadata(ComponentKind.backend, baseline: 'ignored'),
+      ComponentMetadata(
+        baseline: '2.38.4',
+        active: '2.39.0',
+        previous: '2.38.4',
+        previousBackupId: committed,
+      ),
+    );
+    expect(
+      await File('${fixture.directories.backups.path}/$committed/settings.json')
+          .readAsString(),
+      'prior-data',
+    );
+    _expectRuntimeIdle(fixture.runtime);
+  });
+
+  test(
+    'discards the snapshot of an update whose pending save failed',
+    () async {
+      final fixture = await createUpdateFixture();
+      addTearDown(fixture.dispose);
+      const prior = ComponentMetadata(baseline: '2.38.4');
+      await writeUpdateFile(
+        fixture.directories.data,
+        'settings.json',
+        'original',
+      );
+      await fixture.metadata.save(ComponentKind.backend, prior);
+      fixture.metadata.failOn = {1};
+      fixture.metadata.resetSaveCount();
+      final downloads = _CountingDownloads();
+
+      await expectLater(
+        _updater(fixture, downloads).update(backendRelease('2.39.0')),
+        throwsA(isA<StateError>()),
+      );
+
+      expect(
+        await fixture.readMetadata(ComponentKind.backend, baseline: 'ignored'),
+        prior,
+      );
+      expect(
+        await File('${fixture.directories.data.path}/settings.json')
+            .readAsString(),
+        'original',
+      );
+      expect(await fixture.backups.list(), isEmpty);
+      expect(
+        await Directory('${fixture.directories.components.path}/backend/2.39.0')
+            .exists(),
+        isFalse,
+      );
+      _expectRuntimeIdle(fixture.runtime);
+    },
+  );
+
+  test(
+    'keeps the committed rollback snapshot through a failed update',
+    () async {
+      final fixture = await createUpdateFixture();
+      addTearDown(fixture.dispose);
+      await writeComponentVersion(fixture, ComponentKind.backend, '2.39.0');
+      // Three snapshots already exist; the committed association is the oldest.
+      await writeUpdateFile(
+        fixture.directories.data,
+        'settings.json',
+        'linked',
+      );
+      final linked = await fixture.backups.create(fixture.directories.data);
+      for (var index = 0; index < 2; index++) {
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+        await writeUpdateFile(
+          fixture.directories.data,
+          'settings.json',
+          'stale-$index',
+        );
+        await fixture.backups.create(
+          fixture.directories.data,
+          protected: {linked},
+        );
+      }
+      final prior = ComponentMetadata(
+        baseline: '2.38.4',
+        active: '2.39.0',
+        previous: '2.38.4',
+        previousBackupId: linked,
+      );
+      await fixture.metadata.save(ComponentKind.backend, prior);
+      fixture.metadata.failOn = {2};
+      fixture.metadata.resetSaveCount();
+
+      await expectLater(
+        _updater(
+          fixture,
+          _CountingDownloads(),
+        ).update(backendRelease('2.40.0')),
+        throwsA(isA<StateError>()),
+      );
+
+      // The transaction was rolled back, so the committed association and its
+      // snapshot must both still be in place.
+      expect(
+        await fixture.readMetadata(ComponentKind.backend, baseline: 'ignored'),
+        prior,
+      );
+      expect(await fixture.backups.list(), contains(linked));
+      _expectRuntimeIdle(fixture.runtime);
+    },
+  );
 
   test('startup recovery preserves a downloaded prior Backend update', () async {
     final fixture = await createUpdateFixture();
@@ -220,6 +374,7 @@ void main() {
         baseline: '2.38.4',
         active: '2.39.1',
         previous: '2.39.0',
+        previousBackupId: pendingBackup,
         pending: ComponentPending(
           version: '2.39.1',
           backupId: pendingBackup,
@@ -251,6 +406,7 @@ void main() {
     expect(await fixture.recoverPending(), isTrue);
     expect(
       await disk.load(ComponentKind.backend, baseline: 'ignored'),
+      // 2.39.1 is the interrupted candidate; no data snapshot belongs to it.
       const ComponentMetadata(
         baseline: '2.38.4',
         active: '2.39.0',

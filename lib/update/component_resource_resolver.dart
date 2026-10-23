@@ -55,6 +55,17 @@ class ComponentResourceResolver {
       metadataStore.load(ComponentKind.backend, baseline: packaged.backend),
       metadataStore.load(ComponentKind.frontend, baseline: packaged.frontend),
     ]);
+    for (var index = 0; index < metadata.length; index++) {
+      if (metadata[index].pending != null) {
+        final kind = index == 0
+            ? ComponentKind.backend
+            : ComponentKind.frontend;
+        throw StateError(
+          'Active ${kind.name} component has an unresolved operation; '
+          'recover it before using these resources',
+        );
+      }
+    }
     final backend = await _resolveDirectory(
       ComponentKind.backend,
       metadata[0],
@@ -107,6 +118,30 @@ class ComponentResourceResolver {
     );
   }
 
+  /// Reports whether [version] still resolves to complete component files: the
+  /// packaged baseline when it matches [baselineVersion], otherwise its stored
+  /// version directory. Missing or incomplete files return false, which is what
+  /// makes an unverifiable rollback target distinguishable from a usable one.
+  Future<bool> hasCompleteVersion(
+    ComponentKind kind,
+    String version, {
+    required String baselineVersion,
+  }) async {
+    if (version == baselineVersion) {
+      return _hasFiles(
+        kind,
+        Directory.fromUri(_dataDirectory.uri.resolve('${kind.name}/')),
+      );
+    }
+    if (!_versionPattern.hasMatch(version)) return false;
+    return _hasFiles(
+      kind,
+      Directory.fromUri(
+        componentsDirectory.uri.resolve('${kind.name}/$version/'),
+      ),
+    );
+  }
+
   Future<String> _readVersion(File file) async {
     if (!await file.exists()) {
       throw StateError('Packaged version marker is missing: ${file.path}');
@@ -143,20 +178,28 @@ class ComponentResourceResolver {
     ComponentKind kind,
     Directory directory,
   ) async {
-    final requiredFiles = switch (kind) {
-      ComponentKind.backend => const [
-        'sub-store.bundle.js',
-        'runtime-manifest.json',
-      ],
-      ComponentKind.frontend => const ['index.html'],
-    };
-    for (final name in requiredFiles) {
-      if (!await File.fromUri(directory.uri.resolve(name)).exists()) {
-        throw StateError(
-          'Active ${kind.name} component is incomplete: ${directory.path}',
-        );
-      }
+    if (!await _hasFiles(kind, directory)) {
+      throw StateError(
+        'Active ${kind.name} component is incomplete: ${directory.path}',
+      );
     }
     return directory;
   }
+
+  Future<bool> _hasFiles(ComponentKind kind, Directory directory) async {
+    for (final name in _requiredFiles(kind)) {
+      if (!await File.fromUri(directory.uri.resolve(name)).exists()) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  List<String> _requiredFiles(ComponentKind kind) => switch (kind) {
+    ComponentKind.backend => const [
+      'sub-store.bundle.js',
+      'runtime-manifest.json',
+    ],
+    ComponentKind.frontend => const ['index.html'],
+  };
 }

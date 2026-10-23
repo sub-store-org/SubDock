@@ -38,9 +38,12 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart'
     show EdgeInsets, GestureDetector, Offstage, Padding, SizedBox, ValueKey;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shadcn_ui/shadcn_ui.dart' show ShadLocalizations, ShadTheme;
 import 'package:subdock/app/app.dart';
 import 'package:subdock/app/about_info.dart';
 import 'package:subdock/app/app_coordinator.dart';
+import 'package:subdock/app/app_typography.dart'
+    show uiMonoFontFamily, uiTextFontFamily;
 import 'package:subdock/app/embedded_webview.dart';
 import 'package:subdock/app/mobile_placeholder_runtime.dart';
 import 'package:subdock/l10n/generated/app_localizations.dart';
@@ -57,6 +60,8 @@ import 'package:subdock/update/component_metadata_store.dart';
 import 'package:subdock/update/component_update_checker.dart';
 import 'package:subdock/update/github_release_client.dart';
 import 'package:subdock/update/component_update_service.dart';
+
+import 'support/pump_app.dart';
 
 void main() {
   test('mobile placeholder runtime stays stopped and silent', () async {
@@ -201,7 +206,8 @@ void main() {
     );
     await tester.binding.setSurfaceSize(const Size(600, 480));
     addTearDown(() => tester.binding.setSurfaceSize(null));
-    await tester.pumpWidget(
+    await pumpApp(
+      tester,
       SubDockApp(
         coordinator: coordinator,
         autoStart: false,
@@ -209,6 +215,7 @@ void main() {
         locale: const Locale('zh'),
       ),
     );
+    await tester.pump(const Duration(milliseconds: 1));
 
     expect(find.byKey(const ValueKey('desktop-chrome')), findsOneWidget);
     expect(find.byKey(const ValueKey('desktop-sidebar')), findsOneWidget);
@@ -267,7 +274,8 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(600, 480));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
-    await tester.pumpWidget(
+    await pumpApp(
+      tester,
       SubDockApp(
         coordinator: coordinator,
         autoStart: false,
@@ -300,7 +308,8 @@ void main() {
       environmentStore: BackendEnvStore(directories!),
     );
 
-    await tester.pumpWidget(
+    await pumpApp(
+      tester,
       SubDockApp(
         coordinator: coordinator,
         autoStart: false,
@@ -329,7 +338,8 @@ void main() {
       environmentStore: BackendEnvStore(directories!),
     );
 
-    await tester.pumpWidget(
+    await pumpApp(
+      tester,
       SubDockApp(
         coordinator: coordinator,
         autoStart: false,
@@ -378,7 +388,8 @@ void main() {
       configurationStore: store,
     );
 
-    await tester.pumpWidget(
+    await pumpApp(
+      tester,
       SubDockApp(
         coordinator: coordinator,
         autoStart: false,
@@ -420,7 +431,8 @@ void main() {
     });
     await tester.binding.setSurfaceSize(const Size(599, 600));
     addTearDown(() => tester.binding.setSurfaceSize(null));
-    await tester.pumpWidget(
+    await pumpApp(
+      tester,
       SubDockApp(
         coordinator: AppCoordinator(
           runtime: runtime,
@@ -493,7 +505,8 @@ void main() {
     final fixture = await _widgetRuntime(tester);
     await tester.binding.setSurfaceSize(const Size(600, 700));
     addTearDown(() => tester.binding.setSurfaceSize(null));
-    await tester.pumpWidget(
+    await pumpApp(
+      tester,
       SubDockApp(
         coordinator: fixture.coordinator,
         autoStart: false,
@@ -594,7 +607,8 @@ void main() {
           File.fromUri(directories.logs.uri.resolve('backend.log'))
               .writeAsString('legacy entry'),
     );
-    await tester.pumpWidget(
+    await pumpApp(
+      tester,
       SubDockApp(
         coordinator: coordinator,
         autoStart: false,
@@ -853,7 +867,8 @@ void main() {
       environmentStore: BackendEnvStore(directories),
       logStore: store,
     );
-    await tester.pumpWidget(
+    await pumpApp(
+      tester,
       SubDockApp(
         coordinator: coordinator,
         autoStart: false,
@@ -925,7 +940,8 @@ void main() {
       environmentStore: BackendEnvStore(directories),
       logStore: store,
     );
-    await tester.pumpWidget(
+    await pumpApp(
+      tester,
       SubDockApp(
         coordinator: coordinator,
         autoStart: false,
@@ -995,7 +1011,8 @@ void main() {
       componentUpdates: updates,
     );
 
-    await tester.pumpWidget(
+    await pumpApp(
+      tester,
       SubDockApp(
         coordinator: coordinator,
         autoStart: false,
@@ -1072,7 +1089,7 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('overview follows v5 hierarchy and displays runtime statistics', (
+  testWidgets('overview displays component health and runtime statistics', (
     tester,
   ) async {
     late Directory temp;
@@ -1089,7 +1106,8 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(599, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
-    await tester.pumpWidget(
+    await pumpApp(
+      tester,
       SubDockApp(
         coordinator: coordinator,
         autoStart: false,
@@ -1207,7 +1225,7 @@ void main() {
 
     expect(find.byKey(const ValueKey('overview-backend-hero')), findsOneWidget);
     expect(find.text('fixture-backend'), findsOneWidget);
-    // 去徽章后 hero 仍显示标签与端口/状态 meta（R7）。
+    // 组件卡片同时显示名称、监听端口和健康状态。
     expect(
       find.descendant(
         of: find.byKey(const ValueKey('overview-http-meta-hero')),
@@ -1273,7 +1291,8 @@ void main() {
       environmentStore: BackendEnvStore(directories!),
       componentUpdates: updates,
     );
-    await tester.pumpWidget(
+    await pumpApp(
+      tester,
       SubDockApp(
         coordinator: coordinator,
         autoStart: false,
@@ -1325,7 +1344,8 @@ void main() {
       final fixture = await _widgetRuntime(tester, componentUpdates: updates);
       await tester.binding.setSurfaceSize(const Size(600, 480));
       addTearDown(() => tester.binding.setSurfaceSize(null));
-      await tester.pumpWidget(
+      await pumpApp(
+        tester,
         SubDockApp(
           coordinator: fixture.coordinator,
           autoStart: false,
@@ -1574,7 +1594,8 @@ void main() {
       environmentStore: BackendEnvStore(directories!),
       componentUpdates: updates,
     );
-    await tester.pumpWidget(
+    await pumpApp(
+      tester,
       SubDockApp(
         coordinator: coordinator,
         autoStart: false,
@@ -1587,7 +1608,7 @@ void main() {
     expect(updates.checkCalls[ComponentKind.backend], 1);
     expect(updates.checkCalls[ComponentKind.frontend], 1);
     expect(find.byKey(const ValueKey('settings-child-save')), findsNothing);
-    // Updates notice 圆角为 10px（R2 第二个例外），不再用 12px。
+    // 更新提示与随包资源卡片保持相同圆角。
     final backendNotice = tester.widget<Material>(
       find
           .descendant(
@@ -1694,7 +1715,8 @@ void main() {
       environmentStore: BackendEnvStore(directories!),
       componentUpdates: updates,
     );
-    await tester.pumpWidget(
+    await pumpApp(
+      tester,
       SubDockApp(
         coordinator: coordinator,
         autoStart: false,
@@ -1758,7 +1780,8 @@ void main() {
         environmentStore: BackendEnvStore(directories!),
         componentUpdates: updates,
       );
-      await tester.pumpWidget(
+      await pumpApp(
+        tester,
         SubDockApp(
           coordinator: coordinator,
           autoStart: false,
@@ -1862,7 +1885,8 @@ void main() {
       environmentStore: BackendEnvStore(directories!),
       componentUpdates: updates,
     );
-    await tester.pumpWidget(
+    await pumpApp(
+      tester,
       SubDockApp(
         coordinator: coordinator,
         autoStart: false,
@@ -1933,7 +1957,8 @@ void main() {
       environmentStore: BackendEnvStore(directories!),
       componentUpdates: updates,
     );
-    await tester.pumpWidget(
+    await pumpApp(
+      tester,
       SubDockApp(
         coordinator: coordinator,
         autoStart: false,
@@ -1992,7 +2017,8 @@ void main() {
       environmentStore: BackendEnvStore(directories!),
       componentUpdates: updates,
     );
-    await tester.pumpWidget(
+    await pumpApp(
+      tester,
       SubDockApp(
         coordinator: coordinator,
         autoStart: false,
@@ -2046,7 +2072,8 @@ void main() {
       environmentStore: BackendEnvStore(directories!),
       componentUpdates: updates,
     );
-    await tester.pumpWidget(
+    await pumpApp(
+      tester,
       SubDockApp(
         coordinator: coordinator,
         autoStart: false,
@@ -2096,7 +2123,8 @@ void main() {
       operatingSystem: () => 'windows',
       architecture: () => 'arm64',
     );
-    await tester.pumpWidget(
+    await pumpApp(
+      tester,
       SubDockApp(
         coordinator: coordinator,
         autoStart: false,
@@ -2176,7 +2204,8 @@ void main() {
     final loader = AboutInfoLoader(
       loadPackageMetadata: () async => throw StateError('metadata failed'),
     );
-    await tester.pumpWidget(
+    await pumpApp(
+      tester,
       SubDockApp(
         coordinator: coordinator,
         autoStart: false,
@@ -2229,7 +2258,8 @@ void main() {
       runtime: _FakeBackendRuntime(),
       environmentStore: BackendEnvStore(directories!),
     );
-    await tester.pumpWidget(
+    await pumpApp(
+      tester,
       SubDockApp(
         coordinator: coordinator,
         autoStart: false,
@@ -2294,7 +2324,8 @@ void main() {
       return RuntimeDirectories.fromBaseDirectory(temp);
     });
     final semantics = tester.ensureSemantics();
-    await tester.pumpWidget(
+    await pumpApp(
+      tester,
       SubDockApp(
         coordinator: AppCoordinator(
           runtime: _FakeBackendRuntime(),
@@ -2334,7 +2365,8 @@ void main() {
       runtime: _FakeBackendRuntime(),
       environmentStore: BackendEnvStore(directories!),
     );
-    await tester.pumpWidget(
+    await pumpApp(
+      tester,
       SubDockApp(
         coordinator: coordinator,
         autoStart: false,
@@ -2410,7 +2442,8 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(1000, 700));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final semantics = tester.ensureSemantics();
-    await tester.pumpWidget(
+    await pumpApp(
+      tester,
       SubDockApp(
         coordinator: AppCoordinator(
           runtime: _FakeBackendRuntime(),
@@ -2455,7 +2488,8 @@ void main() {
       runtime: _FakeBackendRuntime(),
       environmentStore: BackendEnvStore(directories!),
     );
-    await tester.pumpWidget(
+    await pumpApp(
+      tester,
       SubDockApp(
         coordinator: coordinator,
         autoStart: false,
@@ -2527,7 +2561,8 @@ void main() {
       environmentStore: BackendEnvStore(directories!),
     );
 
-    await tester.pumpWidget(
+    await pumpApp(
+      tester,
       SubDockApp(
         coordinator: coordinator,
         autoStart: false,
@@ -2569,7 +2604,8 @@ void main() {
       environmentStore: BackendEnvStore(directories!),
     );
 
-    await tester.pumpWidget(
+    await pumpApp(
+      tester,
       SubDockApp(
         coordinator: coordinator,
         autoStart: false,
@@ -2619,7 +2655,8 @@ void main() {
       environmentStore: BackendEnvStore(directories!),
     );
 
-    await tester.pumpWidget(
+    await pumpApp(
+      tester,
       SubDockApp(
         coordinator: coordinator,
         autoStart: false,
@@ -2665,7 +2702,8 @@ void main() {
     );
     final initialized = Completer<void>();
 
-    await tester.pumpWidget(
+    await pumpApp(
+      tester,
       SubDockApp(
         coordinator: coordinator,
         autoStart: false,
@@ -2707,7 +2745,7 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('ready manage toolbar follows v5 browser hierarchy', (
+  testWidgets('ready manage toolbar exposes browser navigation controls', (
     WidgetTester tester,
   ) async {
     late Directory temp;
@@ -2731,7 +2769,8 @@ void main() {
 
     await tester.binding.setSurfaceSize(const Size(600, 480));
     addTearDown(() => tester.binding.setSurfaceSize(null));
-    await tester.pumpWidget(
+    await pumpApp(
+      tester,
       SubDockApp(
         coordinator: coordinator,
         autoStart: false,
@@ -2887,7 +2926,8 @@ void main() {
 
     await tester.binding.setSurfaceSize(const Size(800, 600));
     addTearDown(() => tester.binding.setSurfaceSize(null));
-    await tester.pumpWidget(
+    await pumpApp(
+      tester,
       SubDockApp(
         coordinator: coordinator,
         autoStart: false,
@@ -2952,7 +2992,8 @@ void main() {
     var closes = 0;
     var drags = 0;
 
-    await tester.pumpWidget(
+    await pumpApp(
+      tester,
       SubDockApp(
         coordinator: coordinator,
         autoStart: false,
@@ -2993,7 +3034,8 @@ void main() {
       environmentStore: BackendEnvStore(directories!),
     );
     var toggles = 0;
-    await tester.pumpWidget(
+    await pumpApp(
+      tester,
       SubDockApp(
         coordinator: coordinator,
         autoStart: false,
@@ -3029,7 +3071,8 @@ void main() {
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
     await tester.binding.setSurfaceSize(const Size(599, 800));
-    await tester.pumpWidget(
+    await pumpApp(
+      tester,
       SubDockApp(
         coordinator: coordinator,
         autoStart: false,
@@ -3091,7 +3134,8 @@ void main() {
 
       tester.binding.platformDispatcher.platformBrightnessTestValue =
           Brightness.dark;
-      await tester.pumpWidget(
+      await pumpApp(
+        tester,
         SubDockApp(
           coordinator: coordinator,
           autoStart: false,
@@ -3144,7 +3188,8 @@ void main() {
 
       tester.binding.platformDispatcher.platformBrightnessTestValue =
           Brightness.dark;
-      await tester.pumpWidget(
+      await pumpApp(
+        tester,
         SubDockApp(
           coordinator: coordinator,
           autoStart: false,
@@ -3161,7 +3206,8 @@ void main() {
       await tester.pumpWidget(const SizedBox());
       tester.binding.platformDispatcher.platformBrightnessTestValue =
           Brightness.light;
-      await tester.pumpWidget(
+      await pumpApp(
+        tester,
         SubDockApp(
           coordinator: coordinator,
           autoStart: false,
@@ -3195,7 +3241,8 @@ void main() {
 
       await tester.binding.setSurfaceSize(const Size(600, 480));
       addTearDown(() => tester.binding.setSurfaceSize(null));
-      await tester.pumpWidget(
+      await pumpApp(
+        tester,
         SubDockApp(
           coordinator: coordinator,
           autoStart: false,
@@ -3330,7 +3377,8 @@ void main() {
       environmentStore: BackendEnvStore(directories),
     );
 
-    await tester.pumpWidget(
+    await pumpApp(
+      tester,
       SubDockApp(
         coordinator: coordinator,
         autoStart: false,
@@ -3399,7 +3447,8 @@ void main() {
       environmentStore: BackendEnvStore(directories!),
     );
 
-    await tester.pumpWidget(
+    await pumpApp(
+      tester,
       SubDockApp(
         coordinator: coordinator,
         autoStart: false,
@@ -3435,7 +3484,8 @@ void main() {
       environmentStore: BackendEnvStore(directories),
     );
 
-    await tester.pumpWidget(
+    await pumpApp(
+      tester,
       SubDockApp(
         coordinator: coordinator,
         autoStart: false,
@@ -3489,7 +3539,8 @@ void main() {
         environmentStore: BackendEnvStore(directories),
       );
 
-      await tester.pumpWidget(
+      await pumpApp(
+        tester,
         SubDockApp(
           coordinator: coordinator,
           autoStart: false,
@@ -3534,7 +3585,8 @@ void main() {
       tester.binding.platformDispatcher.clearPlatformBrightnessTestValue,
     );
 
-    await tester.pumpWidget(
+    await pumpApp(
+      tester,
       SubDockApp(
         coordinator: coordinator,
         autoStart: false,
@@ -3575,7 +3627,8 @@ void main() {
     tester.binding.platformDispatcher.platformBrightnessTestValue =
         Brightness.dark;
 
-    await tester.pumpWidget(
+    await pumpApp(
+      tester,
       SubDockApp(
         coordinator: coordinator,
         autoStart: false,
@@ -3611,6 +3664,138 @@ void main() {
 
     await tester.pumpWidget(const SizedBox());
   });
+
+  testWidgets(
+    'shared shell reaches every page and keeps long runtime values selectable',
+    (tester) async {
+      final fixture = await _widgetRuntime(tester);
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final expectedEndpoint =
+          'http://${List.filled(60, 'a').join()}.${List.filled(60, 'b').join()}.example.invalid:3001/';
+      fixture.runtime.endpoint = Uri.parse(expectedEndpoint);
+      const pages = [
+        'overview',
+        'manage',
+        'logs',
+        'updates',
+        'settings',
+        'about',
+      ];
+
+      for (final size in const [Size(1024, 800), Size(1440, 960)]) {
+        for (final brightness in [Brightness.light, Brightness.dark]) {
+          tester.binding.platformDispatcher.platformBrightnessTestValue =
+              brightness;
+          await tester.binding.setSurfaceSize(size);
+          await pumpApp(
+            tester,
+            SubDockApp(
+              coordinator: fixture.coordinator,
+              autoStart: false,
+              enableWebView: false,
+              locale: const Locale('zh'),
+            ),
+          );
+          await _pumpRealIo(tester);
+
+          for (final page in pages) {
+            expect(
+              find.byKey(ValueKey('nav-item-$page')),
+              findsOneWidget,
+              reason: '$page missing at $size in $brightness',
+            );
+            await tester.tap(find.byKey(ValueKey('nav-item-$page')));
+            await tester.pumpAndSettle();
+            expect(
+              tester.takeException(),
+              isNull,
+              reason: '$page overflowed at $size in $brightness',
+            );
+            expect(
+              tester
+                  .widget<Offstage>(find.byKey(ValueKey('page-$page')))
+                  .offstage,
+              isFalse,
+            );
+          }
+
+          // Long runtime values stay selectable and use the bundled mono
+          // family with a CJK-capable fallback.
+          await tester.tap(find.byKey(const ValueKey('nav-item-overview')));
+          await tester.pumpAndSettle();
+          final endpointValue = find.byKey(
+            const ValueKey('runtime-endpoint-value'),
+          );
+          expect(endpointValue, findsOneWidget);
+          expect(
+            tester.widget<SelectableText>(endpointValue).data,
+            expectedEndpoint,
+          );
+          final valueStyle = tester
+              .widget<SelectableText>(endpointValue)
+              .style!;
+          expect(valueStyle.fontFamily, uiMonoFontFamily);
+          expect(valueStyle.fontFamilyFallback, contains(uiTextFontFamily));
+        }
+      }
+      tester.binding.platformDispatcher.platformBrightnessTestValue =
+          Brightness.light;
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
+    'system brightness drives the Material and Shad themes together',
+    (tester) async {
+      final fixture = await _widgetRuntime(tester);
+      addTearDown(() {
+        tester.binding.platformDispatcher.platformBrightnessTestValue =
+            Brightness.light;
+      });
+
+      tester.binding.platformDispatcher.platformBrightnessTestValue =
+          Brightness.dark;
+      await pumpApp(
+        tester,
+        SubDockApp(
+          coordinator: fixture.coordinator,
+          autoStart: false,
+          enableWebView: false,
+          locale: const Locale('zh'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final zhContext = tester.element(find.text('SubDock'));
+      expect(Theme.of(zhContext).brightness, Brightness.dark);
+      expect(ShadTheme.of(zhContext).brightness, Brightness.dark);
+      expect(ShadLocalizations.of(zhContext).timePicker.hours, '时');
+
+      // A locale is applied when the app is created, so build a fresh shell to
+      // switch from the Chinese to the English bundle.
+      await tester.pumpWidget(const SizedBox());
+      tester.binding.platformDispatcher.platformBrightnessTestValue =
+          Brightness.light;
+      await pumpApp(
+        tester,
+        SubDockApp(
+          coordinator: fixture.coordinator,
+          autoStart: false,
+          enableWebView: false,
+          locale: const Locale('en'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final enContext = tester.element(find.text('SubDock'));
+      expect(Theme.of(enContext).brightness, Brightness.light);
+      expect(ShadTheme.of(enContext).brightness, Brightness.light);
+      expect(ShadLocalizations.of(enContext).timePicker.hours, 'Hours');
+      expect(find.text('Logs'), findsWidgets);
+
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
 }
 
 Future<
@@ -3729,7 +3914,7 @@ class _FakeBackendRuntime extends BackendRuntime {
   );
 
   @override
-  Uri get endpoint => Uri.parse('http://127.0.0.1:3001');
+  Uri endpoint = Uri.parse('http://127.0.0.1:3001');
 
   @override
   Stream<RuntimeLog> get logs => _logs.stream;

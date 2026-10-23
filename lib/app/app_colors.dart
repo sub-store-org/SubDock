@@ -22,37 +22,34 @@ class AppColors extends ThemeExtension<AppColors> {
     required this.divider,
   });
 
-  /// Light value set. Hand-picked neutral-gray ladder with the teal accent
-  /// (direction A); `error` and `errorSurface` follow the seeded scheme's
-  /// error roles.
+  /// Neutral light surfaces with a blue accent and accessible error colors.
   static const AppColors light = AppColors(
-    surfaceLowest: Color(0xFFF4F7F7),
-    surfaceLow: Color(0xFFEDF0F0),
-    surfaceHigh: Color(0xFFE0E5E5),
-    onSurface: Color(0xFF101314),
-    accent: Color(0xFF00897B),
-    error: Color(0xFFBA1A1A),
-    errorSurface: Color(0xFFFFDAD6),
-    warning: Color(0xFF7A5900),
-    success: Color(0xFF006D3B),
-    disabled: Color(0xFF9AA0A0),
-    divider: Color(0xFFC4C9C9),
+    surfaceLowest: Color(0xFFF4F4F4),
+    surfaceLow: Color(0xFFFAFAFA),
+    surfaceHigh: Color(0xFFE5EBF2),
+    onSurface: Color(0xFF303133),
+    accent: Color(0xFF2367C9),
+    error: Color(0xFF9D3329),
+    errorSurface: Color(0xFFFFF0ED),
+    warning: Color(0xFF783B00),
+    success: Color(0xFF17633C),
+    disabled: Color(0xFF87919E),
+    divider: Color(0xFFD6D9DE),
   );
 
-  /// Dark value set. Direction A: neutral gray surfaces with an elevation
-  /// ladder (brighter = closer), teal kept as accent only.
+  /// Dark surfaces with a lighter accent to preserve contrast.
   static const AppColors dark = AppColors(
-    surfaceLowest: Color(0xFF0E1111),
-    surfaceLow: Color(0xFF161A1A),
-    surfaceHigh: Color(0xFF1E2323),
-    onSurface: Color(0xFFE1E4E4),
-    accent: Color(0xFF4DB6AC),
-    error: Color(0xFFFFB4AB),
-    errorSurface: Color(0xFF5C1D1D),
-    warning: Color(0xFFE3B35C),
-    success: Color(0xFF7BD0A0),
-    disabled: Color(0xFF6F7575),
-    divider: Color(0xFF3A4040),
+    surfaceLowest: Color(0xFF121212),
+    surfaceLow: Color(0xFF202020),
+    surfaceHigh: Color(0xFF272B33),
+    onSurface: Color(0xFFEDEDED),
+    accent: Color(0xFF8CB8FA),
+    error: Color(0xFFFFB5A8),
+    errorSurface: Color(0xFF422824),
+    warning: Color(0xFFFFCE85),
+    success: Color(0xFF8BD3AC),
+    disabled: Color(0xFF8998AD),
+    divider: Color(0xFF52545B),
   );
 
   final Color surfaceLowest;

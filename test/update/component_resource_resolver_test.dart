@@ -96,6 +96,51 @@ void main() {
     },
   );
 
+  test('refuses to resolve a component with an unresolved operation', () async {
+    for (final row in <({ComponentKind kind, String baseline, String active})>[
+      (kind: ComponentKind.backend, baseline: '2.38.4', active: '2.39.0'),
+      (kind: ComponentKind.frontend, baseline: '2.31.3', active: '2.32.0'),
+    ]) {
+      // The provisional candidate is complete on disk, so only the pending
+      // record distinguishes it from a confirmed component.
+      if (row.kind == ComponentKind.backend) {
+        await _write(
+          components,
+          'backend/2.39.0/sub-store.bundle.js',
+          'candidate',
+        );
+        await _write(components, 'backend/2.39.0/runtime-manifest.json', '{}');
+      } else {
+        await _write(components, 'frontend/2.32.0/index.html', 'candidate');
+      }
+      await store.save(
+        row.kind,
+        ComponentMetadata(
+          baseline: row.baseline,
+          active: row.active,
+          pending: ComponentPending(version: row.active),
+        ),
+      );
+
+      await expectLater(
+        resolver.resolve(),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            contains('unresolved'),
+          ),
+        ),
+        reason: row.kind.name,
+      );
+
+      await store.save(
+        row.kind,
+        ComponentMetadata(baseline: row.baseline, active: row.active),
+      );
+    }
+  });
+
   test('resolves packaged HTTP-META resources and version markers', () async {
     await _write(bundle, 'data/http-meta/http-meta.bundle.js', 'bundle');
     await _write(bundle, 'data/http-meta/version', '1.3.0\n');
