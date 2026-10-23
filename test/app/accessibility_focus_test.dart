@@ -67,7 +67,21 @@ void main() {
       await _tabUntilFocused(tester, maximize);
       await _tabUntilFocused(tester, close);
 
-      await tester.tap(find.byKey(const ValueKey('nav-item-logs')));
+      final logsNavigation = find.byKey(const ValueKey('nav-item-logs'));
+      final settingsNavigation = find.byKey(
+        const ValueKey('nav-item-settings'),
+      );
+      final overviewNavigation = find.byKey(
+        const ValueKey('nav-item-overview'),
+      );
+      final themeMode = find.byKey(const ValueKey('settings-theme-mode'));
+      final inactiveThemeMode = find.byKey(
+        const ValueKey('settings-theme-mode'),
+        skipOffstage: false,
+      );
+
+      await _tabUntilFocused(tester, logsNavigation);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
       await tester.pumpAndSettle();
 
       final currentMode = find.ancestor(
@@ -88,35 +102,115 @@ void main() {
       await _tabUntilFocused(tester, sourceFilter);
       await _tabUntilFocused(tester, newestFirst);
 
-      await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
+      await _tabUntilFocused(tester, logsNavigation);
+      final startingFocus = FocusManager.instance.primaryFocus;
+      expect(startingFocus, isNotNull);
+      var completedFocusCycle = false;
+      for (var index = 0; index < 80; index++) {
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pump();
+        expect(
+          _containsPrimaryFocus(tester, inactiveThemeMode),
+          isFalse,
+          reason: 'An inactive Settings control received keyboard focus.',
+        );
+        if (identical(FocusManager.instance.primaryFocus, startingFocus)) {
+          completedFocusCycle = true;
+          break;
+        }
+      }
+      expect(
+        completedFocusCycle,
+        isTrue,
+        reason: 'Keyboard traversal did not return to its starting control.',
+      );
+
+      await _tabUntilFocused(tester, settingsNavigation);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
       await tester.pumpAndSettle();
 
-      final themeMode = find.byKey(const ValueKey('settings-theme-mode'));
-
-      FocusManager.instance.primaryFocus?.unfocus();
-      await tester.pump();
-      await _tabUntilFocused(tester, themeMode);
-
-      await tester.tap(
-        find.descendant(of: themeMode, matching: find.text('Light')),
+      final lightTheme = find.ancestor(
+        of: find.descendant(of: themeMode, matching: find.text('Light')),
+        matching: find.byType(TextButton),
       );
+      await _tabUntilFocused(tester, lightTheme);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+      expect(tester.widget<SegmentedButton<ThemeMode>>(themeMode).selected, {
+        ThemeMode.light,
+      });
+
+      final discardPreferences = find.byKey(
+        const ValueKey('settings-discard-preferences'),
+      );
+      await _tabUntilFocused(tester, discardPreferences);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+      expect(tester.widget<SegmentedButton<ThemeMode>>(themeMode).selected, {
+        ThemeMode.system,
+      });
+
+      await _tabUntilFocused(tester, lightTheme);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
       await tester.pumpAndSettle();
 
       final savePreferences = find.byKey(
         const ValueKey('settings-save-preferences'),
       );
       expect(tester.widget<FilledButton>(savePreferences).onPressed, isNotNull);
-
-      FocusManager.instance.primaryFocus?.unfocus();
-      await tester.pump();
       await _tabUntilFocused(tester, savePreferences);
-
-      // Save the manual preference draft before leaving the Settings section;
-      // changing sections otherwise opens the unsaved-draft guard.
-      await tester.tap(savePreferences);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
       await tester.pumpAndSettle();
-
       expect(savePreferences, findsNothing);
+
+      final darkTheme = find.ancestor(
+        of: find.descendant(of: themeMode, matching: find.text('Dark')),
+        matching: find.byType(TextButton),
+      );
+      await _tabUntilFocused(tester, darkTheme);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+      await _tabUntilFocused(tester, overviewNavigation);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+      final unsavedDialog = find.byType(AlertDialog);
+      expect(unsavedDialog, findsOneWidget);
+      expect(
+        find.descendant(
+          of: unsavedDialog,
+          matching: find.text('You have unsaved changes. Continue?'),
+        ),
+        findsOneWidget,
+      );
+
+      final cancelLeave = find.ancestor(
+        of: find.descendant(of: unsavedDialog, matching: find.text('Cancel')),
+        matching: find.byType(TextButton),
+      );
+      await _tabUntilFocused(tester, cancelLeave);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(
+        _containsPrimaryFocus(tester, overviewNavigation),
+        isTrue,
+        reason: 'Cancel should return focus to the navigation control.',
+      );
+      expect(
+        tester
+            .widget<Offstage>(find.byKey(const ValueKey('page-settings')))
+            .offstage,
+        isFalse,
+      );
+
+      await _tabUntilFocused(tester, discardPreferences);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+      expect(tester.widget<SegmentedButton<ThemeMode>>(themeMode).selected, {
+        ThemeMode.light,
+      });
+
+      // Commit the manual preference draft before opening the backend editor.
 
       final backendConfig = find.byKey(
         const ValueKey('settings-card-backend-config'),

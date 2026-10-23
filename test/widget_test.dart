@@ -1072,6 +1072,46 @@ void main() {
       ),
       findsNothing,
     );
+
+    await tester.enterText(find.byKey(const ValueKey('logs-search')), '');
+    await tester.pump();
+    final currentList = find.descendant(
+      of: find.byKey(const ValueKey('logs-surface')),
+      matching: find.byType(Scrollable),
+    );
+    await tester.drag(currentList.first, const Offset(0, -220));
+    await tester.pump();
+    expect(find.text('查看最新日志'), findsOneWidget);
+    final rowsBeforeArrival = tester
+        .widgetList<SelectableText>(find.byType(SelectableText))
+        .map((widget) => widget.data)
+        .toList();
+    final scrollArrival = find.byWidgetPredicate(
+      (widget) =>
+          widget is SelectableText &&
+          widget.data?.contains('scroll-paused-arrival') == true,
+    );
+    runtime.emitLog(
+      RuntimeLog(
+        timestamp: DateTime.now(),
+        source: RuntimeLogSource.stdout,
+        message: 'scroll-paused-arrival',
+      ),
+    );
+    await tester.pump();
+    expect(find.text('新增日志：1'), findsOneWidget);
+    expect(
+      tester
+          .widgetList<SelectableText>(find.byType(SelectableText))
+          .map((widget) => widget.data)
+          .toList(),
+      rowsBeforeArrival,
+    );
+    expect(scrollArrival, findsNothing);
+    await tester.tap(follow);
+    await tester.pumpAndSettle();
+    expect(find.text('暂停阅读'), findsOneWidget);
+    expect(scrollArrival, findsOneWidget);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -1627,6 +1667,29 @@ void main() {
             message: 'copy-entry-${index.toString().padLeft(3, '0')} info',
           ),
         );
+        if (index.isEven) {
+          await store.append(
+            RuntimeLog(
+              timestamp: DateTime.now(),
+              source: RuntimeLogSource.httpMetaStdout,
+              message: 'copy-entry-source-$index info',
+            ),
+          );
+          await store.append(
+            RuntimeLog(
+              timestamp: DateTime.now(),
+              source: RuntimeLogSource.stdout,
+              message: 'copy-entry-level-$index error',
+            ),
+          );
+          await store.append(
+            RuntimeLog(
+              timestamp: DateTime.now(),
+              source: RuntimeLogSource.stdout,
+              message: 'interleaved-query-$index info',
+            ),
+          );
+        }
       }
       await store.append(
         RuntimeLog(
@@ -1691,13 +1754,25 @@ void main() {
       ),
       findsOneWidget,
     );
+    await tester.tap(find.text('下一页'));
+    await _pumpRealIo(tester);
     expect(
       find.byWidgetPredicate(
         (widget) =>
             widget is SelectableText &&
-            widget.data?.contains('copy-entry-409 info') == true,
+            widget.data?.contains('copy-entry-200 info') == true,
       ),
-      findsNothing,
+      findsOneWidget,
+    );
+    await tester.tap(find.text('下一页'));
+    await _pumpRealIo(tester);
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is SelectableText &&
+            widget.data?.contains('copy-entry-400 info') == true,
+      ),
+      findsOneWidget,
     );
     final platform =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
@@ -1720,6 +1795,149 @@ void main() {
     expect(copiedLines.last, contains('copy-entry-409 info'));
     expect(copiedLines.any((line) => line.contains('auxiliary')), isFalse);
     expect(copiedLines.any((line) => line.contains('failure error')), isFalse);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('history clipboard publishes only complete current reads', (
+    tester,
+  ) async {
+    late Directory temp;
+    addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+    final directories = await tester.runAsync(() async {
+      temp = await Directory.systemTemp.createTemp('subdock_widget_');
+      return RuntimeDirectories.fromBaseDirectory(temp);
+    });
+    final store = _ReadGatedRuntimeLogStore(directories!);
+    final gates = <_ReadGate>[];
+    addTearDown(() async {
+      for (final gate in gates) {
+        if (!gate.release.isCompleted) gate.release.complete();
+      }
+      if (gates.any(
+        (gate) => gate.prefixRead.isCompleted && !gate.finished.isCompleted,
+      )) {
+        await _pumpRealIo(tester);
+      }
+    });
+    late String runId;
+    await tester.runAsync(() async {
+      await store.initialize();
+      runId = await store.beginRun();
+      await store.append(
+        RuntimeLog(
+          timestamp: DateTime.utc(2026, 1, 1),
+          source: RuntimeLogSource.stdout,
+          message: 'stale-old marker',
+        ),
+      );
+      await store.append(
+        RuntimeLog(
+          timestamp: DateTime.utc(2026, 1, 2),
+          source: RuntimeLogSource.stdout,
+          message: 'current marker',
+        ),
+      );
+      await store.finalize();
+    });
+    final coordinator = AppCoordinator(
+      runtime: _FakeBackendRuntime(),
+      environmentStore: BackendEnvStore(directories),
+      logStore: store,
+    );
+    await pumpApp(
+      tester,
+      SubDockApp(
+        coordinator: coordinator,
+        autoStart: false,
+        enableWebView: false,
+        locale: const Locale('zh'),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('nav-item-logs')));
+    await tester.pump();
+    await tester.tap(find.text('历史'));
+    await _pumpRealIo(tester);
+    await tester.tap(find.byKey(ValueKey('history-run-$runId')));
+    await _pumpRealIo(tester);
+    await tester.enterText(find.byKey(const ValueKey('logs-search')), 'marker');
+    await _pumpRealIo(tester);
+    expect(find.textContaining('stale-old marker'), findsOneWidget);
+    expect(find.textContaining('current marker'), findsOneWidget);
+    expect(
+      tester
+          .widget<TextButton>(find.byKey(const ValueKey('logs-copy-filtered')))
+          .onPressed,
+      isNotNull,
+    );
+
+    final platform =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    var copied = '';
+    platform.setMockMethodCallHandler(SystemChannels.platform, (call) {
+      if (call.method == 'Clipboard.setData') {
+        copied = (call.arguments as Map)['text'] as String;
+      }
+      return null;
+    });
+    addTearDown(
+      () => platform.setMockMethodCallHandler(SystemChannels.platform, null),
+    );
+    await Clipboard.setData(const ClipboardData(text: 'prior clipboard'));
+    expect(copied, 'prior clipboard');
+
+    final failedRead = store.gateNextRead(failAfterPrefix: true);
+    gates.add(failedRead);
+    await tester.tap(find.byKey(const ValueKey('logs-copy-filtered')));
+    await _pumpRealIo(tester);
+    expect(failedRead.prefixRead.isCompleted, isTrue);
+    expect(copied, 'prior clipboard');
+    failedRead.release.complete();
+    await _pumpRealIo(tester);
+    expect(failedRead.finished.isCompleted, isTrue);
+    expect(copied, 'prior clipboard');
+    expect(find.text('无法加载历史记录'), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const ValueKey('logs-search')),
+      'stale-old',
+    );
+    await _pumpRealIo(tester);
+    expect(find.textContaining('stale-old marker'), findsOneWidget);
+    expect(find.textContaining('current marker'), findsNothing);
+    await tester.enterText(find.byKey(const ValueKey('logs-search')), 'marker');
+    await _pumpRealIo(tester);
+    expect(find.textContaining('stale-old marker'), findsOneWidget);
+    expect(find.textContaining('current marker'), findsOneWidget);
+    expect(
+      tester
+          .widget<TextButton>(find.byKey(const ValueKey('logs-copy-filtered')))
+          .onPressed,
+      isNotNull,
+    );
+    final staleRead = store.gateNextRead();
+    gates.add(staleRead);
+    await tester.tap(find.byKey(const ValueKey('logs-copy-filtered')));
+    await _pumpRealIo(tester);
+    expect(staleRead.prefixRead.isCompleted, isTrue);
+    expect(copied, 'prior clipboard');
+
+    await tester.enterText(
+      find.byKey(const ValueKey('logs-search')),
+      'stale-old',
+    );
+    await _pumpRealIo(tester);
+    expect(find.textContaining('stale-old marker'), findsOneWidget);
+    expect(find.textContaining('current marker'), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('logs-copy-filtered')));
+    await _pumpRealIo(tester);
+    expect(copied, contains('stale-old marker'));
+    expect(copied, isNot(contains('current marker')));
+
+    staleRead.release.complete();
+    await _pumpRealIo(tester);
+    expect(staleRead.finished.isCompleted, isTrue);
+    expect(copied, contains('stale-old marker'));
+    expect(copied, isNot(contains('current marker')));
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -5345,6 +5563,57 @@ _widgetRuntime(
     runtime: runtime,
     coordinator: coordinator,
   );
+}
+
+class _ReadGate {
+  _ReadGate({required this.failAfterPrefix});
+
+  final bool failAfterPrefix;
+  final prefixRead = Completer<void>();
+  final release = Completer<void>();
+  final finished = Completer<void>();
+}
+
+class _ReadGatedRuntimeLogStore extends RuntimeLogStore {
+  _ReadGatedRuntimeLogStore(super.directories);
+
+  _ReadGate? _nextRead;
+
+  _ReadGate gateNextRead({bool failAfterPrefix = false}) {
+    final gate = _ReadGate(failAfterPrefix: failAfterPrefix);
+    _nextRead = gate;
+    return gate;
+  }
+
+  @override
+  Stream<RuntimeLog> readRunStream(String id, {bool reverse = false}) {
+    final gate = _nextRead;
+    _nextRead = null;
+    if (gate == null) return super.readRunStream(id, reverse: reverse);
+    return _readWithGate(id, reverse: reverse, gate: gate);
+  }
+
+  Stream<RuntimeLog> _readWithGate(
+    String id, {
+    required bool reverse,
+    required _ReadGate gate,
+  }) async* {
+    try {
+      var stoppedAfterPrefix = false;
+      await for (final log in super.readRunStream(id, reverse: reverse)) {
+        yield log;
+        if (stoppedAfterPrefix) continue;
+        stoppedAfterPrefix = true;
+        gate.prefixRead.complete();
+        await gate.release.future;
+        if (gate.failAfterPrefix) {
+          throw StateError('History stream failed after a stored event.');
+        }
+      }
+    } finally {
+      gate.finished.complete();
+    }
+  }
 }
 
 /// Interleaves real-async turns (letting dart:io completions arrive) with

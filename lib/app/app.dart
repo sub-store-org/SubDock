@@ -846,10 +846,13 @@ class _SubDockAppState extends State<SubDockApp> {
     final body = Stack(
       children: [
         for (var index = 0; index < pages.length; index++)
-          Offstage(
-            key: ValueKey('page-${_AppPage.values[index].name}'),
-            offstage: index != _page.index,
-            child: pages[index],
+          ExcludeFocus(
+            excluding: index != _page.index,
+            child: Offstage(
+              key: ValueKey('page-${_AppPage.values[index].name}'),
+              offstage: index != _page.index,
+              child: pages[index],
+            ),
           ),
       ],
     );

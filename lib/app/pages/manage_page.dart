@@ -319,46 +319,7 @@ class _ManagePageState extends State<_ManagePage> {
       _webViewError = null;
       _missingWebView2 = false;
     });
-    try {
-      final canGoBack = await controller.canGoBack();
-      if (!_isCurrentController(
-        controller,
-        generation,
-        identity,
-        webUiUri,
-        apiUri,
-      )) {
-        return;
-      }
-      final canGoForward = await controller.canGoForward();
-      if (!_isCurrentController(
-        controller,
-        generation,
-        identity,
-        webUiUri,
-        apiUri,
-      )) {
-        return;
-      }
-      setState(() {
-        _canGoBack = canGoBack;
-        _canGoForward = canGoForward;
-      });
-    } on Object {
-      if (_isCurrentController(
-        controller,
-        generation,
-        identity,
-        webUiUri,
-        apiUri,
-      )) {
-        setState(
-          () =>
-              _webViewError = AppLocalizations.of(context)!
-                  .webViewActionFailure,
-        );
-      }
-    }
+    await _refreshHistory(controller, generation, identity, webUiUri, apiUri);
   }
 
   Future<void> _refreshHistory(
