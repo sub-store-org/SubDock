@@ -9,6 +9,7 @@ import 'package:subdock/app/app_coordinator.dart';
 import 'package:subdock/runtime/backend_runtime.dart';
 import 'package:subdock/runtime/runtime_directories.dart';
 import 'package:subdock/settings/backend_env_store.dart';
+import 'package:subdock/settings/desktop_preferences.dart';
 import 'package:subdock/update/component_metadata_store.dart';
 import 'package:subdock/update/component_update_checker.dart';
 import 'package:subdock/update/component_update_service.dart';
@@ -43,6 +44,9 @@ void main() {
           autoStart: false,
           enableWebView: false,
           locale: const Locale('en'),
+          preferences: DesktopPreferences.defaults.copyWith(
+            autoSavePreferences: false,
+          ),
           onMinimize: () async {},
           onToggleMaximize: () async {},
           onClose: () async {},
@@ -98,20 +102,21 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      final saveAll = find.byKey(const ValueKey('settings-save-all'));
-      expect(tester.widget<FilledButton>(saveAll).onPressed, isNotNull);
+      final savePreferences = find.byKey(
+        const ValueKey('settings-save-preferences'),
+      );
+      expect(tester.widget<FilledButton>(savePreferences).onPressed, isNotNull);
 
       FocusManager.instance.primaryFocus?.unfocus();
       await tester.pump();
-      await _tabUntilFocused(tester, saveAll);
+      await _tabUntilFocused(tester, savePreferences);
 
-      // The theme selection above intentionally dirties the General edit
-      // session. Persist it before navigating to another Settings section;
-      // otherwise _openSection() correctly opens the dirty-leave guard.
-      await tester.tap(saveAll);
+      // Save the manual preference draft before leaving the Settings section;
+      // changing sections otherwise opens the unsaved-draft guard.
+      await tester.tap(savePreferences);
       await tester.pumpAndSettle();
 
-      expect(tester.widget<FilledButton>(saveAll).onPressed, isNull);
+      expect(savePreferences, findsNothing);
 
       final backendConfig = find.byKey(
         const ValueKey('settings-card-backend-config'),

@@ -17,23 +17,27 @@ void main() {
     expect(preferences.logSort, LogSort.newestFirst);
     expect(preferences.launchAtLogin, isFalse);
     expect(preferences.startHiddenToTray, isFalse);
+    expect(preferences.autoSavePreferences, isTrue);
     expect(DesktopPreferences.fromJson(preferences.toJson()), preferences);
   });
 
-  test('new booleans round-trip and legacy JSON defaults to false', () {
+  test('preference choices round-trip and older files use safe defaults', () {
     final saved = DesktopPreferences.defaults.copyWith(
       launchAtLogin: true,
       startHiddenToTray: true,
+      autoSavePreferences: false,
     );
 
     expect(DesktopPreferences.fromJson(saved.toJson()), saved);
 
     final legacy = Map<String, Object?>.of(DesktopPreferences.defaults.toJson())
       ..remove('launchAtLogin')
-      ..remove('startHiddenToTray');
+      ..remove('startHiddenToTray')
+      ..remove('autoSavePreferences');
     final migrated = DesktopPreferences.fromJson(legacy);
     expect(migrated.launchAtLogin, isFalse);
     expect(migrated.startHiddenToTray, isFalse);
+    expect(migrated.autoSavePreferences, isTrue);
   });
 
   test('rejects invalid schema, enum, locale, and log limits', () {
@@ -46,6 +50,8 @@ void main() {
       {...base, 'recentLogLimit': 49},
       {...base, 'recentLogLimit': 2001},
       {...base, 'logSort': 'random'},
+      {...base, 'autoSavePreferences': null},
+      {...base, 'autoSavePreferences': 'yes'},
     ]) {
       expect(() => DesktopPreferences.fromJson(invalid), throwsFormatException);
     }

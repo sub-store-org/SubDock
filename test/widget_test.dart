@@ -399,9 +399,9 @@ void main() {
     );
     await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
     await tester.pumpAndSettle();
-    // 设置首页有多个 Switch（HTTP-META 开关与桌面行为开关）；这里驱动
-    // HTTP-META enabled 开关（渲染顺序第一个）。
-    final httpMetaSwitch = find.byType(Switch).first;
+    final httpMetaSwitch = find.byKey(
+      const ValueKey('settings-http-meta-toggle'),
+    );
     expect(httpMetaSwitch, findsOneWidget);
     await tester.tap(httpMetaSwitch);
     await tester.pump();
@@ -3384,7 +3384,9 @@ void main() {
         autoStart: false,
         enableWebView: false,
         locale: const Locale('zh'),
-        preferences: DesktopPreferences.defaults,
+        preferences: DesktopPreferences.defaults.copyWith(
+          autoSavePreferences: false,
+        ),
         preferencesStore: store,
       ),
     );
@@ -3400,11 +3402,13 @@ void main() {
     await tester.pump();
     expect(
       tester
-          .widget<FilledButton>(find.byKey(const ValueKey('settings-save-all')))
+          .widget<FilledButton>(
+            find.byKey(const ValueKey('settings-save-preferences')),
+          )
           .onPressed,
       isNotNull,
     );
-    await tester.tap(find.byKey(const ValueKey('settings-save-all')));
+    await tester.tap(find.byKey(const ValueKey('settings-save-preferences')));
     await tester.runAsync(
       () => Future<void>.delayed(const Duration(milliseconds: 10)),
     );
@@ -3426,12 +3430,155 @@ void main() {
 
     expect(
       tester
-          .widget<FilledButton>(find.byKey(const ValueKey('settings-save-all')))
+          .widget<FilledButton>(
+            find.byKey(const ValueKey('settings-save-preferences')),
+          )
           .onPressed,
       isNotNull,
     );
     await tester.pumpWidget(const SizedBox());
   });
+
+  for (final keepAutomaticSaving in [false, true]) {
+    testWidgets(
+      keepAutomaticSaving
+          ? 'queued general edits retain a debounced log limit'
+          : 'turning off auto-save cancels queued preference drafts',
+      (WidgetTester tester) async {
+        late Directory temp;
+        addTearDown(() => tester.runAsync(() => temp.delete(recursive: true)));
+        final directories = await tester.runAsync(() async {
+          temp = await Directory.systemTemp.createTemp('subdock_widget_');
+          return RuntimeDirectories.fromBaseDirectory(temp);
+        });
+        final bootstrap = DesktopPreferencesStore(directories!);
+        await tester.runAsync(
+          () => bootstrap.save(DesktopPreferences.defaults),
+        );
+        final store = _BlockedDesktopPreferencesStore(directories);
+        final coordinator = AppCoordinator(
+          runtime: _FakeBackendRuntime(),
+          environmentStore: BackendEnvStore(directories),
+        );
+        addTearDown(() async {
+          while (store.pendingWrites > 0) {
+            store.releaseNext();
+          }
+          await tester.pumpWidget(const SizedBox());
+          final disposal = coordinator.dispose();
+          await tester.pump();
+          await disposal;
+        });
+        await tester.binding.setSurfaceSize(const Size(1024, 800));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        await pumpApp(
+          tester,
+          SubDockApp(
+            coordinator: coordinator,
+            autoStart: false,
+            enableWebView: false,
+            locale: const Locale('en'),
+            preferences: DesktopPreferences.defaults,
+            preferencesStore: store,
+          ),
+        );
+        await tester.tap(find.byKey(const ValueKey('nav-item-settings')));
+        await tester.pumpAndSettle();
+        final themeSelector = find.byType(SegmentedButton<ThemeMode>);
+
+        Future<void> chooseTheme(String label) async {
+          final option = find.descendant(
+            of: themeSelector,
+            matching: find.text(label),
+          );
+          await tester.scrollUntilVisible(
+            option,
+            -240,
+            scrollable: find.byType(Scrollable).first,
+          );
+          await tester.pumpAndSettle();
+          await tester.tap(option);
+          await tester.pumpAndSettle();
+        }
+
+        await chooseTheme('Light');
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+        await tester.pump();
+        expect(store.attempted, hasLength(1));
+
+        if (keepAutomaticSaving) {
+          final limit = find.byKey(const ValueKey('settings-recent-log-limit'));
+          await tester.scrollUntilVisible(
+            limit,
+            240,
+            scrollable: find.byType(Scrollable).first,
+          );
+          await tester.pumpAndSettle();
+          await tester.enterText(limit, '400');
+          await tester.pump(const Duration(milliseconds: 700));
+          await chooseTheme('Dark');
+          store.releaseNext();
+          await _pumpRealIo(tester);
+          expect(store.pendingWrites, 1);
+          store.releaseNext();
+          await _pumpRealIo(tester);
+          final saved = await tester.runAsync(bootstrap.load);
+          expect(saved!.themeMode, ThemeMode.dark);
+          expect(saved.recentLogLimit, 400);
+          return;
+        }
+
+        await chooseTheme('Dark');
+        final autoSave = find.byKey(const ValueKey('settings-auto-save'));
+        await tester.scrollUntilVisible(
+          autoSave,
+          240,
+          scrollable: find.byType(Scrollable).first,
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(autoSave);
+        await tester.pump();
+        store.releaseNext();
+        await _pumpRealIo(tester);
+
+        expect(store.attempted, hasLength(2));
+        expect(store.attempted.first.themeMode, ThemeMode.light);
+        expect(store.attempted.last.autoSavePreferences, isFalse);
+        expect(store.attempted.last.themeMode, ThemeMode.light);
+        expect(
+          tester
+              .widget<FilledButton>(
+                find.byKey(const ValueKey('settings-save-preferences')),
+              )
+              .onPressed,
+          isNotNull,
+        );
+        await tester.tap(
+          find.byKey(const ValueKey('settings-discard-preferences')),
+        );
+        await tester.pump();
+        store.releaseNext();
+        await _pumpRealIo(tester);
+
+        final persisted = await tester.runAsync(
+          () => DesktopPreferencesStore(directories).load(),
+        );
+        expect(persisted!.themeMode, ThemeMode.light);
+        expect(persisted.autoSavePreferences, isFalse);
+        expect(
+          tester.widget<SegmentedButton<ThemeMode>>(themeSelector).selected,
+          {ThemeMode.light},
+        );
+        expect(
+          find.byKey(const ValueKey('settings-save-preferences')),
+          findsNothing,
+        );
+        expect(tester.widget<Switch>(autoSave).value, isFalse);
+      },
+    );
+  }
 
   testWidgets('renders the shell in English when en is selected', (
     WidgetTester tester,
@@ -3464,7 +3611,7 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('switching the language previews without saving it', (
+  testWidgets('switching the language previews and saves it automatically', (
     WidgetTester tester,
   ) async {
     late Directory temp;
@@ -3492,6 +3639,7 @@ void main() {
         enableWebView: false,
         locale: const Locale('zh'),
         preferences: await tester.runAsync(() => preferencesStore.load()),
+        preferencesStore: preferencesStore,
       ),
     );
     expect(find.text('设置'), findsWidgets);
@@ -3509,7 +3657,7 @@ void main() {
     await _pumpRealIo(tester);
     expect(
       (await tester.runAsync(() => preferencesStore.load()))!.locale,
-      'zh',
+      'en',
     );
     await tester.pumpWidget(const SizedBox());
   });
@@ -3641,7 +3789,11 @@ void main() {
     await tester.tap(find.text('设置'));
     await tester.pumpAndSettle();
 
-    Future<void> selectTheme(String label, Brightness expected) async {
+    Future<void> selectTheme(
+      String label,
+      Brightness expected,
+      ThemeMode persisted,
+    ) async {
       await tester.tap(
         find.descendant(
           of: find.byType(SegmentedButton<ThemeMode>),
@@ -3654,13 +3806,13 @@ void main() {
         Theme.of(tester.element(find.text('SubDock'))).brightness,
         expected,
       );
-      expect((await tester.runAsync(store.load))!.themeMode, ThemeMode.system);
+      expect((await tester.runAsync(store.load))!.themeMode, persisted);
     }
 
-    await selectTheme('浅色', Brightness.light);
-    await selectTheme('深色', Brightness.dark);
+    await selectTheme('浅色', Brightness.light, ThemeMode.light);
+    await selectTheme('深色', Brightness.dark, ThemeMode.dark);
     // Following the system (which is dark in this test) after manual picks.
-    await selectTheme('跟随系统', Brightness.dark);
+    await selectTheme('跟随系统', Brightness.dark, ThemeMode.system);
 
     await tester.pumpWidget(const SizedBox());
   });
@@ -3877,6 +4029,33 @@ class _DelayedDesktopPreferencesStore extends DesktopPreferencesStore {
   }
 
   void releaseNext() => _pending.removeAt(0).complete();
+}
+
+class _BlockedDesktopPreferencesStore extends DesktopPreferencesStore {
+  _BlockedDesktopPreferencesStore(super.directories);
+
+  final attempted = <DesktopPreferences>[];
+  final _pending = <Completer<void>>[];
+
+  int get pendingWrites => _pending.length;
+
+  @override
+  Future<void> save(DesktopPreferences preferences) async {
+    attempted.add(preferences);
+    final completer = Completer<void>();
+    _pending.add(completer);
+    await completer.future;
+    try {
+      await super.save(preferences);
+    } finally {
+      _pending.remove(completer);
+    }
+  }
+
+  void releaseNext() {
+    final completer = _pending.removeAt(0);
+    completer.complete();
+  }
 }
 
 class _FakeBackendRuntime extends BackendRuntime {

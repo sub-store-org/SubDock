@@ -540,6 +540,73 @@ class AppLocalizationsZh extends AppLocalizations {
   String get saveAll => '全部保存';
 
   @override
+  String get autoSavePreferencesHeading => '自动保存本页设置';
+
+  @override
+  String get autoSavePreferencesEnabledSubtitle =>
+      '外观、语言、最近日志和桌面行为会自动保存；运行配置需要单独保存。';
+
+  @override
+  String get autoSavePreferencesManualSubtitle => '在下方保存或撤销偏好更改；运行配置需要单独保存。';
+
+  @override
+  String get autoSavePreferencesSaving => '正在保存偏好设置…';
+
+  @override
+  String get preferenceSaveFailed => '设置保存失败；你的修改仍保留在此处。';
+
+  @override
+  String get retryPreferencesSave => '重试保存';
+
+  @override
+  String get recentLogRangeError => '请输入 50 到 2000 之间的整数。';
+
+  @override
+  String get runtimeSaveFailed => '运行配置保存失败；草稿仍保留在此处。';
+
+  @override
+  String get retrySave => '重试';
+
+  @override
+  String get saveRuntimeConfiguration => '保存运行配置';
+
+  @override
+  String get runtimeDraftPending => '运行配置有未保存的更改。';
+
+  @override
+  String get runtimeConfigurationStatus => '运行配置状态';
+
+  @override
+  String get runtimeConfigDraftStatus => '运行配置草稿尚未保存。';
+
+  @override
+  String get runtimeConfigSavedPending => '已保存的运行配置尚待应用。';
+
+  @override
+  String get runtimeConfigApplied => '已保存的运行配置正在使用。';
+
+  @override
+  String get runtimeConfigSavedForNextStart => '下次启动 Backend 时将使用已保存的运行配置。';
+
+  @override
+  String get applySavedConfiguration => '应用已保存配置';
+
+  @override
+  String get runtimeApplyFailed => '运行配置未能应用；已保存的设置仍保留，可重试。';
+
+  @override
+  String get retryApplyRuntime => '重试应用';
+
+  @override
+  String get autostartApplyFailed => '已保存的登录启动偏好未能应用。';
+
+  @override
+  String get autostartUnsupported => '当前平台不支持登录时启动。';
+
+  @override
+  String get retryAutostart => '重试登录启动设置';
+
+  @override
   String get discard => '放弃更改';
 
   @override

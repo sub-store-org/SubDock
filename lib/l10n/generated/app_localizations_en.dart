@@ -557,6 +557,84 @@ class AppLocalizationsEn extends AppLocalizations {
   String get saveAll => 'Save All';
 
   @override
+  String get autoSavePreferencesHeading => 'Automatically save these settings';
+
+  @override
+  String get autoSavePreferencesEnabledSubtitle =>
+      'Appearance, language, recent logs, and desktop behavior save automatically. Runtime configuration is saved separately.';
+
+  @override
+  String get autoSavePreferencesManualSubtitle =>
+      'Save or discard preference changes below. Runtime configuration is saved separately.';
+
+  @override
+  String get autoSavePreferencesSaving => 'Saving preferences…';
+
+  @override
+  String get preferenceSaveFailed =>
+      'Settings could not be saved. Your changes are still here.';
+
+  @override
+  String get retryPreferencesSave => 'Retry save';
+
+  @override
+  String get recentLogRangeError => 'Enter a whole number from 50 to 2,000.';
+
+  @override
+  String get runtimeSaveFailed =>
+      'Runtime configuration could not be saved. Your draft is still here.';
+
+  @override
+  String get retrySave => 'Retry';
+
+  @override
+  String get saveRuntimeConfiguration => 'Save runtime configuration';
+
+  @override
+  String get runtimeDraftPending =>
+      'Runtime configuration has unsaved changes.';
+
+  @override
+  String get runtimeConfigurationStatus => 'Runtime configuration status';
+
+  @override
+  String get runtimeConfigDraftStatus =>
+      'Runtime configuration draft has not been saved.';
+
+  @override
+  String get runtimeConfigSavedPending =>
+      'Saved runtime configuration is waiting to be applied.';
+
+  @override
+  String get runtimeConfigApplied =>
+      'Saved runtime configuration is currently applied.';
+
+  @override
+  String get runtimeConfigSavedForNextStart =>
+      'Saved runtime configuration will be used when Backend starts.';
+
+  @override
+  String get applySavedConfiguration => 'Apply saved configuration';
+
+  @override
+  String get runtimeApplyFailed =>
+      'Saved runtime configuration could not be applied. It remains saved and can be retried.';
+
+  @override
+  String get retryApplyRuntime => 'Retry apply';
+
+  @override
+  String get autostartApplyFailed =>
+      'The saved login startup preference could not be applied.';
+
+  @override
+  String get autostartUnsupported =>
+      'Login startup is not available on this platform.';
+
+  @override
+  String get retryAutostart => 'Retry startup setting';
+
+  @override
   String get discard => 'Discard';
 
   @override

@@ -86,10 +86,14 @@ class _SettingsPage extends StatefulWidget {
     required this.configuration,
     required this.configurationError,
     required this.coordinator,
-    required this.onSaveConfiguration,
-    required this.onSaveEnvironment,
+    required this.onSaveRuntimeConfiguration,
+    required this.onApplySavedConfiguration,
+    required this.onStartSavedConfiguration,
     required this.savedPreferences,
     required this.onSavePreferences,
+    required this.autostartApplyFailed,
+    required this.autostartSupported,
+    required this.onRetryAutostart,
     required this.onPreviewTheme,
     required this.onPreviewLocale,
     required this.onResetConfiguration,
@@ -102,13 +106,18 @@ class _SettingsPage extends StatefulWidget {
   final SubDockConfig configuration;
   final AppConfigError? configurationError;
   final AppCoordinator coordinator;
-  final Future<void> Function(SubDockConfig configuration) onSaveConfiguration;
-  final Future<void> Function(BackendEnvDocument document) onSaveEnvironment;
-  final DesktopPreferences savedPreferences;
   final Future<void> Function(
-    DesktopPreferences Function(DesktopPreferences current) mutate,
+    BackendEnvDocument environment,
+    SubDockConfig configuration,
   )
-  onSavePreferences;
+  onSaveRuntimeConfiguration;
+  final Future<void> Function() onApplySavedConfiguration;
+  final Future<void> Function() onStartSavedConfiguration;
+  final DesktopPreferences savedPreferences;
+  final _PreferenceSave onSavePreferences;
+  final bool autostartApplyFailed;
+  final bool? autostartSupported;
+  final Future<void> Function() onRetryAutostart;
   final Future<void> Function(ThemeMode mode) onPreviewTheme;
   final Future<void> Function(Locale? locale) onPreviewLocale;
   final Future<void> Function() onResetConfiguration;
@@ -125,11 +134,15 @@ class _SettingsPageState extends State<_SettingsPage> {
   late String? _generalLocale;
   late CloseBehavior _generalCloseBehavior;
   late int _generalRecentLogLimit;
+  late bool _autoSavePreferences;
   bool _generalLaunchAtLogin = false;
   bool _generalStartHiddenToTray = false;
   late final TextEditingController _recentLogLimit;
+  Timer? _recentLogSaveTimer;
   late BackendEnvDocument _document;
+  late BackendEnvDocument _savedEnvironment;
   late SubDockConfig _configuration;
+  late SubDockConfig _savedConfiguration;
   late final TextEditingController _raw;
   late final TextEditingController _host;
   late final TextEditingController _port;
@@ -140,13 +153,18 @@ class _SettingsPageState extends State<_SettingsPage> {
   var _dirty = false;
   var _configurationDirty = false;
   var _generalRevision = 0;
+  var _backendRevision = 0;
+  var _generalSaveInProgress = false;
+  var _generalSaveFailed = false;
+  var _runtimeSaveFailed = false;
+  var _applyConfigurationFailed = false;
+  var _applyConfigurationInProgress = false;
   var _environmentRevision = 0;
   var _configurationRevision = 0;
   var _pendingSaveCount = 0;
   Completer<void>? _saveBarrier;
   late SubDockBackendConfig _savedBackend;
   late SubDockBackendConfig _backendDraft;
-  SubDockBackendConfig? _pendingBackendSave;
   late _NullableBoolDraft _mergeDraft;
   var _httpMetaEnabled = true;
 
@@ -155,7 +173,9 @@ class _SettingsPageState extends State<_SettingsPage> {
     super.initState();
     _syncGeneral();
     _document = widget.environment;
+    _savedEnvironment = widget.environment;
     _configuration = widget.configuration;
+    _savedConfiguration = widget.configuration;
     _savedBackend = widget.configuration.backend;
     _backendDraft = _savedBackend;
     _mergeDraft = _mergeState(_backendDraft.merge);
@@ -166,31 +186,35 @@ class _SettingsPageState extends State<_SettingsPage> {
     _cors = TextEditingController();
     _recentLogLimit = TextEditingController();
     _recentLogLimit.text = '$_generalRecentLogLimit';
-    _syncControllers();
+    _syncEnvironmentController();
+    _syncBackendControllers();
     _syncConfiguration();
   }
 
   @override
   void didUpdateWidget(covariant _SettingsPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.savedPreferences != widget.savedPreferences &&
-        !_generalDirty) {
-      _syncGeneral();
-      _recentLogLimit.text = '$_generalRecentLogLimit';
+    if (oldWidget.savedPreferences != widget.savedPreferences) {
+      if (!_generalDirty) {
+        _syncGeneral();
+        _recentLogLimit.text = '$_generalRecentLogLimit';
+      } else {
+        _generalRecentLogLimit = widget.savedPreferences.recentLogLimit;
+      }
     }
-    if (!_dirty &&
-        oldWidget.environment.rawText != widget.environment.rawText) {
+    if (oldWidget.environment.rawText != widget.environment.rawText &&
+        !_dirty) {
       _document = widget.environment;
-      _syncControllers();
-    }
-    if (!_configurationDirty &&
-        oldWidget.configuration != widget.configuration) {
-      _configuration = widget.configuration;
-      _syncConfiguration();
+      _savedEnvironment = widget.environment;
+      _syncEnvironmentController();
     }
     if (oldWidget.configuration != widget.configuration &&
-        !_backendDirty &&
-        _pendingBackendSave == null) {
+        !_configurationDirty) {
+      _configuration = widget.configuration;
+      _savedConfiguration = widget.configuration;
+      _syncConfiguration();
+    }
+    if (oldWidget.configuration != widget.configuration && !_backendDirty) {
       _savedBackend = widget.configuration.backend;
       _backendDraft = _savedBackend;
       _mergeDraft = _mergeState(_backendDraft.merge);
@@ -205,6 +229,7 @@ class _SettingsPageState extends State<_SettingsPage> {
     _port.dispose();
     _path.dispose();
     _cors.dispose();
+    _recentLogSaveTimer?.cancel();
     _recentLogLimit.dispose();
     super.dispose();
   }
@@ -218,10 +243,13 @@ class _SettingsPageState extends State<_SettingsPage> {
       _generalThemeMode != widget.savedPreferences.themeMode ||
       _generalLocale != widget.savedPreferences.locale ||
       _generalCloseBehavior != widget.savedPreferences.closeBehavior ||
+      _autoSavePreferences != widget.savedPreferences.autoSavePreferences ||
       _generalLaunchAtLogin != widget.savedPreferences.launchAtLogin ||
       _generalStartHiddenToTray != widget.savedPreferences.startHiddenToTray ||
       _recentLogLimit.text.trim() !=
           '${widget.savedPreferences.recentLogLimit}';
+
+  bool get _runtimeDraftDirty => _dirty || _configurationDirty || _backendDirty;
 
   bool get _backendDirty =>
       _backendDraft != _savedBackend ||
@@ -253,7 +281,7 @@ class _SettingsPageState extends State<_SettingsPage> {
     }
     try {
       SubDockConfig.fromJson(
-        widget.configuration
+        _configuration
             .copyWith(backend: _backendDraft.copyWith(merge: _mergeValue))
             .toJson(),
       );
@@ -269,6 +297,7 @@ class _SettingsPageState extends State<_SettingsPage> {
     _generalLocale = preferences.locale;
     _generalCloseBehavior = preferences.closeBehavior;
     _generalRecentLogLimit = preferences.recentLogLimit;
+    _autoSavePreferences = preferences.autoSavePreferences;
     _generalLaunchAtLogin = preferences.launchAtLogin;
     _generalStartHiddenToTray = preferences.startHiddenToTray;
   }
@@ -293,10 +322,25 @@ class _SettingsPageState extends State<_SettingsPage> {
     }
   }
 
-  Future<bool> _saveGeneral() => _withPendingSave(_saveGeneralImpl);
+  Future<bool> _saveGeneral({
+    bool automatic = false,
+    bool includeRecentLogLimit = true,
+  }) => _withPendingSave(
+    () => _saveGeneralImpl(
+      automatic: automatic,
+      includeRecentLogLimit: includeRecentLogLimit,
+    ),
+  );
 
-  Future<bool> _saveGeneralImpl() async {
-    final limit = _parsedRecentLogLimit;
+  Future<bool> _saveGeneralImpl({
+    required bool automatic,
+    required bool includeRecentLogLimit,
+  }) async {
+    final requestedLimit = _parsedRecentLogLimit;
+    final limit = includeRecentLogLimit
+        ? requestedLimit ??
+              (automatic ? widget.savedPreferences.recentLogLimit : null)
+        : widget.savedPreferences.recentLogLimit;
     if (limit == null) return false;
     final revision = _generalRevision;
     final themeMode = _generalThemeMode;
@@ -304,48 +348,142 @@ class _SettingsPageState extends State<_SettingsPage> {
     final closeBehavior = _generalCloseBehavior;
     final launchAtLogin = _generalLaunchAtLogin;
     final startHiddenToTray = _generalStartHiddenToTray;
+    final autoSave = _autoSavePreferences;
+    setState(() => _generalSaveInProgress = true);
+    var saved = false;
     try {
-      await widget.onSavePreferences(
+      saved = await widget.onSavePreferences(
         (current) => current.copyWith(
           themeMode: themeMode,
           locale: locale,
           closeBehavior: closeBehavior,
-          recentLogLimit: limit,
+          recentLogLimit: includeRecentLogLimit && requestedLimit != null
+              ? requestedLimit
+              : current.recentLogLimit,
           launchAtLogin: launchAtLogin,
           startHiddenToTray: startHiddenToTray,
+          autoSavePreferences: autoSave,
         ),
+        canSave: automatic
+            ? () =>
+                  mounted &&
+                  _autoSavePreferences &&
+                  revision == _generalRevision
+            : null,
       );
     } on Object {
+      if (mounted) setState(() => _generalSaveFailed = true);
       return false;
+    } finally {
+      if (mounted) setState(() => _generalSaveInProgress = false);
     }
-    if (!mounted) return false;
+    if (!mounted || !saved) return false;
     if (revision == _generalRevision &&
         _generalThemeMode == themeMode &&
         _generalLocale == locale &&
         _generalCloseBehavior == closeBehavior &&
         _generalLaunchAtLogin == launchAtLogin &&
         _generalStartHiddenToTray == startHiddenToTray &&
+        _autoSavePreferences == autoSave &&
         _recentLogLimit.text.trim() == '$limit') {
       setState(() => _generalRecentLogLimit = limit);
     }
+    setState(() => _generalSaveFailed = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(AppLocalizations.of(context)!.saved)),
+    );
     return true;
   }
 
+  void _recordGeneralEdit({bool recentLogLimit = false}) {
+    setState(() {
+      _generalRevision++;
+      if (!_generalDirty) _generalSaveFailed = false;
+    });
+    if (!_autoSavePreferences) return;
+    if (recentLogLimit) {
+      _queueRecentLogSave();
+    } else {
+      // An elapsed debounce still belongs in the latest queued preference save.
+      unawaited(
+        _saveGeneral(
+          automatic: true,
+          includeRecentLogLimit: _recentLogSaveTimer?.isActive == false,
+        ),
+      );
+    }
+  }
+
+  void _queueRecentLogSave() {
+    _recentLogSaveTimer?.cancel();
+    if (!_autoSavePreferences || _parsedRecentLogLimit == null) return;
+    _recentLogSaveTimer = Timer(const Duration(milliseconds: 700), () {
+      if (!mounted || !_autoSavePreferences || _parsedRecentLogLimit == null) {
+        return;
+      }
+      unawaited(_saveGeneral(automatic: true));
+    });
+  }
+
+  void _submitRecentLogLimit(String _) {
+    _recentLogSaveTimer?.cancel();
+    if (_autoSavePreferences && _parsedRecentLogLimit != null) {
+      unawaited(_saveGeneral(automatic: true));
+    }
+  }
+
+  Future<void> _setPreferenceAutoSave(bool enabled) async {
+    if (_autoSavePreferences == enabled) return;
+    _recentLogSaveTimer?.cancel();
+    setState(() {
+      _autoSavePreferences = enabled;
+      _generalRevision++;
+      if (!_generalDirty) _generalSaveFailed = false;
+    });
+    if (enabled) {
+      await _saveGeneral(automatic: true);
+    } else {
+      setState(() => _generalSaveInProgress = true);
+      try {
+        final saved = await _withPendingSave(
+          () => widget.onSavePreferences(
+            (current) => current.copyWith(autoSavePreferences: false),
+          ),
+        );
+        if (mounted && saved) {
+          setState(() => _generalSaveFailed = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(AppLocalizations.of(context)!.saved)),
+          );
+        }
+      } on Object {
+        if (mounted) setState(() => _generalSaveFailed = true);
+      } finally {
+        if (mounted) setState(() => _generalSaveInProgress = false);
+      }
+    }
+  }
+
   Future<void> _discardGeneral() async {
-    _generalRevision++;
+    _recentLogSaveTimer?.cancel();
+    final revision = ++_generalRevision;
+    await _waitForPendingSaves();
+    if (!mounted) return;
+    // Consume the saved snapshot rebuilt after any already-dispatched writes.
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted || revision != _generalRevision) return;
     _syncGeneral();
     _recentLogLimit.text = '$_generalRecentLogLimit';
     await widget.onPreviewTheme(_generalThemeMode);
     await widget.onPreviewLocale(
       _generalLocale == null ? null : Locale(_generalLocale!),
     );
-    setState(() {});
+    setState(() => _generalSaveFailed = false);
   }
 
-  void _syncControllers() {
+  void _syncEnvironmentController() {
     _updating = true;
     _raw.text = _document.rawText;
-    _syncBackendControllers();
     _updating = false;
   }
 
@@ -361,6 +499,7 @@ class _SettingsPageState extends State<_SettingsPage> {
     if (_updating) return;
     setState(() {
       _backendDraft = next;
+      _backendRevision++;
     });
   }
 
@@ -392,142 +531,123 @@ class _SettingsPageState extends State<_SettingsPage> {
     return null;
   }
 
-  Future<void> _saveConfiguration() => _withPendingSave(_saveConfigurationImpl);
+  String? get _runtimeIssue {
+    final environmentIssues = BackendEnvPolicy.validate(_document);
+    if (environmentIssues.isNotEmpty) {
+      return _localizedIssue(
+        AppLocalizations.of(context)!,
+        environmentIssues.first,
+      );
+    }
+    return _backendIssue ?? _configurationIssue;
+  }
 
-  Future<void> _saveConfigurationImpl() async {
+  ({BackendEnvDocument environment, SubDockConfig configuration})?
+  get _runtimeCandidate {
+    if (_runtimeIssue != null) return null;
+    final portText = _port.text.trim();
+    final backend = _backendDraft.copyWith(
+      apiPort: portText.isEmpty ? null : int.parse(portText),
+      merge: _mergeValue,
+    );
+    final configuration = _configuration.copyWith(backend: backend);
+    try {
+      SubDockConfig.fromJson(configuration.toJson());
+    } on AppConfigError {
+      return null;
+    }
+    return (environment: _document, configuration: configuration);
+  }
+
+  (int, int, int) get _runtimeRevision =>
+      (_environmentRevision, _configurationRevision, _backendRevision);
+
+  Future<void> _applySavedConfiguration() =>
+      _withPendingSave(_applySavedConfigurationImpl);
+
+  Future<void> _applySavedConfigurationImpl() async {
+    setState(() {
+      _applyConfigurationFailed = false;
+      _applyConfigurationInProgress = true;
+    });
+    try {
+      if (widget.coordinator.runtime.currentState.status ==
+          RuntimeStatus.stopped) {
+        await widget.onStartSavedConfiguration();
+      } else {
+        await widget.onApplySavedConfiguration();
+      }
+    } on Object {
+      if (mounted) setState(() => _applyConfigurationFailed = true);
+    } finally {
+      if (mounted) setState(() => _applyConfigurationInProgress = false);
+    }
+  }
+
+  Future<bool> _saveRuntimeDraft() => _withPendingSave(_saveRuntimeDraftImpl);
+
+  Future<bool> _saveRuntimeDraftImpl() async {
     final l10n = AppLocalizations.of(context)!;
-    final issue = _configurationIssue;
-    if (issue != null) return;
-    final revision = _configurationRevision;
-    final snapshot = _configuration;
+    final snapshot = _runtimeCandidate;
+    if (snapshot == null) return false;
+    final revision = _runtimeRevision;
     final effective = EffectiveRuntimeConfig.resolve(
       systemEnvironment: Platform.environment,
-      backendEnvironment: widget.environment,
-      config: snapshot,
+      backendEnvironment: snapshot.environment,
+      config: snapshot.configuration,
     ).environment;
     final effectiveDocument = BackendEnvDocument.parse(
       '${BackendEnvPolicy.host}=${effective[BackendEnvPolicy.host]}\n'
       '${BackendEnvPolicy.port}=${effective[BackendEnvPolicy.port]}\n'
       '${BackendEnvPolicy.corsAllowedOrigins}=${effective[BackendEnvPolicy.corsAllowedOrigins]}',
     );
-    final externalCors = BackendEnvPolicy.externalOrigins(effectiveDocument)
-        .isNotEmpty;
-    final nonLoopback = BackendEnvPolicy.hasNonLoopbackHost(effectiveDocument);
-    if (externalCors && !await _confirm(l10n.confirmExternalCors)) return;
-    if (nonLoopback && !await _confirm(l10n.confirmNonLoopback)) return;
+    if (BackendEnvPolicy.externalOrigins(effectiveDocument).isNotEmpty &&
+        !await _confirm(l10n.confirmExternalCors)) {
+      return false;
+    }
+    if (!mounted || revision != _runtimeRevision) return false;
+    if (BackendEnvPolicy.hasNonLoopbackHost(effectiveDocument) &&
+        !await _confirm(l10n.confirmNonLoopback)) {
+      return false;
+    }
+    if (!mounted || revision != _runtimeRevision) return false;
     try {
-      await widget.onSaveConfiguration(
-        widget.configuration.copyWith(httpMeta: snapshot.httpMeta),
+      await widget.onSaveRuntimeConfiguration(
+        snapshot.environment,
+        snapshot.configuration,
       );
     } on Object {
-      return;
+      if (mounted) setState(() => _runtimeSaveFailed = true);
+      return false;
     }
-    if (!mounted) return;
-    if (revision == _configurationRevision && _configuration == snapshot) {
-      setState(() {
-        _configurationDirty = false;
-        _configuration = snapshot;
-      });
-    }
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(l10n.saved)));
-  }
-
-  Future<void> _saveBackendConfiguration() {
-    if (_pendingBackendSave != null) return Future<void>.value();
-    return _withPendingSave(_saveBackendConfigurationImpl);
-  }
-
-  Future<void> _saveBackendConfigurationImpl() async {
-    final l10n = AppLocalizations.of(context)!;
-    if (_backendIssue != null) return;
-    final portText = _port.text.trim();
-    final backend = _backendDraft.copyWith(
-      apiPort: portText.isEmpty ? null : int.parse(portText),
-      merge: _mergeValue,
-    );
-    final next = widget.configuration.copyWith(backend: backend);
-    try {
-      final effective = EffectiveRuntimeConfig.resolve(
-        systemEnvironment: Platform.environment,
-        backendEnvironment: widget.environment,
-        config: next,
-      ).environment;
-      final document = BackendEnvDocument.parse(
-        '${BackendEnvPolicy.host}=${effective[BackendEnvPolicy.host]}\n'
-        '${BackendEnvPolicy.port}=${effective[BackendEnvPolicy.port]}\n'
-        '${BackendEnvPolicy.corsAllowedOrigins}=${effective[BackendEnvPolicy.corsAllowedOrigins]}',
-      );
-      if (BackendEnvPolicy.externalOrigins(document).isNotEmpty &&
-          !await _confirm(l10n.confirmExternalCors)) {
-        return;
-      }
-      if (BackendEnvPolicy.hasNonLoopbackHost(document) &&
-          !await _confirm(l10n.confirmNonLoopback)) {
-        return;
-      }
-      _pendingBackendSave = backend;
-      await widget.onSaveConfiguration(next);
-    } on Object {
-      return;
-    } finally {
-      if (mounted) {
-        setState(() => _pendingBackendSave = null);
-      } else {
-        _pendingBackendSave = null;
-      }
-    }
-    if (!mounted) return;
+    if (!mounted) return false;
     setState(() {
-      _savedBackend = backend;
-      if (_backendDraft == backend) {
-        _backendDraft = backend;
+      _savedEnvironment = snapshot.environment;
+      _savedConfiguration = snapshot.configuration;
+      _savedBackend = snapshot.configuration.backend;
+      _configuration = _configuration.copyWith(
+        backend: snapshot.configuration.backend,
+      );
+      _dirty = _document.rawText != _savedEnvironment.rawText;
+      _configurationDirty =
+          _configuration.httpMeta != _savedConfiguration.httpMeta;
+      _runtimeSaveFailed = false;
+      if (_backendRevision == revision.$3) {
         _syncBackendControllers();
       }
     });
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text(l10n.saved)));
+    return true;
   }
 
   void _updateRaw(String value) {
     if (_updating) return;
     setState(() {
       _document = BackendEnvDocument.parse(value);
-      _dirty = true;
+      _dirty = _document.rawText != _savedEnvironment.rawText;
       _environmentRevision++;
-      _syncControllers();
     });
-  }
-
-  Future<void> _save() => _withPendingSave(_saveEnvironmentImpl);
-
-  Future<void> _saveEnvironmentImpl() async {
-    final l10n = AppLocalizations.of(context)!;
-    final revision = _environmentRevision;
-    final snapshot = _document;
-    final issues = BackendEnvPolicy.validate(snapshot);
-    if (issues.isNotEmpty) return;
-    if (BackendEnvPolicy.externalOrigins(snapshot).isNotEmpty &&
-        !await _confirm(l10n.confirmExternalCors)) {
-      return;
-    }
-    if (BackendEnvPolicy.hasNonLoopbackHost(snapshot) &&
-        !await _confirm(l10n.confirmNonLoopback)) {
-      return;
-    }
-    try {
-      await widget.onSaveEnvironment(snapshot);
-    } on Object {
-      // _saveEnvironment records the error into _error for display.
-      return;
-    }
-    if (!mounted) return;
-    if (revision == _environmentRevision &&
-        _document.rawText == snapshot.rawText) {
-      setState(() => _dirty = false);
-    }
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(l10n.saved)));
   }
 
   Future<bool> _confirm(String message) async {
@@ -551,89 +671,133 @@ class _SettingsPageState extends State<_SettingsPage> {
         false;
   }
 
+  bool get _hasUnsavedChanges => _generalDirty || _runtimeDraftDirty;
+
+  bool get _canSavePreferenceDraft =>
+      _parsedRecentLogLimit != null || !_generalDirty;
+
+  bool get _canSaveAllDrafts =>
+      _canSavePreferenceDraft && _runtimeIssue == null;
+
+  bool get _hasSaveableGeneralChanges =>
+      _hasSaveableAutomaticPreferences ||
+      _autoSavePreferences != widget.savedPreferences.autoSavePreferences;
+
+  bool get _hasSaveableAutomaticPreferences =>
+      _generalThemeMode != widget.savedPreferences.themeMode ||
+      _generalLocale != widget.savedPreferences.locale ||
+      _generalCloseBehavior != widget.savedPreferences.closeBehavior ||
+      _generalLaunchAtLogin != widget.savedPreferences.launchAtLogin ||
+      _generalStartHiddenToTray != widget.savedPreferences.startHiddenToTray ||
+      _parsedRecentLogLimit != null &&
+          _parsedRecentLogLimit != widget.savedPreferences.recentLogLimit;
+
+  (int, int, int, int) get _draftRevision => (
+    _generalRevision,
+    _environmentRevision,
+    _configurationRevision,
+    _backendRevision,
+  );
+
   Future<bool> requestLeave() async {
     await _waitForPendingSaves();
     if (!mounted) return true;
-    if (!_generalDirty && !_dirty && !_configurationDirty && !_backendDirty) {
-      return true;
+    if (_autoSavePreferences &&
+        _hasSaveableAutomaticPreferences &&
+        _generalDirty) {
+      _recentLogSaveTimer?.cancel();
+      await _saveGeneral(automatic: true);
+      await _waitForPendingSaves();
+      if (!mounted) return true;
     }
-    final l10n = AppLocalizations.of(context)!;
-    final decision = await showDialog<_LeaveDecision>(
-      context: context,
-      builder: (context) => AlertDialog(
-        content: Text(l10n.unsavedChanges),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, _LeaveDecision.cancel),
-            child: Text(l10n.cancel),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, _LeaveDecision.discard),
-            child: Text(l10n.discard),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, _LeaveDecision.save),
-            child: Text(l10n.save),
-          ),
-        ],
-      ),
-    );
-    if (decision == null || decision == _LeaveDecision.cancel) return false;
-    if (decision == _LeaveDecision.discard) {
-      _environmentRevision++;
-      _configurationRevision++;
-      if (_generalDirty) await _discardGeneral();
-      if (_dirty) {
-        _document = widget.environment;
-        _syncControllers();
-        _dirty = false;
+    while (_hasUnsavedChanges) {
+      final revision = _draftRevision;
+      final l10n = AppLocalizations.of(context)!;
+      final decision = await showDialog<_LeaveDecision>(
+        context: context,
+        builder: (context) => AlertDialog(
+          content: Text(l10n.unsavedChanges),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, _LeaveDecision.cancel),
+              child: Text(l10n.cancel),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, _LeaveDecision.discard),
+              child: Text(l10n.discard),
+            ),
+            FilledButton(
+              onPressed: _canSaveAllDrafts
+                  ? () => Navigator.pop(context, _LeaveDecision.save)
+                  : null,
+              child: Text(l10n.save),
+            ),
+          ],
+        ),
+      );
+      if (!mounted) return true;
+      if (_draftRevision != revision) continue;
+      if (decision == null || decision == _LeaveDecision.cancel) return false;
+      if (decision == _LeaveDecision.discard) {
+        _recentLogSaveTimer?.cancel();
+        _environmentRevision++;
+        _configurationRevision++;
+        _backendRevision++;
+        final runtimeRevision = _runtimeRevision;
+        if (_generalDirty) await _discardGeneral();
+        if (!mounted) return true;
+        if (_generalDirty || runtimeRevision != _runtimeRevision) return false;
+        setState(() {
+          _document = _savedEnvironment;
+          _configuration = _savedConfiguration;
+          _configurationDirty = false;
+          _backendDraft = _savedBackend;
+          _dirty = false;
+          _runtimeSaveFailed = false;
+          _syncEnvironmentController();
+          _syncBackendControllers();
+          _syncConfiguration();
+        });
+        return true;
       }
-      if (_configurationDirty) {
-        _configuration = widget.configuration;
-        _syncConfiguration();
-        _configurationDirty = false;
-      }
-      if (_backendDirty) {
-        _backendDraft = widget.configuration.backend;
-        _savedBackend = _backendDraft;
-        _syncBackendControllers();
-        _mergeDraft = _mergeState(_backendDraft.merge);
-      }
-      setState(() {});
-      return true;
-    }
-    if (_generalDirty && !await _saveGeneral()) return false;
-    if (_configurationDirty) {
-      await _saveConfiguration();
-      if (_configurationDirty) return false;
-    }
-    if (_backendDirty) {
-      await _saveBackendConfiguration();
-      if (_backendDirty) return false;
-    }
-    if (_dirty) {
-      await _save();
-      if (_dirty) return false;
+      if (_generalDirty && !await _saveGeneral()) return false;
+      if (_runtimeDraftDirty && !await _saveRuntimeDraft()) return false;
+      await _waitForPendingSaves();
+      if (!mounted || !_hasUnsavedChanges) return true;
+      if (_draftRevision == revision) return false;
     }
     return true;
   }
 
-  Future<void> _openSection(_SettingsSection section) async {
-    if (!await requestLeave() || !mounted) return;
+  void _openSection(_SettingsSection section) {
+    if (_section == section) return;
     setState(() => _section = section);
     widget.onChildStateChanged(section != _SettingsSection.home);
   }
 
-  void _backToHome() => unawaited(_openSection(_SettingsSection.home));
+  void _backToHome() => _openSection(_SettingsSection.home);
 
   @override
   Widget build(BuildContext context) {
     final issues = BackendEnvPolicy.validate(_document);
     final configurationIssue = _configurationIssue;
     final l10n = AppLocalizations.of(context)!;
-    final messenger = ScaffoldMessenger.of(context);
     final colors = Theme.of(context).extension<AppColors>()!;
     final typography = Theme.of(context).extension<AppTypography>()!;
+    final runtimePending = widget.coordinator.hasPendingConfiguration;
+    final runtimeHasApplied =
+        widget.coordinator.runtime.appliedConfiguration != null;
+    final runtimeStopped =
+        widget.coordinator.runtime.currentState.status == RuntimeStatus.stopped;
+    final runtimeCanStart =
+        runtimeStopped && widget.coordinator.savedRevision > 0;
+    final runtimeStatus = _runtimeDraftDirty
+        ? l10n.runtimeConfigDraftStatus
+        : runtimePending
+        ? l10n.runtimeConfigSavedPending
+        : runtimeHasApplied
+        ? l10n.runtimeConfigApplied
+        : l10n.runtimeConfigSavedForNextStart;
     Widget settingRow({
       Key? key,
       required String title,
@@ -665,10 +829,7 @@ class _SettingsPageState extends State<_SettingsPage> {
               Expanded(flex: compact ? 0 : 1, child: details),
               SizedBox(
                 width: compact ? double.infinity : 280,
-                child: Align(
-                  alignment: Alignment.centerRight,
-                  child: control,
-                ),
+                child: Align(alignment: Alignment.centerRight, child: control),
               ),
             ],
           ),
@@ -732,6 +893,44 @@ class _SettingsPageState extends State<_SettingsPage> {
         ),
       ],
     );
+    Widget persistentStatus({
+      required Key key,
+      required String message,
+      required String action,
+      required VoidCallback? onPressed,
+    }) => Padding(
+      key: key,
+      padding: EdgeInsets.only(bottom: typography.spacingMd),
+      child: _SurfacePanel(
+        borderColor: colors.accent,
+        child: Row(
+          children: [
+            Expanded(child: Text(message)),
+            OutlinedButton(onPressed: onPressed, child: Text(action)),
+          ],
+        ),
+      ),
+    );
+    Widget persistentError({
+      required Key key,
+      required String message,
+      required String action,
+      required VoidCallback? onPressed,
+    }) => Padding(
+      key: key,
+      padding: EdgeInsets.only(bottom: typography.spacingMd),
+      child: _SurfacePanel(
+        borderColor: colors.error,
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(message, style: TextStyle(color: colors.error)),
+            ),
+            OutlinedButton(onPressed: onPressed, child: Text(action)),
+          ],
+        ),
+      ),
+    );
     final content = ListView(
       key: const ValueKey('settings-list'),
       padding: EdgeInsets.all(typography.spacingLg),
@@ -752,7 +951,113 @@ class _SettingsPageState extends State<_SettingsPage> {
                       child: Text(l10n.back),
                     ),
                   ),
+                if (widget.autostartSupported == false)
+                  Padding(
+                    key: const ValueKey('settings-autostart-unavailable'),
+                    padding: EdgeInsets.only(bottom: typography.spacingMd),
+                    child: _SurfacePanel(
+                      borderColor: colors.error,
+                      child: Text(
+                        l10n.autostartUnsupported,
+                        style: TextStyle(color: colors.error),
+                      ),
+                    ),
+                  ),
+                if (_generalSaveFailed)
+                  persistentError(
+                    key: const ValueKey('settings-preferences-error'),
+                    message: l10n.preferenceSaveFailed,
+                    action: l10n.retryPreferencesSave,
+                    onPressed:
+                        _generalSaveInProgress || !_hasSaveableGeneralChanges
+                        ? null
+                        : () => unawaited(
+                            _saveGeneral(
+                              automatic: _autoSavePreferences,
+                              includeRecentLogLimit:
+                                  _parsedRecentLogLimit != null,
+                            ),
+                          ),
+                  ),
+                if (widget.autostartApplyFailed &&
+                    widget.autostartSupported != false)
+                  persistentError(
+                    key: const ValueKey('settings-autostart-error'),
+                    message: l10n.autostartApplyFailed,
+                    action: l10n.retryAutostart,
+                    onPressed: widget.autostartSupported == false
+                        ? null
+                        : () => unawaited(widget.onRetryAutostart()),
+                  ),
+                if (_runtimeSaveFailed)
+                  persistentError(
+                    key: const ValueKey('settings-runtime-save-error'),
+                    message: l10n.runtimeSaveFailed,
+                    action: l10n.retrySave,
+                    onPressed: _runtimeCandidate == null
+                        ? null
+                        : () => unawaited(_saveRuntimeDraft()),
+                  ),
+                if (_applyConfigurationFailed)
+                  persistentError(
+                    key: const ValueKey('settings-apply-runtime-error'),
+                    message: l10n.runtimeApplyFailed,
+                    action: l10n.retryApplyRuntime,
+                    onPressed:
+                        (runtimePending || runtimeCanStart) &&
+                            !_applyConfigurationInProgress
+                        ? () => unawaited(_applySavedConfiguration())
+                        : null,
+                  ),
+                if (_section != _SettingsSection.home &&
+                    (runtimePending || runtimeCanStart))
+                  persistentStatus(
+                    key: const ValueKey('settings-runtime-pending-status'),
+                    message: runtimePending
+                        ? l10n.runtimeConfigSavedPending
+                        : l10n.runtimeConfigSavedForNextStart,
+                    action: runtimeStopped
+                        ? l10n.startBackend
+                        : l10n.applySavedConfiguration,
+                    onPressed: _applyConfigurationInProgress
+                        ? null
+                        : () => unawaited(_applySavedConfiguration()),
+                  ),
                 if (_section == _SettingsSection.home) ...[
+                  _SurfacePanel(
+                    key: const ValueKey('settings-auto-save-card'),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                l10n.autoSavePreferencesHeading,
+                                style: typography.titleMedium,
+                              ),
+                              SizedBox(height: typography.spacingXs),
+                              Text(
+                                _generalSaveInProgress
+                                    ? l10n.autoSavePreferencesSaving
+                                    : _autoSavePreferences
+                                    ? l10n.autoSavePreferencesEnabledSubtitle
+                                    : l10n.autoSavePreferencesManualSubtitle,
+                                style: typography.bodySmall,
+                              ),
+                            ],
+                          ),
+                        ),
+                        Switch(
+                          key: const ValueKey('settings-auto-save'),
+                          value: _autoSavePreferences,
+                          onChanged: (value) =>
+                              unawaited(_setPreferenceAutoSave(value)),
+                        ),
+                      ],
+                    ),
+                  ),
+                  SizedBox(height: typography.spacingLg),
                   sectionCard(
                     key: const ValueKey('settings-appearance'),
                     title: l10n.appearanceLanguageHeading,
@@ -782,10 +1087,8 @@ class _SettingsPageState extends State<_SettingsPage> {
                           ],
                           selected: {_generalThemeMode},
                           onSelectionChanged: (selection) {
-                            setState(() {
-                              _generalThemeMode = selection.first;
-                              _generalRevision++;
-                            });
+                            setState(() => _generalThemeMode = selection.first);
+                            _recordGeneralEdit();
                             unawaited(widget.onPreviewTheme(selection.first));
                           },
                         ),
@@ -813,10 +1116,8 @@ class _SettingsPageState extends State<_SettingsPage> {
                             final locale = value == null || value == 'system'
                                 ? null
                                 : value;
-                            setState(() {
-                              _generalLocale = locale;
-                              _generalRevision++;
-                            });
+                            setState(() => _generalLocale = locale);
+                            _recordGeneralEdit();
                             unawaited(
                               widget.onPreviewLocale(
                                 locale == null ? null : Locale(locale),
@@ -833,12 +1134,38 @@ class _SettingsPageState extends State<_SettingsPage> {
                     title: l10n.runtimeHeading,
                     rows: [
                       settingRow(
+                        key: const ValueKey('settings-runtime-application'),
+                        title: l10n.runtimeConfigurationStatus,
+                        subtitle: runtimeStatus,
+                        control: runtimePending || runtimeCanStart
+                            ? OutlinedButton(
+                                key: const ValueKey(
+                                  'settings-apply-saved-runtime',
+                                ),
+                                onPressed: _applyConfigurationInProgress
+                                    ? null
+                                    : () =>
+                                          unawaited(_applySavedConfiguration()),
+                                child: Text(
+                                  runtimeStopped
+                                      ? l10n.startBackend
+                                      : l10n.applySavedConfiguration,
+                                ),
+                              )
+                            : Text(
+                                runtimeHasApplied
+                                    ? l10n.runtimeConfigApplied
+                                    : l10n.runtimeConfigSavedForNextStart,
+                              ),
+                      ),
+                      settingRow(
                         key: const ValueKey('settings-http-meta'),
                         title: l10n.enableHttpMeta,
                         subtitle: _configurationDirty
                             ? '${l10n.enableHttpMetaSubtitle} (${l10n.unsaved})'
                             : l10n.enableHttpMetaSubtitle,
                         control: Switch(
+                          key: const ValueKey('settings-http-meta-toggle'),
                           value: _httpMetaEnabled,
                           onChanged: (value) => _updateConfiguration(
                             _configuration.httpMeta.copyWith(enabled: value),
@@ -891,9 +1218,8 @@ class _SettingsPageState extends State<_SettingsPage> {
                             : l10n.apiFieldsSummary,
                         control: OutlinedButton.icon(
                           key: const ValueKey('settings-card-backend-config'),
-                          onPressed: () => unawaited(
-                            _openSection(_SettingsSection.backendConfig),
-                          ),
+                          onPressed: () =>
+                              _openSection(_SettingsSection.backendConfig),
                           icon: const Icon(Icons.dns_outlined),
                           label: Text(l10n.open),
                         ),
@@ -906,9 +1232,8 @@ class _SettingsPageState extends State<_SettingsPage> {
                             : l10n.advancedRawEnvSubtitle,
                         control: OutlinedButton.icon(
                           key: const ValueKey('settings-card-advanced-env'),
-                          onPressed: () => unawaited(
-                            _openSection(_SettingsSection.advancedEnv),
-                          ),
+                          onPressed: () =>
+                              _openSection(_SettingsSection.advancedEnv),
                           icon: const Icon(Icons.terminal),
                           label: Text(l10n.open),
                         ),
@@ -921,8 +1246,16 @@ class _SettingsPageState extends State<_SettingsPage> {
                           key: const ValueKey('settings-recent-log-limit'),
                           controller: _recentLogLimit,
                           keyboardType: TextInputType.number,
-                          decoration: const InputDecoration(),
-                          onChanged: (_) => setState(() => _generalRevision++),
+                          decoration: InputDecoration(
+                            errorText:
+                                _recentLogLimit.text.trim().isEmpty ||
+                                    _parsedRecentLogLimit == null
+                                ? l10n.recentLogRangeError
+                                : null,
+                          ),
+                          onChanged: (_) =>
+                              _recordGeneralEdit(recentLogLimit: true),
+                          onSubmitted: _submitRecentLogLimit,
                         ),
                       ),
                     ],
@@ -951,10 +1284,8 @@ class _SettingsPageState extends State<_SettingsPage> {
                           ],
                           onChanged: (value) {
                             if (value != null) {
-                              setState(() {
-                                _generalCloseBehavior = value;
-                                _generalRevision++;
-                              });
+                              setState(() => _generalCloseBehavior = value);
+                              _recordGeneralEdit();
                             }
                           },
                         ),
@@ -967,10 +1298,8 @@ class _SettingsPageState extends State<_SettingsPage> {
                           key: const ValueKey('settings-launch-at-login'),
                           value: _generalLaunchAtLogin,
                           onChanged: (value) {
-                            setState(() {
-                              _generalLaunchAtLogin = value;
-                              _generalRevision++;
-                            });
+                            setState(() => _generalLaunchAtLogin = value);
+                            _recordGeneralEdit();
                           },
                         ),
                       ),
@@ -982,10 +1311,8 @@ class _SettingsPageState extends State<_SettingsPage> {
                           key: const ValueKey('settings-start-hidden'),
                           value: _generalStartHiddenToTray,
                           onChanged: (value) {
-                            setState(() {
-                              _generalStartHiddenToTray = value;
-                              _generalRevision++;
-                            });
+                            setState(() => _generalStartHiddenToTray = value);
+                            _recordGeneralEdit();
                           },
                         ),
                       ),
@@ -997,8 +1324,7 @@ class _SettingsPageState extends State<_SettingsPage> {
                     key: const ValueKey('settings-card-about'),
                     title: l10n.aboutSubDock,
                     subtitle: l10n.aboutSubDockSubtitle,
-                    onTap: () =>
-                        unawaited(_openSection(_SettingsSection.about)),
+                    onTap: () => _openSection(_SettingsSection.about),
                   ),
                 ],
                 SizedBox(height: typography.spacingLg),
@@ -1084,6 +1410,7 @@ class _SettingsPageState extends State<_SettingsPage> {
                                 _backendDraft = _backendDraft.copyWith(
                                   merge: _mergeValue,
                                 );
+                                _backendRevision++;
                               });
                             },
                           ),
@@ -1100,8 +1427,9 @@ class _SettingsPageState extends State<_SettingsPage> {
                                   decoration: const InputDecoration(),
                                   onChanged: (value) => _updateBackend(
                                     _backendDraft.copyWith(
-                                      frontendBackendPath:
-                                          value.trim().isEmpty ? null : value,
+                                      frontendBackendPath: value.trim().isEmpty
+                                          ? null
+                                          : value,
                                     ),
                                   ),
                                 ),
@@ -1161,10 +1489,7 @@ class _SettingsPageState extends State<_SettingsPage> {
                           ),
                           child: Row(
                             children: [
-                              Icon(
-                                Icons.warning_amber,
-                                color: colors.error,
-                              ),
+                              Icon(Icons.warning_amber, color: colors.error),
                               SizedBox(width: typography.spacingSm),
                               Expanded(
                                 child: Text(
@@ -1238,39 +1563,62 @@ class _SettingsPageState extends State<_SettingsPage> {
     return Column(
       children: [
         Expanded(child: content),
-        if (_section == _SettingsSection.home)
+        if (_section == _SettingsSection.home &&
+            ((!_autoSavePreferences && _generalDirty) || _runtimeDraftDirty))
           SafeArea(
             top: false,
             child: Padding(
               padding: EdgeInsets.all(typography.spacingMd),
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: FilledButton(
-                  key: const ValueKey('settings-save-all'),
-                  onPressed:
-                      (_configurationDirty ||
-                          (_generalDirty && _parsedRecentLogLimit != null))
-                      ? () async {
-                          var generalSaved = true;
-                          if (_generalDirty) {
-                            generalSaved = await _saveGeneral();
-                          }
-                          if (generalSaved && _configurationDirty) {
-                            await _saveConfiguration();
-                          } else if (generalSaved && mounted) {
-                            messenger.showSnackBar(
-                              SnackBar(content: Text(l10n.saved)),
-                            );
-                          }
-                        }
-                      : null,
-                  child: Text(l10n.saveAll),
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (!_autoSavePreferences && _generalDirty)
+                    Padding(
+                      padding: EdgeInsets.only(bottom: typography.spacingSm),
+                      child: Row(
+                        children: [
+                          Expanded(child: Text(l10n.unsavedChanges)),
+                          TextButton(
+                            key: const ValueKey('settings-discard-preferences'),
+                            onPressed: () => unawaited(_discardGeneral()),
+                            child: Text(l10n.discard),
+                          ),
+                          FilledButton(
+                            key: const ValueKey('settings-save-preferences'),
+                            onPressed: _parsedRecentLogLimit == null
+                                ? null
+                                : () => unawaited(_saveGeneral()),
+                            child: Text(l10n.save),
+                          ),
+                        ],
+                      ),
+                    ),
+                  if (_runtimeDraftDirty)
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            _runtimeSaveFailed
+                                ? l10n.runtimeSaveFailed
+                                : l10n.runtimeDraftPending,
+                          ),
+                        ),
+                        FilledButton(
+                          key: const ValueKey('settings-save-all'),
+                          onPressed: _runtimeCandidate == null
+                              ? null
+                              : () => unawaited(_saveRuntimeDraft()),
+                          child: Text(l10n.saveRuntimeConfiguration),
+                        ),
+                      ],
+                    ),
+                ],
               ),
             ),
           ),
-        if (_section == _SettingsSection.backendConfig ||
-            _section == _SettingsSection.advancedEnv)
+        if ((_section == _SettingsSection.backendConfig ||
+                _section == _SettingsSection.advancedEnv) &&
+            _runtimeDraftDirty)
           SafeArea(
             top: false,
             child: Padding(
@@ -1279,20 +1627,9 @@ class _SettingsPageState extends State<_SettingsPage> {
                 alignment: Alignment.centerRight,
                 child: FilledButton(
                   key: const ValueKey('settings-child-save'),
-                  onPressed: switch (_section) {
-                    _SettingsSection.backendConfig =>
-                      _backendDirty &&
-                              _backendIssue == null &&
-                              _pendingBackendSave == null
-                          ? _saveBackendConfiguration
-                          : null,
-                    _SettingsSection.advancedEnv =>
-                      _dirty && BackendEnvPolicy.validate(_document).isEmpty
-                          ? _save
-                          : null,
-                    _SettingsSection.about => null,
-                    _SettingsSection.home => null,
-                  },
+                  onPressed: _runtimeCandidate == null
+                      ? null
+                      : () => unawaited(_saveRuntimeDraft()),
                   child: Text(l10n.save),
                 ),
               ),

@@ -13,6 +13,7 @@ class DesktopPreferences {
     required this.logSort,
     this.launchAtLogin = false,
     this.startHiddenToTray = false,
+    this.autoSavePreferences = true,
   });
 
   static const defaults = DesktopPreferences(
@@ -21,6 +22,7 @@ class DesktopPreferences {
     closeBehavior: CloseBehavior.exitApp,
     recentLogLimit: 200,
     logSort: LogSort.newestFirst,
+    autoSavePreferences: true,
   );
 
   static const schemaVersion = 1;
@@ -32,6 +34,7 @@ class DesktopPreferences {
   final LogSort logSort;
   final bool launchAtLogin;
   final bool startHiddenToTray;
+  final bool autoSavePreferences;
 
   factory DesktopPreferences.fromJson(Object? json) {
     if (json is! Map) {
@@ -45,6 +48,7 @@ class DesktopPreferences {
     final sort = json['logSort'];
     final launch = json['launchAtLogin'];
     final hidden = json['startHiddenToTray'];
+    final autoSave = json['autoSavePreferences'];
     if (schema != schemaVersion ||
         theme is! String ||
         locale != null && locale is! String ||
@@ -52,7 +56,8 @@ class DesktopPreferences {
         limit is! int ||
         sort is! String ||
         launch != null && launch is! bool ||
-        hidden != null && hidden is! bool) {
+        hidden != null && hidden is! bool ||
+        json.containsKey('autoSavePreferences') && autoSave is! bool) {
       throw const FormatException('invalid desktop preferences');
     }
     if (locale != null && locale != 'zh' && locale != 'en') {
@@ -69,6 +74,7 @@ class DesktopPreferences {
       logSort: _logSort(sort),
       launchAtLogin: launch as bool? ?? false,
       startHiddenToTray: hidden as bool? ?? false,
+      autoSavePreferences: autoSave as bool? ?? true,
     );
   }
 
@@ -81,6 +87,7 @@ class DesktopPreferences {
     'logSort': logSort.name,
     'launchAtLogin': launchAtLogin,
     'startHiddenToTray': startHiddenToTray,
+    'autoSavePreferences': autoSavePreferences,
   };
 
   DesktopPreferences copyWith({
@@ -91,6 +98,7 @@ class DesktopPreferences {
     LogSort? logSort,
     bool? launchAtLogin,
     bool? startHiddenToTray,
+    bool? autoSavePreferences,
   }) => DesktopPreferences(
     themeMode: themeMode ?? this.themeMode,
     locale: identical(locale, _unset) ? this.locale : locale as String?,
@@ -99,6 +107,7 @@ class DesktopPreferences {
     logSort: logSort ?? this.logSort,
     launchAtLogin: launchAtLogin ?? this.launchAtLogin,
     startHiddenToTray: startHiddenToTray ?? this.startHiddenToTray,
+    autoSavePreferences: autoSavePreferences ?? this.autoSavePreferences,
   );
 
   @override
@@ -110,7 +119,8 @@ class DesktopPreferences {
       other.recentLogLimit == recentLogLimit &&
       other.logSort == logSort &&
       other.launchAtLogin == launchAtLogin &&
-      other.startHiddenToTray == startHiddenToTray;
+      other.startHiddenToTray == startHiddenToTray &&
+      other.autoSavePreferences == autoSavePreferences;
 
   @override
   int get hashCode => Object.hash(
@@ -121,6 +131,7 @@ class DesktopPreferences {
     logSort,
     launchAtLogin,
     startHiddenToTray,
+    autoSavePreferences,
   );
 }
 

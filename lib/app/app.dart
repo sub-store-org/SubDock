@@ -16,6 +16,7 @@ import '../settings/backend_env.dart';
 import '../settings/config_error.dart';
 import '../settings/desktop_preferences.dart';
 import '../settings/desktop_preferences_store.dart';
+import '../settings/autostart.dart';
 import '../settings/locale_preference_store.dart';
 import '../settings/subdock_config.dart';
 import '../update/component_metadata_store.dart';
@@ -43,6 +44,14 @@ Future<bool> _launchExternalUri(Uri uri) =>
     launchUrl(uri, mode: LaunchMode.externalApplication);
 
 enum _AppPage { overview, manage, logs, updates, settings, about }
+
+typedef _PreferenceMutation = DesktopPreferences Function(
+  DesktopPreferences current,
+);
+typedef _PreferenceSave = Future<bool> Function(
+  _PreferenceMutation mutate, {
+  bool Function()? canSave,
+});
 
 class _ShellDestination {
   const _ShellDestination({
@@ -147,6 +156,7 @@ class _SubDockAppState extends State<SubDockApp> {
   BackendInfo? _info;
   Object? _error;
   var _actionInProgress = false;
+  var _autostartApplyFailed = false;
   late ThemeMode _themeMode;
   Locale? _localeOverride;
   late DesktopPreferences _savedPreferences;
@@ -295,30 +305,52 @@ class _SubDockAppState extends State<SubDockApp> {
     await _mutatePreferences((current) => current.copyWith(logSort: sort));
   }
 
-  Future<void> _mutatePreferences(
-    DesktopPreferences Function(DesktopPreferences current) mutate,
-  ) {
+  Future<bool> _mutatePreferences(
+    _PreferenceMutation mutate, {
+    bool Function()? canSave,
+  }) {
     final operation = _preferenceQueue.then((_) async {
-      final next = mutate(_savedPreferences);
+      if (canSave != null && !canSave()) return false;
+      final previous = _savedPreferences;
+      final next = mutate(previous);
+      if (next == previous) return true;
       try {
         await widget.preferencesStore?.save(next);
       } catch (error) {
         if (mounted) setState(() => _error = error);
         rethrow;
       }
+      if (!mounted) return true;
+      setState(() {
+        _savedPreferences = next;
+        _error = null;
+      });
       final autostart = widget.onAutostartChanged;
-      if (autostart != null &&
-          next.launchAtLogin != _savedPreferences.launchAtLogin) {
-        try {
-          await autostart(next.launchAtLogin);
-        } catch (error) {
-          if (mounted) setState(() => _error = error);
-        }
+      if (autostart != null && next.launchAtLogin != previous.launchAtLogin) {
+        await _applyAutostart(next.launchAtLogin);
       }
-      if (mounted) setState(() => _savedPreferences = next);
+      return true;
     });
-    _preferenceQueue = operation.catchError((_) {});
+    _preferenceQueue = operation.then<void>((_) {}).catchError((_) {});
     return operation;
+  }
+
+  Future<void> _applyAutostart(bool enabled) async {
+    try {
+      await widget.onAutostartChanged!(enabled);
+      if (mounted) setState(() => _autostartApplyFailed = false);
+    } on Object {
+      if (mounted) setState(() => _autostartApplyFailed = true);
+    }
+  }
+
+  Future<void> _retryAutostart() async {
+    if (widget.onAutostartChanged == null) return;
+    final operation = _preferenceQueue.then(
+      (_) => _applyAutostart(_savedPreferences.launchAtLogin),
+    );
+    _preferenceQueue = operation.catchError((_) {});
+    await operation;
   }
 
   Future<void> _loadInfo() async {
@@ -345,33 +377,16 @@ class _SubDockAppState extends State<SubDockApp> {
     }
   }
 
-  Future<void> _saveEnvironment(BackendEnvDocument document) async {
-    final l10n = AppLocalizations.of(context)!;
-    if (_actionInProgress) throw StateError(l10n.operationInProgress);
-    setState(() {
-      _actionInProgress = true;
-      _error = null;
-    });
-    try {
-      await widget.coordinator.saveEnvironment(document);
-    } catch (error) {
-      if (mounted) setState(() => _error = error);
-      rethrow;
-    } finally {
-      if (mounted) setState(() => _actionInProgress = false);
-    }
-  }
-
-  Future<void> _saveConfiguration(SubDockConfig configuration) async {
+  Future<void> _applySavedConfiguration() async {
     if (_actionInProgress) {
-      throw StateError('operation already in progress');
+      throw StateError(AppLocalizations.of(context)!.operationInProgress);
     }
     setState(() {
       _actionInProgress = true;
       _error = null;
     });
     try {
-      await widget.coordinator.saveConfiguration(configuration);
+      await widget.coordinator.applyConfiguration();
     } catch (error) {
       if (mounted) setState(() => _error = error);
       rethrow;
@@ -380,9 +395,52 @@ class _SubDockAppState extends State<SubDockApp> {
     }
   }
 
-  Future<void> _saveDesktopPreferences(
-    DesktopPreferences Function(DesktopPreferences current) mutate,
-  ) => _mutatePreferences(mutate);
+  Future<void> _startSavedConfiguration() async {
+    if (_actionInProgress) {
+      throw StateError(AppLocalizations.of(context)!.operationInProgress);
+    }
+    setState(() {
+      _actionInProgress = true;
+      _error = null;
+    });
+    try {
+      await widget.coordinator.start();
+    } catch (error) {
+      if (mounted) setState(() => _error = error);
+      rethrow;
+    } finally {
+      if (mounted) setState(() => _actionInProgress = false);
+    }
+  }
+
+  Future<void> _saveRuntimeConfiguration(
+    BackendEnvDocument environment,
+    SubDockConfig configuration,
+  ) async {
+    if (_actionInProgress) {
+      throw StateError(AppLocalizations.of(context)!.operationInProgress);
+    }
+    setState(() {
+      _actionInProgress = true;
+      _error = null;
+    });
+    try {
+      await widget.coordinator.saveRuntimeConfiguration(
+        environment,
+        configuration,
+      );
+    } catch (error) {
+      if (mounted) setState(() => _error = error);
+      rethrow;
+    } finally {
+      if (mounted) setState(() => _actionInProgress = false);
+    }
+  }
+
+  Future<bool> _saveDesktopPreferences(
+    _PreferenceMutation mutate, {
+    bool Function()? canSave,
+  }) => _mutatePreferences(mutate, canSave: canSave);
 
   @override
   Widget build(BuildContext context) {
@@ -606,10 +664,16 @@ class _SubDockAppState extends State<SubDockApp> {
         configuration: widget.coordinator.configuration,
         configurationError: widget.coordinator.configurationError,
         coordinator: widget.coordinator,
-        onSaveConfiguration: _saveConfiguration,
-        onSaveEnvironment: _saveEnvironment,
+        onSaveRuntimeConfiguration: _saveRuntimeConfiguration,
+        onApplySavedConfiguration: _applySavedConfiguration,
+        onStartSavedConfiguration: _startSavedConfiguration,
         savedPreferences: _savedPreferences,
         onSavePreferences: _saveDesktopPreferences,
+        autostartApplyFailed: _autostartApplyFailed,
+        autostartSupported: widget.onAutostartChanged == null
+            ? null
+            : const AutostartManager().isSupported,
+        onRetryAutostart: _retryAutostart,
         onPreviewTheme: _onThemeModeSelected,
         onPreviewLocale: _onLocaleSelected,
         onResetConfiguration: () => _run(widget.coordinator.resetConfiguration),

@@ -254,6 +254,20 @@ class AppCoordinator {
         await _savePair(_environment, configuration);
       });
 
+  /// Saves one connection and ENV candidate through the paired store.
+  Future<void> saveRuntimeConfiguration(
+    BackendEnvDocument environment,
+    SubDockConfig configuration,
+  ) => _serialize(() async {
+    final issues = BackendEnvPolicy.validate(environment);
+    if (issues.isNotEmpty) throw _environmentError(issues.first);
+    SubDockConfig.fromJson(configuration.toJson());
+    if (configurationStore == null) {
+      throw const AppConfigError(AppConfigErrorCode.configStoreDisabled);
+    }
+    await _savePair(environment, configuration);
+  });
+
   Future<void> resetConfiguration() => _serialize(() async {
     if (runtimeConfigurationStore == null) {
       throw const AppConfigError(AppConfigErrorCode.configStoreDisabled);

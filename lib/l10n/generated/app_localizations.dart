@@ -1092,6 +1092,138 @@ abstract class AppLocalizations {
   /// **'全部保存'**
   String get saveAll;
 
+  /// No description provided for @autoSavePreferencesHeading.
+  ///
+  /// In zh, this message translates to:
+  /// **'自动保存本页设置'**
+  String get autoSavePreferencesHeading;
+
+  /// No description provided for @autoSavePreferencesEnabledSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'外观、语言、最近日志和桌面行为会自动保存；运行配置需要单独保存。'**
+  String get autoSavePreferencesEnabledSubtitle;
+
+  /// No description provided for @autoSavePreferencesManualSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'在下方保存或撤销偏好更改；运行配置需要单独保存。'**
+  String get autoSavePreferencesManualSubtitle;
+
+  /// No description provided for @autoSavePreferencesSaving.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在保存偏好设置…'**
+  String get autoSavePreferencesSaving;
+
+  /// No description provided for @preferenceSaveFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'设置保存失败；你的修改仍保留在此处。'**
+  String get preferenceSaveFailed;
+
+  /// No description provided for @retryPreferencesSave.
+  ///
+  /// In zh, this message translates to:
+  /// **'重试保存'**
+  String get retryPreferencesSave;
+
+  /// No description provided for @recentLogRangeError.
+  ///
+  /// In zh, this message translates to:
+  /// **'请输入 50 到 2000 之间的整数。'**
+  String get recentLogRangeError;
+
+  /// No description provided for @runtimeSaveFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'运行配置保存失败；草稿仍保留在此处。'**
+  String get runtimeSaveFailed;
+
+  /// No description provided for @retrySave.
+  ///
+  /// In zh, this message translates to:
+  /// **'重试'**
+  String get retrySave;
+
+  /// No description provided for @saveRuntimeConfiguration.
+  ///
+  /// In zh, this message translates to:
+  /// **'保存运行配置'**
+  String get saveRuntimeConfiguration;
+
+  /// No description provided for @runtimeDraftPending.
+  ///
+  /// In zh, this message translates to:
+  /// **'运行配置有未保存的更改。'**
+  String get runtimeDraftPending;
+
+  /// No description provided for @runtimeConfigurationStatus.
+  ///
+  /// In zh, this message translates to:
+  /// **'运行配置状态'**
+  String get runtimeConfigurationStatus;
+
+  /// No description provided for @runtimeConfigDraftStatus.
+  ///
+  /// In zh, this message translates to:
+  /// **'运行配置草稿尚未保存。'**
+  String get runtimeConfigDraftStatus;
+
+  /// No description provided for @runtimeConfigSavedPending.
+  ///
+  /// In zh, this message translates to:
+  /// **'已保存的运行配置尚待应用。'**
+  String get runtimeConfigSavedPending;
+
+  /// No description provided for @runtimeConfigApplied.
+  ///
+  /// In zh, this message translates to:
+  /// **'已保存的运行配置正在使用。'**
+  String get runtimeConfigApplied;
+
+  /// No description provided for @runtimeConfigSavedForNextStart.
+  ///
+  /// In zh, this message translates to:
+  /// **'下次启动 Backend 时将使用已保存的运行配置。'**
+  String get runtimeConfigSavedForNextStart;
+
+  /// No description provided for @applySavedConfiguration.
+  ///
+  /// In zh, this message translates to:
+  /// **'应用已保存配置'**
+  String get applySavedConfiguration;
+
+  /// No description provided for @runtimeApplyFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'运行配置未能应用；已保存的设置仍保留，可重试。'**
+  String get runtimeApplyFailed;
+
+  /// No description provided for @retryApplyRuntime.
+  ///
+  /// In zh, this message translates to:
+  /// **'重试应用'**
+  String get retryApplyRuntime;
+
+  /// No description provided for @autostartApplyFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'已保存的登录启动偏好未能应用。'**
+  String get autostartApplyFailed;
+
+  /// No description provided for @autostartUnsupported.
+  ///
+  /// In zh, this message translates to:
+  /// **'当前平台不支持登录时启动。'**
+  String get autostartUnsupported;
+
+  /// No description provided for @retryAutostart.
+  ///
+  /// In zh, this message translates to:
+  /// **'重试登录启动设置'**
+  String get retryAutostart;
+
   /// No description provided for @discard.
   ///
   /// In zh, this message translates to:
