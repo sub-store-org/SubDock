@@ -763,7 +763,7 @@ class AppCoordinator {
             ),
           )
           .toList(),
-      clearError: true,
+      clearError: !cleanupOnly,
       clearFailedKind: true,
       clearFailureStage: !cleanupOnly,
       startOnly: startOnly,
@@ -844,6 +844,7 @@ class AppCoordinator {
       await store.save(_attemptFor(operation));
       _publishMaintenance(operation, MaintenancePhase.updating);
       for (final target in operation.remainingTargets) {
+        ComponentRollbackResult? rollbackResult;
         try {
           if (runtime.currentState.status != RuntimeStatus.stopped) {
             throw StateError(
@@ -863,7 +864,7 @@ class AppCoordinator {
               await _requireUpdates().update(update);
               break;
             case MaintenanceAction.rollback:
-              await _requireUpdates().rollback(target.kind);
+              rollbackResult = await _requireUpdates().rollback(target.kind);
               break;
           }
         } on Object catch (error) {
@@ -889,7 +890,16 @@ class AppCoordinator {
             .toList();
         _componentChecks.remove(target.kind);
         _componentCheckErrors.remove(target.kind);
-        operation = operation.copyWith(results: results);
+        final cleanupFailure = rollbackResult?.isCleanupPending == true
+            ? ComponentRollbackCleanupFailure(
+                kind: target.kind,
+                error: rollbackResult!.cleanupError!,
+              )
+            : null;
+        operation = operation.copyWith(
+          results: results,
+          committedRollbackCleanupFailure: cleanupFailure,
+        );
         _recordMaintenanceActivity(
           MaintenancePhase.updating,
           kind: target.kind,
@@ -926,6 +936,16 @@ class AppCoordinator {
           );
         }
         _notifyMaintenanceChanged();
+        if (operation.committedRollbackCleanupFailure
+            case final cleanupFailure?) {
+          return await _publishMaintenanceFailure(
+            operation,
+            cleanupFailure,
+            MaintenanceFailureStage.recovery,
+            failedKind: target.kind,
+            phase: MaintenancePhase.blocked,
+          );
+        }
       }
       if (restoreAfterChanges) {
         operation = operation.copyWith(
@@ -994,7 +1014,21 @@ class AppCoordinator {
     MaintenanceOperation operation,
     MaintenanceAttemptStore store,
   ) async {
+    final hasCommittedRollbackCleanup =
+        operation.committedRollbackCleanupFailure != null;
     try {
+      if (hasCommittedRollbackCleanup) {
+        if (runtime.currentState.status != RuntimeStatus.stopped) {
+          throw StateError(
+            'Stop the Backend before recovering committed rollback cleanup',
+          );
+        }
+        final recover = _componentRecovery;
+        if (recover == null) {
+          throw StateError('Component recovery is unavailable');
+        }
+        await recover();
+      }
       for (final result in operation.results) {
         final status = await _requireUpdates().status(result.target.kind);
         _componentStatuses[result.target.kind] = status;
@@ -1005,10 +1039,25 @@ class AppCoordinator {
           );
         }
       }
+      if (hasCommittedRollbackCleanup &&
+          operation.restoreAfterChanges &&
+          runtime.currentState.status == RuntimeStatus.stopped) {
+        final awaitingStart = operation.copyWith(
+          phase: MaintenancePhase.awaitingStart,
+          startOnly: true,
+          clearError: true,
+          clearCommittedRollbackCleanupFailure: true,
+          clearFailedKind: true,
+          clearFailureStage: true,
+        );
+        await store.save(_attemptFor(awaitingStart));
+        return await _retryStartOnly(awaitingStart, store);
+      }
       final completed = operation.copyWith(
         phase: MaintenancePhase.completed,
         startOnly: false,
         clearError: true,
+        clearCommittedRollbackCleanupFailure: true,
         clearFailedKind: true,
         clearFailureStage: true,
       );

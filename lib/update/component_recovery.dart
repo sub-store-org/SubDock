@@ -31,7 +31,25 @@ class ComponentRecovery {
       ComponentKind.frontend,
       baseline: packaged.frontend,
     );
-    if (backend.pending == null && frontend.pending == null) return false;
+    if (backend.pending != null && backend.cleanupBackupId != null) {
+      throw StateError(
+        'Backend metadata has both an in-flight operation and committed cleanup',
+      );
+    }
+    if (frontend.cleanupBackupId != null) {
+      throw StateError('Frontend metadata cannot own a Backend data snapshot');
+    }
+    if (backend.cleanupBackupId != null &&
+        backend.cleanupBackupId == backend.previousBackupId) {
+      throw StateError(
+        'Backend cleanup snapshot is still linked to the previous version',
+      );
+    }
+    if (backend.pending == null &&
+        frontend.pending == null &&
+        backend.cleanupBackupId == null) {
+      return false;
+    }
 
     var revertedBackend = backend;
     if (backend.pending case final pending?) {
@@ -54,6 +72,18 @@ class ComponentRecovery {
       if (pending.operation != ComponentPendingOperation.update) {
         await dataBackups.discard(backupId);
       }
+    } else if (backend.cleanupBackupId case final cleanupBackupId?) {
+      // The component and data were already committed. Recovery only finishes
+      // deleting the old snapshot; it must never restore data or change version
+      // pointers for this record.
+      await dataBackups.discard(cleanupBackupId);
+      revertedBackend = ComponentMetadata(
+        baseline: backend.baseline,
+        active: backend.active,
+        previous: backend.previous,
+        previousBackupId: backend.previousBackupId,
+      );
+      await metadataStore.save(ComponentKind.backend, revertedBackend);
     }
     if (frontend.pending != null) {
       await metadataStore.save(ComponentKind.frontend, _rollBack(frontend));

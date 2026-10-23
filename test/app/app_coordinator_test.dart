@@ -14,8 +14,11 @@ import 'package:subdock/settings/runtime_configuration_store.dart';
 import 'package:subdock/settings/subdock_config.dart';
 import 'package:subdock/settings/subdock_config_store.dart';
 import 'package:subdock/update/component_metadata_store.dart';
+import 'package:subdock/update/component_recovery.dart';
+import 'package:subdock/update/component_resource_resolver.dart';
 import 'package:subdock/update/component_update_checker.dart';
 import 'package:subdock/update/component_update_service.dart';
+import 'package:subdock/update/data_backup_store.dart';
 import 'package:subdock/update/github_release_client.dart';
 import 'package:subdock/update/maintenance_attempt_store.dart';
 
@@ -1272,6 +1275,262 @@ void main() {
     expect(await store.load(), isNull);
   });
 
+  test(
+    'committed rollback cleanup retries without repeating the rollback',
+    () async {
+      final temp = await Directory.systemTemp.createTemp(
+        'subdock_coordinator_',
+      );
+      addTearDown(() => temp.delete(recursive: true));
+      final directories = await RuntimeDirectories.fromBaseDirectory(temp);
+      final runtime = _FakeRuntime();
+      final updates = _FakeUpdates(runtime.operations)
+        ..rollbackResults[ComponentKind.backend] =
+            ComponentRollbackResult.cleanupPending(
+              StateError('snapshot delete failed'),
+            );
+      final store = MaintenanceAttemptStore(directories);
+      var recoveries = 0;
+      final coordinator = AppCoordinator(
+        runtime: runtime,
+        environmentStore: BackendEnvStore(directories),
+        componentUpdates: updates,
+        maintenanceAttemptStore: store,
+        componentRecovery: () async => recoveries++,
+      );
+      final confirmed = await coordinator.componentStatus(
+        ComponentKind.backend,
+      );
+
+      final blocked = await coordinator.runComponentRollback(
+        ComponentKind.backend,
+        confirmedStatus: confirmed,
+      );
+
+      expect(blocked.phase, MaintenancePhase.blocked);
+      expect(blocked.failureStage, MaintenanceFailureStage.recovery);
+      expect(blocked.remainingTargets, isEmpty);
+      expect(blocked.error, isA<ComponentRollbackCleanupFailure>());
+      expect(blocked.error.toString(), contains('rollback committed'));
+      expect(blocked.error.toString(), contains('snapshot delete failed'));
+      expect(updates.rollbackCalls, [ComponentKind.backend]);
+      expect(runtime.currentState.status, RuntimeStatus.stopped);
+      expect(runtime.operations, ['rollback:backend']);
+      expect((await store.load())?.completed, [ComponentKind.backend]);
+      expect(
+        (await store.load())?.failureStage,
+        MaintenanceFailureStage.recovery,
+      );
+
+      final retried = await coordinator.retryMaintenance();
+
+      expect(retried.phase, MaintenancePhase.completed);
+      expect(recoveries, 1);
+      expect(updates.rollbackCalls, [ComponentKind.backend]);
+      expect(runtime.currentState.status, RuntimeStatus.stopped);
+      expect(runtime.operations, ['rollback:backend']);
+      expect(await store.load(), isNull);
+    },
+  );
+
+  test(
+    'keeps committed rollback cleanup pending after recovery itself fails',
+    () async {
+      final fixture = await _createRollbackCoordinatorFixture(
+        runtimeStatus: RuntimeStatus.stopped,
+        discardFailures: 2,
+      );
+      final store = MaintenanceAttemptStore(fixture.directories);
+      var recoveryAttempts = 0;
+      final coordinator = AppCoordinator(
+        runtime: fixture.runtime,
+        environmentStore: BackendEnvStore(fixture.directories),
+        componentUpdates: fixture.updates,
+        maintenanceAttemptStore: store,
+        componentRecovery: () async {
+          recoveryAttempts++;
+          await fixture.recoverPending();
+        },
+      );
+      final confirmed = await coordinator.componentStatus(
+        ComponentKind.backend,
+      );
+
+      final committed = await coordinator.runComponentRollback(
+        ComponentKind.backend,
+        confirmedStatus: confirmed,
+      );
+      expect(committed.phase, MaintenancePhase.blocked);
+      expect(committed.results.single.state, MaintenanceTargetState.completed);
+      expect(fixture.runtime.currentState.status, RuntimeStatus.stopped);
+      expect(
+        await fixture.backendMetadata(),
+        predicate<ComponentMetadata>(
+          (metadata) => metadata.cleanupBackupId == fixture.targetBackupId,
+        ),
+      );
+      expect(await fixture.backendVersion(), '2.38.4');
+      expect(await fixture.dataContents(), 'restored-data');
+
+      final recoveryFailed = await coordinator.retryMaintenance();
+      expect(recoveryFailed.phase, MaintenancePhase.blocked);
+      expect(recoveryFailed.failureStage, MaintenanceFailureStage.recovery);
+      expect(
+        recoveryFailed.error.toString(),
+        contains('injected snapshot cleanup failure'),
+      );
+      expect(
+        recoveryFailed.committedRollbackCleanupFailure?.error.toString(),
+        contains('injected snapshot cleanup failure'),
+      );
+      expect((await store.load())?.completed, [ComponentKind.backend]);
+      expect(
+        (await fixture.backendMetadata()).cleanupBackupId,
+        fixture.targetBackupId,
+      );
+      expect(fixture.runtime.currentState.status, RuntimeStatus.stopped);
+      expect(await fixture.backendVersion(), '2.38.4');
+      expect(await fixture.dataContents(), 'restored-data');
+
+      final retried = await coordinator.retryMaintenance();
+
+      expect(retried.phase, MaintenancePhase.completed);
+      expect(recoveryAttempts, 2);
+      expect((await fixture.backendMetadata()).cleanupBackupId, isNull);
+      expect(await fixture.backups.list(), [
+        (await fixture.backendMetadata()).previousBackupId,
+      ]);
+      expect(await fixture.backendVersion(), '2.38.4');
+      expect(await fixture.dataContents(), 'restored-data');
+      expect(fixture.runtime.currentState.status, RuntimeStatus.stopped);
+      expect(fixture.runtime.operations, isEmpty);
+    },
+  );
+
+  test(
+    'recovers committed rollback cleanup after its completed checkpoint fails',
+    () async {
+      final fixture = await _createRollbackCoordinatorFixture(
+        runtimeStatus: RuntimeStatus.stopped,
+        discardFailures: 1,
+      );
+      final store = _FailOnceCompletedMaintenanceAttemptStore(
+        fixture.directories,
+      );
+      final coordinator = AppCoordinator(
+        runtime: fixture.runtime,
+        environmentStore: BackendEnvStore(fixture.directories),
+        componentUpdates: fixture.updates,
+        maintenanceAttemptStore: store,
+        componentRecovery: fixture.recoverPending,
+      );
+      await coordinator.start();
+      final confirmed = await coordinator.componentStatus(
+        ComponentKind.backend,
+      );
+
+      final checkpointFailed = await coordinator.runComponentRollback(
+        ComponentKind.backend,
+        confirmedStatus: confirmed,
+      );
+
+      expect(checkpointFailed.phase, MaintenancePhase.blocked);
+      expect(checkpointFailed.failureStage, MaintenanceFailureStage.recovery);
+      expect(
+        checkpointFailed.error.toString(),
+        contains('completed target checkpoint failed'),
+      );
+      expect(
+        checkpointFailed.committedRollbackCleanupFailure?.error.toString(),
+        contains('injected snapshot cleanup failure'),
+      );
+      expect((await store.load())?.completed, [ComponentKind.backend]);
+      expect(
+        (await fixture.backendMetadata()).cleanupBackupId,
+        fixture.targetBackupId,
+      );
+      expect(fixture.runtime.currentState.status, RuntimeStatus.stopped);
+      expect(await fixture.backendVersion(), '2.38.4');
+      expect(await fixture.dataContents(), 'restored-data');
+
+      final retried = await coordinator.retryMaintenance();
+
+      expect(retried.phase, MaintenancePhase.completed);
+      expect((await fixture.backendMetadata()).cleanupBackupId, isNull);
+      expect(await fixture.backups.list(), [
+        (await fixture.backendMetadata()).previousBackupId,
+      ]);
+      expect(await fixture.backendVersion(), '2.38.4');
+      expect(await fixture.dataContents(), 'restored-data');
+      expect(fixture.runtime.currentState.status, RuntimeStatus.running);
+      expect(fixture.runtime.operations, ['start', 'stop', 'start']);
+      expect(await store.load(), isNull);
+    },
+  );
+
+  test(
+    'retains prior-running restoration after cleanup succeeds but status fails',
+    () async {
+      final fixture = await _createRollbackCoordinatorFixture(
+        runtimeStatus: RuntimeStatus.stopped,
+        discardFailures: 1,
+      );
+      final store = MaintenanceAttemptStore(fixture.directories);
+      var failNextStatus = true;
+      final coordinator = AppCoordinator(
+        runtime: fixture.runtime,
+        environmentStore: BackendEnvStore(fixture.directories),
+        componentUpdates: fixture.updates,
+        maintenanceAttemptStore: store,
+        componentRecovery: () async {
+          await fixture.recoverPending();
+          if (failNextStatus) {
+            failNextStatus = false;
+            await _writeRollbackFile(
+              fixture.bundle,
+              'data/backend/version',
+              'invalid version\n',
+            );
+          }
+        },
+      );
+      await coordinator.start();
+      final confirmed = await coordinator.componentStatus(
+        ComponentKind.backend,
+      );
+      await coordinator.runComponentRollback(
+        ComponentKind.backend,
+        confirmedStatus: confirmed,
+      );
+
+      final statusFailed = await coordinator.retryMaintenance();
+
+      expect(statusFailed.phase, MaintenancePhase.blocked);
+      expect(statusFailed.failureStage, MaintenanceFailureStage.recovery);
+      expect(
+        statusFailed.committedRollbackCleanupFailure?.error.toString(),
+        contains('injected snapshot cleanup failure'),
+      );
+      expect((await fixture.backendMetadata()).cleanupBackupId, isNull);
+      expect((await store.load())?.completed, [ComponentKind.backend]);
+      expect(fixture.runtime.currentState.status, RuntimeStatus.stopped);
+      await _writeRollbackFile(
+        fixture.bundle,
+        'data/backend/version',
+        '2.38.4\n',
+      );
+
+      final retried = await coordinator.retryMaintenance();
+
+      expect(retried.phase, MaintenancePhase.completed);
+      expect(fixture.runtime.currentState.status, RuntimeStatus.running);
+      expect(fixture.runtime.operations, ['start', 'stop', 'start']);
+      expect(await store.load(), isNull);
+      expect(await fixture.backendVersion(), '2.38.4');
+      expect(await fixture.dataContents(), 'restored-data');
+    },
+  );
+
   test('stop failure leaves all component files untouched', () async {
     final temp = await Directory.systemTemp.createTemp('subdock_coordinator_');
     addTearDown(() => temp.delete(recursive: true));
@@ -1494,6 +1753,7 @@ class _FakeUpdates implements ComponentUpdateOperations {
   });
 
   final List<String> operations;
+  final rollbackResults = <ComponentKind, ComponentRollbackResult>{};
   final bool blockUpdates;
   final bool blockStatus;
   final bool blockRollbacks;
@@ -1566,7 +1826,7 @@ class _FakeUpdates implements ComponentUpdateOperations {
   }
 
   @override
-  Future<void> rollback(ComponentKind kind) async {
+  Future<ComponentRollbackResult> rollback(ComponentKind kind) async {
     rollbackCalls.add(kind);
     operations.add('rollback:${kind.name}');
     if (blockRollbacks) {
@@ -1577,6 +1837,7 @@ class _FakeUpdates implements ComponentUpdateOperations {
     if (previous == null) throw StateError('No previous component');
     previousVersions[kind] = currentVersions[kind];
     currentVersions[kind] = previous;
+    return rollbackResults[kind] ?? const ComponentRollbackResult.completed();
   }
 
   @override
@@ -1590,6 +1851,158 @@ class _FakeUpdates implements ComponentUpdateOperations {
     final error = updateErrors[update.kind];
     if (error != null) throw error;
     currentVersions[update.kind] = update.availableVersion;
+  }
+}
+
+class _RollbackCoordinatorFixture {
+  const _RollbackCoordinatorFixture({
+    required this.bundle,
+    required this.directories,
+    required this.runtime,
+    required this.metadataStore,
+    required this.backups,
+    required this.updates,
+    required this.targetBackupId,
+  });
+
+  final Directory bundle;
+  final RuntimeDirectories directories;
+  final _FakeRuntime runtime;
+  final ComponentMetadataStore metadataStore;
+  final _FailingDiscardBackups backups;
+  final ComponentUpdateService updates;
+  final String targetBackupId;
+
+  Future<ComponentMetadata> backendMetadata() =>
+      metadataStore.load(ComponentKind.backend, baseline: '2.38.4');
+
+  Future<String> backendVersion() async => (await ComponentResourceResolver(
+    bundleDirectory: bundle,
+    componentsDirectory: directories.components,
+    metadataStore: metadataStore,
+  ).resolve()).backendVersion;
+
+  Future<String> dataContents() =>
+      File('${directories.data.path}/settings.json').readAsString();
+
+  Future<void> recoverPending() async {
+    await ComponentRecovery(
+      bundleDirectory: bundle,
+      dataDirectory: directories.data,
+      metadataStore: metadataStore,
+      dataBackups: backups,
+    ).recoverPending();
+  }
+}
+
+Future<_RollbackCoordinatorFixture> _createRollbackCoordinatorFixture({
+  required RuntimeStatus runtimeStatus,
+  required int discardFailures,
+}) async {
+  final root = await Directory.systemTemp.createTemp(
+    'subdock_rollback_coordinator_',
+  );
+  addTearDown(() => root.delete(recursive: true));
+  final bundle = Directory.fromUri(root.uri.resolve('bundle/'));
+  await _writeRollbackFile(bundle, 'data/backend/version', '2.38.4\n');
+  await _writeRollbackFile(
+    bundle,
+    'data/backend/sub-store.bundle.js',
+    'packaged backend',
+  );
+  await _writeRollbackFile(
+    bundle,
+    'data/backend/runtime-manifest.json',
+    '{"testedNode":"24.15.0","externalBinary":[]}',
+  );
+  await _writeRollbackFile(bundle, 'data/frontend/version', '2.31.3\n');
+  await _writeRollbackFile(
+    bundle,
+    'data/frontend/index.html',
+    'packaged frontend',
+  );
+  final directories = await RuntimeDirectories.fromBaseDirectory(
+    Directory.fromUri(root.uri.resolve('support/')),
+  );
+  await _writeRollbackFile(directories.data, 'settings.json', 'restored-data');
+  final metadataStore = ComponentMetadataStore(directories.components);
+  final backups = _FailingDiscardBackups(
+    backupsDirectory: directories.backups,
+    stagingDirectory: directories.staging,
+    failuresRemaining: discardFailures,
+  );
+  final targetBackupId = await backups.create(directories.data);
+  await _writeRollbackFile(directories.data, 'settings.json', 'active-data');
+  await _writeRollbackFile(
+    directories.components,
+    'backend/2.39.0/sub-store.bundle.js',
+    'active backend',
+  );
+  await _writeRollbackFile(
+    directories.components,
+    'backend/2.39.0/runtime-manifest.json',
+    '{"testedNode":"24.15.0","externalBinary":[]}',
+  );
+  await metadataStore.save(
+    ComponentKind.backend,
+    ComponentMetadata(
+      baseline: '2.38.4',
+      active: '2.39.0',
+      previous: '2.38.4',
+      previousBackupId: targetBackupId,
+    ),
+  );
+  final runtime = _FakeRuntime(status: runtimeStatus);
+  final resources = ComponentResourceResolver(
+    bundleDirectory: bundle,
+    componentsDirectory: directories.components,
+    metadataStore: metadataStore,
+  );
+  final updates = ComponentUpdateService(
+    runtime: runtime,
+    directories: directories,
+    metadataStore: metadataStore,
+    resources: resources,
+    releases: GithubReleaseClient(),
+    backups: backups,
+  );
+  return _RollbackCoordinatorFixture(
+    bundle: bundle,
+    directories: directories,
+    runtime: runtime,
+    metadataStore: metadataStore,
+    backups: backups,
+    updates: updates,
+    targetBackupId: targetBackupId,
+  );
+}
+
+Future<void> _writeRollbackFile(
+  Directory root,
+  String path,
+  String contents,
+) async {
+  final file = File.fromUri(root.uri.resolve(path));
+  await file.parent.create(recursive: true);
+  await file.writeAsString(contents);
+}
+
+class _FailingDiscardBackups extends DataBackupStore {
+  _FailingDiscardBackups({
+    required super.backupsDirectory,
+    required super.stagingDirectory,
+    required this.failuresRemaining,
+  });
+
+  int failuresRemaining;
+
+  @override
+  Future<void> discard(String backupId) async {
+    if (failuresRemaining > 0) {
+      failuresRemaining--;
+      throw StateError('injected snapshot cleanup failure');
+    }
+    await super.discard(backupId);
   }
 }
 
@@ -1695,6 +2108,23 @@ class _FakeRuntime extends BackendRuntime {
     if (stopError != null) throw stopError!;
     _status = RuntimeStatus.stopped;
     operations.add('stop');
+  }
+}
+
+class _FailOnceCompletedMaintenanceAttemptStore
+    extends MaintenanceAttemptStore {
+  _FailOnceCompletedMaintenanceAttemptStore(super.directories);
+
+  var failNextCompletedSave = true;
+
+  @override
+  Future<void> save(MaintenanceAttempt attempt) async {
+    if (failNextCompletedSave &&
+        attempt.completed.contains(ComponentKind.backend)) {
+      failNextCompletedSave = false;
+      throw StateError('completed target checkpoint failed');
+    }
+    await super.save(attempt);
   }
 }
 

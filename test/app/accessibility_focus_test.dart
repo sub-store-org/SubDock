@@ -415,5 +415,7 @@ class _FocusComponentUpdates implements ComponentUpdateOperations {
   Future<void> update(ComponentUpdate update) async {}
 
   @override
-  Future<void> rollback(ComponentKind kind) async {}
+  Future<ComponentRollbackResult> rollback(ComponentKind kind) async {
+    return const ComponentRollbackResult.completed();
+  }
 }

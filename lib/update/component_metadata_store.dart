@@ -81,6 +81,7 @@ class ComponentMetadata {
     this.active,
     this.previous,
     this.previousBackupId,
+    this.cleanupBackupId,
     this.pending,
   });
 
@@ -95,6 +96,12 @@ class ComponentMetadata {
   /// readable but not safely rollbackable.
   final String? previousBackupId;
 
+  /// Data snapshot left to delete after a committed Backend rollback.
+  ///
+  /// Unlike [pending], this never means the active component or data should be
+  /// restored; it only records cleanup that can safely be retried.
+  final String? cleanupBackupId;
+
   final ComponentPending? pending;
 
   Map<String, Object> toJson() => {
@@ -102,6 +109,7 @@ class ComponentMetadata {
     'active': ?active,
     'previous': ?previous,
     'previousBackupId': ?previousBackupId,
+    'cleanupBackupId': ?cleanupBackupId,
     'pending': ?pending?.toJson(),
   };
 
@@ -111,7 +119,9 @@ class ComponentMetadata {
         (value['active'] != null && value['active'] is! String) ||
         (value['previous'] != null && value['previous'] is! String) ||
         (value['previousBackupId'] != null &&
-            value['previousBackupId'] is! String)) {
+            value['previousBackupId'] is! String) ||
+        (value['cleanupBackupId'] != null &&
+            value['cleanupBackupId'] is! String)) {
       throw const AppConfigError(AppConfigErrorCode.metadataInvalid);
     }
     final previousBackupId = value['previousBackupId'] as String?;
@@ -120,6 +130,7 @@ class ComponentMetadata {
       active: value['active'] as String?,
       previous: value['previous'] as String?,
       previousBackupId: previousBackupId,
+      cleanupBackupId: value['cleanupBackupId'] as String?,
       pending: value['pending'] == null
           ? null
           : ComponentPending.fromJson(value['pending']),
@@ -133,11 +144,18 @@ class ComponentMetadata {
       other.active == active &&
       other.previous == previous &&
       other.previousBackupId == previousBackupId &&
+      other.cleanupBackupId == cleanupBackupId &&
       other.pending == pending;
 
   @override
-  int get hashCode =>
-      Object.hash(baseline, active, previous, previousBackupId, pending);
+  int get hashCode => Object.hash(
+    baseline,
+    active,
+    previous,
+    previousBackupId,
+    cleanupBackupId,
+    pending,
+  );
 }
 
 class ComponentMetadataStore {

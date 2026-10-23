@@ -6,6 +6,7 @@ import 'package:subdock/update/component_metadata_store.dart';
 import 'package:subdock/update/component_resource_resolver.dart';
 import 'package:subdock/update/component_update_checker.dart';
 import 'package:subdock/update/component_update_service.dart';
+import 'package:subdock/update/data_backup_store.dart';
 import 'package:subdock/update/github_release_client.dart';
 
 import 'update_fixture.dart';
@@ -200,6 +201,134 @@ void main() {
     );
     _expectRuntimeIdle(fixture.runtime);
   });
+
+  test(
+    'recovers a committed Backend rollback after snapshot cleanup fails',
+    () async {
+      final fixture = await createUpdateFixture();
+      addTearDown(fixture.dispose);
+      await writeComponentVersion(fixture, ComponentKind.backend, '2.39.0');
+      await writeUpdateFile(
+        fixture.directories.data,
+        'settings.json',
+        'restored-data',
+      );
+      final targetBackup = await fixture.backups.create(
+        fixture.directories.data,
+      );
+      await writeUpdateFile(
+        fixture.directories.data,
+        'settings.json',
+        'active-data',
+      );
+      await fixture.metadata.save(
+        ComponentKind.backend,
+        ComponentMetadata(
+          baseline: '2.38.4',
+          active: '2.39.0',
+          previous: '2.38.4',
+          previousBackupId: targetBackup,
+        ),
+      );
+      final backupCleanupFailure = _FailingDiscardBackups(
+        backupsDirectory: fixture.directories.backups,
+        stagingDirectory: fixture.directories.staging,
+      );
+
+      final service = _service(
+        fixture,
+        _UnexpectedDownloads(),
+        backups: backupCleanupFailure,
+      );
+      final outcome = await service.rollback(ComponentKind.backend);
+      expect(outcome.isCleanupPending, isTrue);
+      expect(outcome.cleanupError, isA<StateError>());
+      expect(
+        (outcome.cleanupError! as StateError).message,
+        'injected backup cleanup failure',
+      );
+
+      final committed = await fixture.readMetadata(
+        ComponentKind.backend,
+        baseline: 'ignored',
+      );
+      final safetyBackup = committed.previousBackupId!;
+      expect(
+        committed,
+        ComponentMetadata(
+          baseline: '2.38.4',
+          previous: '2.39.0',
+          previousBackupId: safetyBackup,
+          cleanupBackupId: targetBackup,
+        ),
+      );
+      expect(
+        await ComponentResourceResolver(
+          bundleDirectory: fixture.bundle,
+          componentsDirectory: fixture.directories.components,
+          metadataStore: fixture.metadata,
+        ).resolve().then((resources) => resources.backendVersion),
+        '2.38.4',
+      );
+      expect(
+        await File('${fixture.directories.data.path}/settings.json')
+            .readAsString(),
+        'restored-data',
+      );
+      expect(await fixture.backups.list(), contains(targetBackup));
+      await expectLater(
+        service.rollback(ComponentKind.backend),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            contains('recovery is pending'),
+          ),
+        ),
+      );
+      expect(
+        await File('${fixture.directories.data.path}/settings.json')
+            .readAsString(),
+        'restored-data',
+      );
+
+      // Recovery must finish snapshot cleanup from durable state without
+      // reapplying the rollback or overwriting the restored data.
+      expect(await fixture.recoverPending(), isTrue);
+      final recovered = await fixture.readMetadata(
+        ComponentKind.backend,
+        baseline: 'ignored',
+      );
+      expect(
+        recovered,
+        ComponentMetadata(
+          baseline: '2.38.4',
+          previous: '2.39.0',
+          previousBackupId: safetyBackup,
+        ),
+      );
+      expect(
+        await File('${fixture.directories.data.path}/settings.json')
+            .readAsString(),
+        'restored-data',
+      );
+      expect(await fixture.backups.list(), [safetyBackup]);
+      expect(
+        await File(
+          '${fixture.directories.backups.path}/$safetyBackup/settings.json',
+        ).readAsString(),
+        'active-data',
+      );
+      final recoveredStatus = await _service(
+        fixture,
+        _UnexpectedDownloads(),
+      ).status(ComponentKind.backend);
+      expect(recoveredStatus.current, '2.38.4');
+      expect(recoveredStatus.previous, '2.39.0');
+      expect(recoveredStatus.rollbackBlockedReason, isNull);
+      _expectRuntimeIdle(fixture.runtime);
+    },
+  );
 
   test('reports why a rollback is unsafe instead of offering it', () async {
     final fixture = await createUpdateFixture();
@@ -886,8 +1015,9 @@ void main() {
 
 ComponentUpdateService _service(
   UpdateFixture fixture,
-  GithubReleaseDownloader downloads,
-) => ComponentUpdateService(
+  GithubReleaseDownloader downloads, {
+  DataBackupStore? backups,
+}) => ComponentUpdateService(
   runtime: fixture.runtime,
   directories: fixture.directories,
   metadataStore: fixture.metadata,
@@ -897,7 +1027,7 @@ ComponentUpdateService _service(
     metadataStore: fixture.metadata,
   ),
   releases: downloads,
-  backups: fixture.backups,
+  backups: backups ?? fixture.backups,
 );
 
 void _expectRuntimeIdle(UpdateTestRuntime runtime, {String? reason}) {
@@ -906,6 +1036,18 @@ void _expectRuntimeIdle(UpdateTestRuntime runtime, {String? reason}) {
     [0, 0, 0],
     reason: reason,
   );
+}
+
+class _FailingDiscardBackups extends DataBackupStore {
+  _FailingDiscardBackups({
+    required super.backupsDirectory,
+    required super.stagingDirectory,
+  });
+
+  @override
+  Future<void> discard(String backupId) async {
+    throw StateError('injected backup cleanup failure');
+  }
 }
 
 class _UnexpectedDownloads implements GithubReleaseDownloader {

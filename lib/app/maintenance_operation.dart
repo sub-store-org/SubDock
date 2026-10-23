@@ -1,4 +1,5 @@
 import '../update/component_metadata_store.dart';
+import '../update/component_update_service.dart';
 
 /// The file-level action recorded for one independently updatable component.
 enum MaintenanceAction { update, rollback }
@@ -93,6 +94,7 @@ class MaintenanceOperation {
     this.failedKind,
     this.failureStage,
     this.error,
+    this.committedRollbackCleanupFailure,
     this.restoreAfterChanges = false,
     this.startOnly = false,
   }) : results = List.unmodifiable(results);
@@ -102,6 +104,11 @@ class MaintenanceOperation {
   final ComponentKind? failedKind;
   final MaintenanceFailureStage? failureStage;
   final Object? error;
+
+  /// Preserves committed rollback cleanup independently of the latest error
+  /// until cleanup and the coordinator handoff are confirmed. Component metadata
+  /// carries the durable cleanup marker across process exits.
+  final ComponentRollbackCleanupFailure? committedRollbackCleanupFailure;
 
   /// Records the original run state for interruption display only. Retries
   /// always inspect the runtime's current state before deciding to resume it.
@@ -141,6 +148,8 @@ class MaintenanceOperation {
     bool clearFailureStage = false,
     Object? error,
     bool clearError = false,
+    ComponentRollbackCleanupFailure? committedRollbackCleanupFailure,
+    bool clearCommittedRollbackCleanupFailure = false,
     bool? restoreAfterChanges,
     bool? startOnly,
   }) => MaintenanceOperation(
@@ -149,6 +158,10 @@ class MaintenanceOperation {
     failedKind: clearFailedKind ? null : failedKind ?? this.failedKind,
     failureStage: clearFailureStage ? null : failureStage ?? this.failureStage,
     error: clearError ? null : error ?? this.error,
+    committedRollbackCleanupFailure: clearCommittedRollbackCleanupFailure
+        ? null
+        : committedRollbackCleanupFailure ??
+              this.committedRollbackCleanupFailure,
     restoreAfterChanges: restoreAfterChanges ?? this.restoreAfterChanges,
     startOnly: startOnly ?? this.startOnly,
   );

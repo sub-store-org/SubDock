@@ -16,7 +16,38 @@ abstract class ComponentUpdateOperations {
 
   Future<void> update(ComponentUpdate update);
 
-  Future<void> rollback(ComponentKind kind);
+  Future<ComponentRollbackResult> rollback(ComponentKind kind);
+}
+
+/// The committed outcome of a component rollback.
+///
+/// A returned result means the component and its associated data were
+/// committed. [cleanupError] records a failure deleting the now-unneeded
+/// snapshot; it must not be interpreted as an uncommitted rollback.
+class ComponentRollbackResult {
+  const ComponentRollbackResult.completed() : cleanupError = null;
+
+  const ComponentRollbackResult.cleanupPending(Object error)
+    : cleanupError = error;
+
+  final Object? cleanupError;
+
+  bool get isCleanupPending => cleanupError != null;
+}
+
+/// Carries a post-commit cleanup failure through coordinated maintenance.
+class ComponentRollbackCleanupFailure implements Exception {
+  const ComponentRollbackCleanupFailure({
+    required this.kind,
+    required this.error,
+  });
+
+  final ComponentKind kind;
+  final Object error;
+
+  @override
+  String toString() =>
+      '${kind.name} rollback committed; snapshot cleanup is pending: $error';
 }
 
 /// Why the version in [ComponentVersionStatus.previous] cannot be restored.
@@ -124,7 +155,7 @@ class ComponentUpdateService implements ComponentUpdateOperations {
   }
 
   @override
-  Future<void> rollback(ComponentKind kind) async {
+  Future<ComponentRollbackResult> rollback(ComponentKind kind) async {
     _requireStopped();
     await _requireNoPendingOperation();
     final packaged = await _resources.packagedVersions();
@@ -155,7 +186,7 @@ class ComponentUpdateService implements ComponentUpdateOperations {
     }
     if (kind != ComponentKind.backend) {
       await _rollbackFrontend(metadata, target, active);
-      return;
+      return const ComponentRollbackResult.completed();
     }
     final targetBackup = metadata.previousBackupId;
     if (targetBackup == null) {
@@ -163,7 +194,7 @@ class ComponentUpdateService implements ComponentUpdateOperations {
         'No data snapshot is linked to previous Backend version $target',
       );
     }
-    await _rollbackBackend(metadata, target, active, targetBackup);
+    return _rollbackBackend(metadata, target, active, targetBackup);
   }
 
   /// Reports an unsafe rollback before any caller offers it: the previous
@@ -193,7 +224,7 @@ class ComponentUpdateService implements ComponentUpdateOperations {
     return null;
   }
 
-  Future<void> _rollbackBackend(
+  Future<ComponentRollbackResult> _rollbackBackend(
     ComponentMetadata metadata,
     String target,
     String active,
@@ -239,6 +270,7 @@ class ComponentUpdateService implements ComponentUpdateOperations {
           active: target == metadata.baseline ? null : target,
           previous: active,
           previousBackupId: safetyBackup,
+          cleanupBackupId: targetBackup,
         ),
       );
     } catch (_) {
@@ -254,7 +286,21 @@ class ComponentUpdateService implements ComponentUpdateOperations {
       }
       rethrow;
     }
-    await _backups.discard(targetBackup);
+    try {
+      await _backups.discard(targetBackup);
+      await _metadataStore.save(
+        ComponentKind.backend,
+        ComponentMetadata(
+          baseline: metadata.baseline,
+          active: target == metadata.baseline ? null : target,
+          previous: active,
+          previousBackupId: safetyBackup,
+        ),
+      );
+      return const ComponentRollbackResult.completed();
+    } on Object catch (error) {
+      return ComponentRollbackResult.cleanupPending(error);
+    }
   }
 
   Future<void> _rollbackFrontend(
@@ -303,10 +349,10 @@ class ComponentUpdateService implements ComponentUpdateOperations {
           ComponentKind.frontend => packaged.frontend,
         },
       );
-      if (metadata.pending != null) {
+      if (metadata.pending != null || metadata.cleanupBackupId != null) {
         throw StateError(
-          'A ${kind.name} component operation is pending; recover it before '
-          'starting another one',
+          'A ${kind.name} component recovery is pending; recover it before '
+          'starting another operation',
         );
       }
     }

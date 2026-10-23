@@ -679,9 +679,10 @@ class _CrossPageUpdates implements ComponentUpdateOperations {
   }
 
   @override
-  Future<void> rollback(ComponentKind kind) async {
-    throw UnsupportedError('Rollback is not part of this scenario');
-  }
+  Future<ComponentRollbackResult> rollback(ComponentKind kind) =>
+      Future<ComponentRollbackResult>.error(
+        UnsupportedError('Rollback is not part of this scenario'),
+      );
 
   Completer<void> watchNextChecks() {
     final checks = Completer<void>();

@@ -5928,7 +5928,7 @@ class _FakeComponentUpdateOperations implements ComponentUpdateOperations {
   }
 
   @override
-  Future<void> rollback(ComponentKind kind) async {
+  Future<ComponentRollbackResult> rollback(ComponentKind kind) async {
     rollbackCalls.add(kind);
     final error = rollbackErrors[kind];
     if (error != null) throw error;
@@ -5939,6 +5939,7 @@ class _FakeComponentUpdateOperations implements ComponentUpdateOperations {
         previous: status.current,
       );
     }
+    return const ComponentRollbackResult.completed();
   }
 
   @override
