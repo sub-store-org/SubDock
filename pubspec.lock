@@ -657,10 +657,10 @@ packages:
     dependency: "direct main"
     description:
       name: shadcn_ui
-      sha256: "81fb82da0d56ae836dfec97b3c6a176513af24792c0e21438c16a5d1411ffd9b"
+      sha256: c94b6f4704323bbf90f8a51f802f415555ee9381db96ef2c235b0f10fb94cfea
       url: "https://pub.dev"
     source: hosted
-    version: "0.57.1"
+    version: "0.57.3"
   sky_engine:
     dependency: transitive
     description: flutter
