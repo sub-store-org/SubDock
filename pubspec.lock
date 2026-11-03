@@ -93,10 +93,10 @@ packages:
     dependency: "direct main"
     description:
       name: crypto
-      sha256: c8ea0233063ba03258fbcf2ca4d6dadfefe14f02fab57702265467a19f27fadf
+      sha256: e3626ae6270383c9e3a549f34c9e4cd26c09ae6a9adaab2bf4737a00340efdc4
       url: "https://pub.dev"
     source: hosted
-    version: "3.0.7"
+    version: "3.0.8"
   cupertino_icons:
     dependency: "direct main"
     description:
@@ -657,10 +657,10 @@ packages:
     dependency: "direct main"
     description:
       name: shadcn_ui
-      sha256: "81fb82da0d56ae836dfec97b3c6a176513af24792c0e21438c16a5d1411ffd9b"
+      sha256: "1da26383272862b1480e11c1c2a7e97bd16c014f5766de53d15534d9002ea4b4"
       url: "https://pub.dev"
     source: hosted
-    version: "0.57.1"
+    version: "0.57.4"
   sky_engine:
     dependency: transitive
     description: flutter
