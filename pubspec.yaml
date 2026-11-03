@@ -45,7 +45,7 @@ dependencies:
   url_launcher: ^6.3.3
   webview_all: ^1.4.2
   webview_flutter: ^4.14.1
-  webview_flutter_wkwebview: 3.26.1
+  webview_flutter_wkwebview: 3.27.2
   window_manager: 0.5.2
   windows_single_instance: 1.2.0
 
