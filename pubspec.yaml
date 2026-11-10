@@ -36,14 +36,14 @@ dependencies:
   flutter_localizations:
     sdk: flutter
 
-  crypto: ^3.0.7
+  crypto: ^3.0.8
   file_selector: ^1.1.0
   path_provider: ^2.1.5
   # 固定控件版本，避免依赖升级造成外观漂移。
   shadcn_ui: 0.57.1
-  tray_manager: 0.8.0
+  tray_manager: 0.8.3
   url_launcher: ^6.3.3
-  webview_all: ^1.4.2
+  webview_all: ^1.4.12
   webview_flutter: ^4.14.1
   webview_flutter_wkwebview: 3.26.1
   window_manager: 0.5.2
