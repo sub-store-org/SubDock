@@ -36,7 +36,7 @@ dependencies:
   flutter_localizations:
     sdk: flutter
 
-  crypto: ^3.0.7
+  crypto: ^3.0.8
   file_selector: ^1.1.0
   path_provider: ^2.1.5
   # 固定控件版本，避免依赖升级造成外观漂移。
