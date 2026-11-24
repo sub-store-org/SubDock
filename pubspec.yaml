@@ -30,7 +30,7 @@ environment:
 # the latest version available on pub.dev. To see which dependencies have newer
 # versions available, run `flutter pub outdated`.
 dependencies:
-  archive: ^4.3.0
+  archive: ^4.7.1
   flutter:
     sdk: flutter
   flutter_localizations:
@@ -40,12 +40,12 @@ dependencies:
   file_selector: ^1.1.0
   path_provider: ^2.1.5
   # 固定控件版本，避免依赖升级造成外观漂移。
-  shadcn_ui: 0.57.1
+  shadcn_ui: 0.61.2
   tray_manager: 0.8.0
   url_launcher: ^6.3.3
-  webview_all: ^1.4.2
+  webview_all: ^1.5.2
   webview_flutter: ^4.14.1
-  webview_flutter_wkwebview: 3.26.1
+  webview_flutter_wkwebview: 3.27.2
   window_manager: 0.5.2
   windows_single_instance: 1.2.0
 
